@@ -27,3 +27,6 @@ Thumbs.db
 prd_extracted.md
 *.log
 storage/
+
+# TS build cache
+*.tsbuildinfo
