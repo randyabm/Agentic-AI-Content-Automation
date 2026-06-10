@@ -33,6 +33,15 @@ class CampaignCreate(BaseModel):
     article_url: str = ""
     platforms: list[PlatformConfigIn]
 
+    # Article-to-Content mode (PRD §6 — Module 4)
+    generation_mode: str = "campaign"  # campaign | article
+    content_angle: str = ""            # informational | opinion | promotional | educational
+    article_text: str = ""             # pasted article body
+    include_article_link: bool = False
+    link_format: str = "direct"        # direct | shortened | in_bio
+    mention_author: bool = False
+    generate_images: bool = True
+
 
 class CampaignUpdate(BaseModel):
     name: str | None = None
@@ -122,6 +131,13 @@ class CampaignOut(BaseModel):
     end_date: date | None
     article_id: str | None
     article_url: str
+    generation_mode: str
+    content_angle: str
+    article_text: str
+    include_article_link: bool
+    link_format: str
+    mention_author: bool
+    generate_images: bool
     status: CampaignStatus
     error: str
     created_at: datetime

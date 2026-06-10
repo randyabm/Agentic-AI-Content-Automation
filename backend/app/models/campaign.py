@@ -70,6 +70,16 @@ class Campaign(Base):
     article_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("articles.id", ondelete="SET NULL"), nullable=True)
     article_url: Mapped[str] = mapped_column(String(1000), default="")
 
+    # Article-to-Content mode (PRD §6 — Module 4). "campaign" is the standard
+    # generator; "article" produces posts that reference/promote a source article.
+    generation_mode: Mapped[str] = mapped_column(String(20), default="campaign")  # campaign | article
+    content_angle: Mapped[str] = mapped_column(String(30), default="")  # informational | opinion | promotional | educational
+    article_text: Mapped[str] = mapped_column(Text, default="")          # pasted article body (§6.2)
+    include_article_link: Mapped[bool] = mapped_column(Boolean, default=False)
+    link_format: Mapped[str] = mapped_column(String(20), default="direct")  # direct | shortened | in_bio
+    mention_author: Mapped[bool] = mapped_column(Boolean, default=False)
+    generate_images: Mapped[bool] = mapped_column(Boolean, default=True)
+
     status: Mapped[CampaignStatus] = mapped_column(Enum(CampaignStatus), default=CampaignStatus.draft)
     error: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(String(36), default="")

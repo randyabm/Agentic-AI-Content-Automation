@@ -10,7 +10,8 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.campaign import Campaign, CampaignPlatform, VisualFormat
+from app.models.article import Article
+from app.models.campaign import Campaign, CampaignPlatform, Platform, VisualFormat
 from app.models.client import Client
 from app.models.competitor import Competitor
 from app.models.llm import LLMFunction
@@ -77,6 +78,34 @@ def _competitive_context(db: Session, client: Client) -> str:
     for c in done:
         lines.append(f"- {c.company_name}: {c.positioning[:300]}")
     return "\n".join(lines)
+
+
+def resolve_article(db: Session, campaign: Campaign) -> dict:
+    """Resolve the campaign's article reference into text + metadata (PRD §6.2).
+
+    Sources, in priority order: a library article, an external URL (fetched on
+    demand), or pasted text. Returns {text, title, author, url}.
+    """
+    if campaign.article_id:
+        article = db.get(Article, campaign.article_id)
+        if article:
+            return {
+                "text": f"{article.title}\n\n{article.summary}\n\n{article.body[:5000]}",
+                "title": article.title,
+                "author": article.author,
+                "url": article.source_url,
+            }
+    if campaign.article_url:
+        from app.services.article_intel import fetch_clean_page
+
+        try:
+            page = fetch_clean_page(db, campaign.article_url)
+            return {"text": page.text[:6000], "title": page.title, "author": "", "url": campaign.article_url}
+        except ExtractionError:
+            return {"text": "", "title": "", "author": "", "url": campaign.article_url}
+    if campaign.article_text:
+        return {"text": campaign.article_text[:6000], "title": "", "author": "", "url": ""}
+    return {"text": "", "title": "", "author": "", "url": ""}
 
 
 def build_context(db: Session, client: Client, campaign: Campaign, article_text: str = "") -> str:
@@ -195,6 +224,146 @@ def generate_posts_copy(
             "rationale": str(item.get("rationale", "")).strip(),
         })
     return posts
+
+
+ARTICLE_EDITORIAL_INSTRUCTIONS = """\
+You are the Editorial Agent in Article-to-Content mode. Generate {num_posts} {platform}
+post(s) that reference or promote the SOURCE ARTICLE below, with a {angle} angle.
+
+Platform rules:
+- Copy MUST NOT exceed {char_limit} characters.
+- Emoji usage: {emojis}.
+- Include {hashtag_count} hashtags following this mix: {hashtag_mix} (branded/trending/niche percentages).
+- Platform tone: {tone}
+- Content language: {language}
+- {link_behavior}
+
+Each post must take a distinct angle on the article. Answer ONLY with a JSON array of
+{num_posts} object(s), each with exactly these keys:
+[
+  {{
+    "headline": string (short opening hook),
+    "copy": string (the main post copy, within the character limit, referencing the article),
+    "cta": string (call to action, empty string if none),
+    "hashtags": [string, ...] (each starting with #),
+    "best_time": string (suggested posting day/time, indicative),
+    "rationale": string (1-2 sentences: why this angle suits the article and objective)
+  }},
+  ...
+]
+Write all content in {language}. Stay faithful to the article — do not invent facts.
+"""
+
+_ANGLE_LABELS = {
+    "informational": "informational",
+    "opinion": "opinion/thought-leadership",
+    "promotional": "promotional",
+    "educational": "educational",
+}
+
+
+def _link_behavior(
+    platform: Platform, include_link: bool, link_format: str, url: str, mention_author: bool, author: str
+) -> str:
+    """Per-platform link handling guidance (PRD §6.4)."""
+    link = url or "the article URL"
+    parts: list[str] = []
+    if platform == Platform.linkedin:
+        parts.append(
+            "Write in a 'mini-article' style; LinkedIn copy can be more extensive. "
+            "Do NOT put the link in the body — instead end the copy by noting the link is "
+            "in the first comment."
+        )
+        if mention_author and author:
+            parts.append(f"Mention the article author ({author}).")
+    elif platform in (Platform.instagram, Platform.tiktok):
+        parts.append("Links are not clickable here: do not place a URL in the copy; reference 'Link in bio' instead.")
+    elif platform == Platform.facebook:
+        if include_link:
+            parts.append(f"Include the article link directly in the post: {link}.")
+        else:
+            parts.append("Write a descriptive preview of the article without a raw link.")
+    elif platform == Platform.x:
+        if include_link:
+            parts.append(f"Include the article link in the tweet ({link}); it counts toward the character limit.")
+        parts.append("If the article is long, you may format the post as the opening tweet of a thread.")
+    elif platform == Platform.youtube:
+        parts.append(f"Write a video description that references the article, with the link in the description body: {link}.")
+    if include_link and link_format == "shortened" and platform in (Platform.facebook, Platform.x, Platform.youtube):
+        parts.append("Present the link as a shortened-style URL.")
+    return " ".join(parts) if parts else "No special link handling required."
+
+
+def generate_article_posts_copy(
+    db: Session,
+    client: Client,
+    campaign: Campaign,
+    cp: CampaignPlatform,
+    context: str,
+    article_meta: dict,
+) -> list[dict]:
+    """Editorial Agent (Article-to-Content mode, PRD §6) for one platform."""
+    cfg = get_llm_config(db, LLMFunction.editorial_agent)
+    pspec = spec(cp.platform)
+    instructions = ARTICLE_EDITORIAL_INSTRUCTIONS.format(
+        num_posts=cp.num_posts,
+        platform=pspec.label,
+        angle=_ANGLE_LABELS.get(campaign.content_angle, "informational"),
+        char_limit=pspec.char_limit,
+        emojis=_emoji_rule(cp.emojis),
+        hashtag_count=cp.hashtag_count,
+        hashtag_mix=cp.hashtag_mix,
+        tone=cp.tone or client.communication_tone or "match the brand voice",
+        language=campaign.content_language,
+        link_behavior=_link_behavior(
+            cp.platform,
+            campaign.include_article_link,
+            campaign.link_format,
+            article_meta.get("url", ""),
+            campaign.mention_author,
+            article_meta.get("author", ""),
+        ),
+    )
+    temperature = creativity_to_temperature(campaign.creativity_level)
+    raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
+    results = parse_json_value(raw, opener="[", closer="]")
+    if not isinstance(results, list) or not results:
+        raise ExtractionError(f"The Editorial Agent did not return posts for {pspec.label}")
+    posts: list[dict] = []
+    for item in results[: cp.num_posts]:
+        posts.append({
+            "headline": str(item.get("headline", "")).strip(),
+            "copy": str(item.get("copy", "")).strip()[: pspec.char_limit],
+            "cta": str(item.get("cta", "")).strip(),
+            "hashtags": [str(h).strip() for h in item.get("hashtags", []) if str(h).strip()],
+            "best_time": str(item.get("best_time", "")).strip(),
+            "rationale": str(item.get("rationale", "")).strip(),
+        })
+    return posts
+
+
+def generate_for_platform(
+    db: Session,
+    client: Client,
+    campaign: Campaign,
+    cp: CampaignPlatform,
+    context: str,
+    article_meta: dict | None = None,
+) -> tuple[list[dict], list[list[dict]]]:
+    """Generate posts (and, unless disabled, image prompts) for one platform.
+
+    Branches on the campaign generation mode (standard campaign vs. article-to-content)
+    and honours the generate_images flag. Shared by full and per-platform regeneration.
+    """
+    if campaign.generation_mode == "article":
+        posts_data = generate_article_posts_copy(db, client, campaign, cp, context, article_meta or {})
+    else:
+        posts_data = generate_posts_copy(db, client, campaign, cp, context)
+    if campaign.generate_images:
+        image_prompts = generate_image_prompts(db, campaign, cp, posts_data, context)
+    else:
+        image_prompts = [[] for _ in posts_data]
+    return posts_data, image_prompts
 
 
 def generate_image_prompts(

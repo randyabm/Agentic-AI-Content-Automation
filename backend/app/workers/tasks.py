@@ -22,7 +22,7 @@ from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJo
 from app.models.llm import LLMFunction
 from app.models.setting import Setting
 from app.services.article_intel import discover_article_urls, extract_article, fetch_clean_page
-from app.services.campaign_gen import build_context, generate_image_prompts, generate_posts_copy
+from app.services.campaign_gen import build_context, generate_for_platform, resolve_article
 from app.services.competitor_intel import compare_with_client, identify_competitors
 from app.services.crawler import CrawlConfig, crawl_site
 from app.services.extraction import ExtractionError, extract_client_profile
@@ -382,21 +382,14 @@ def sync_source(source_id: str) -> None:
 # --- Campaign generation (PRD §5 — Module 3) ---
 
 
-def _article_reference_text(db, campaign: Campaign) -> str:
-    """Resolve the optional article reference (library article or external URL)."""
+def _resolve_article(db, campaign: Campaign) -> dict:
+    """Resolve the article reference and mark library articles as used."""
     if campaign.article_id:
         article = db.get(Article, campaign.article_id)
         if article:
             article.last_used_in_campaign = datetime.now(timezone.utc)
             db.commit()
-            return f"{article.title}\n\n{article.summary}\n\n{article.body[:5000]}"
-    if campaign.article_url:
-        try:
-            page = fetch_clean_page(db, campaign.article_url)
-            return page.text[:6000]
-        except ExtractionError:
-            return ""
-    return ""
+    return resolve_article(db, campaign)
 
 
 @celery_app.task(
@@ -430,8 +423,8 @@ def generate_campaign(campaign_id: str) -> None:
             db.delete(old)
         db.commit()
 
-        article_text = _article_reference_text(db, campaign)
-        context = build_context(db, client, campaign, article_text)
+        article = _resolve_article(db, campaign)
+        context = build_context(db, client, campaign, article["text"])
 
         active = db.scalars(
             select(CampaignPlatform).where(
@@ -445,8 +438,7 @@ def generate_campaign(campaign_id: str) -> None:
             return
 
         for cp in active:
-            posts_data = generate_posts_copy(db, client, campaign, cp, context)
-            image_prompts = generate_image_prompts(db, campaign, cp, posts_data, context)
+            posts_data, image_prompts = generate_for_platform(db, client, campaign, cp, context, article)
             for position, (pdata, slots) in enumerate(zip(posts_data, image_prompts)):
                 post = Post(
                     campaign_id=campaign.id,
@@ -525,10 +517,9 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
             db.delete(old)
         db.commit()
 
-        article_text = _article_reference_text(db, campaign)
-        context = build_context(db, client, campaign, article_text)
-        posts_data = generate_posts_copy(db, client, campaign, cp, context)
-        image_prompts = generate_image_prompts(db, campaign, cp, posts_data, context)
+        article = _resolve_article(db, campaign)
+        context = build_context(db, client, campaign, article["text"])
+        posts_data, image_prompts = generate_for_platform(db, client, campaign, cp, context, article)
         for position, (pdata, slots) in enumerate(zip(posts_data, image_prompts)):
             post = Post(
                 campaign_id=campaign.id, platform=cp.platform, position=position,

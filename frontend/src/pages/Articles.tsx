@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Article, ArticleListItem } from "../types";
@@ -255,8 +256,11 @@ function ArticleModal({
         <div className="article-body">{article.body}</div>
         {canEdit && (
           <div className="form-actions modal-actions">
+            <Link className="btn btn-primary" to={`/campaigns?from_article=${article.id}`}>
+              Create content
+            </Link>
             {article.needs_review && (
-              <button className="btn btn-primary" onClick={() => onAction(article.id, "/approve")}>Approve</button>
+              <button className="btn btn-ghost" onClick={() => onAction(article.id, "/approve")}>Approve</button>
             )}
             {article.status === "active" && (
               <button className="btn btn-ghost" onClick={() => onAction(article.id, "/archive")}>Archive</button>

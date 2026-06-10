@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { ArticleContentForm } from "../components/ArticleContentForm";
 import type {
   ArticleListItem,
   CampaignListItem,
@@ -41,9 +42,10 @@ const STATUS_TAG: Record<string, string> = {
 export default function Campaigns() {
   const [params] = useSearchParams();
   const clientFilter = params.get("client_id") ?? "";
+  const fromArticle = params.get("from_article") ?? "";
   const [campaigns, setCampaigns] = useState<CampaignListItem[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [mode, setMode] = useState<"none" | "campaign" | "article">(fromArticle ? "article" : "none");
   const [error, setError] = useState("");
 
   async function load() {
@@ -71,19 +73,41 @@ export default function Campaigns() {
     <div>
       <div className="page-header">
         <h1>Campaigns</h1>
-        <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ New campaign"}
-        </button>
+        <div className="competitor-actions">
+          <button
+            className={`btn ${mode === "campaign" ? "btn-ghost" : "btn-primary"}`}
+            onClick={() => setMode((m) => (m === "campaign" ? "none" : "campaign"))}
+          >
+            {mode === "campaign" ? "Cancel" : "+ New campaign"}
+          </button>
+          <button
+            className={`btn ${mode === "article" ? "btn-ghost" : "btn-ghost"}`}
+            onClick={() => setMode((m) => (m === "article" ? "none" : "article"))}
+          >
+            {mode === "article" ? "Cancel" : "+ From article"}
+          </button>
+        </div>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
 
-      {showForm && (
+      {mode === "campaign" && (
         <CreateCampaign
           clients={clients}
           defaultClient={clientFilter}
           onCreated={(id) => {
-            setShowForm(false);
-            load().catch(() => {});
+            setMode("none");
+            window.location.assign(`/campaigns/${id}`);
+          }}
+        />
+      )}
+
+      {mode === "article" && (
+        <ArticleContentForm
+          clients={clients}
+          defaultClient={clientFilter}
+          initialArticleId={fromArticle}
+          onCreated={(id) => {
+            setMode("none");
             window.location.assign(`/campaigns/${id}`);
           }}
         />

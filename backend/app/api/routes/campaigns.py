@@ -105,6 +105,11 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
     if not any(p.is_active for p in body.platforms):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select at least one active platform")
+    if body.generation_mode == "article" and not (body.article_id or body.article_url or body.article_text):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Article-to-Content needs a library article, an external URL, or pasted text.",
+        )
 
     campaign = Campaign(
         client_id=client.id,
@@ -117,6 +122,13 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
         end_date=body.end_date,
         article_id=body.article_id,
         article_url=body.article_url,
+        generation_mode=body.generation_mode,
+        content_angle=body.content_angle,
+        article_text=body.article_text,
+        include_article_link=body.include_article_link,
+        link_format=body.link_format,
+        mention_author=body.mention_author,
+        generate_images=body.generate_images,
         status=CampaignStatus.generating,
         created_by=actor.id,
     )
@@ -256,13 +268,17 @@ def regenerate_post(
     if client is None or cp is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign platform configuration missing")
 
-    from app.services.campaign_gen import build_context
+    from app.services.campaign_gen import build_context, generate_article_posts_copy, resolve_article
 
-    context = build_context(db, client, campaign)
+    article = resolve_article(db, campaign)
+    context = build_context(db, client, campaign, article["text"])
     original = cp.num_posts
     cp.num_posts = 1
     try:
-        data = generate_posts_copy(db, client, campaign, cp, context)[0]
+        if campaign.generation_mode == "article":
+            data = generate_article_posts_copy(db, client, campaign, cp, context, article)[0]
+        else:
+            data = generate_posts_copy(db, client, campaign, cp, context)[0]
     except ExtractionError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
     finally:

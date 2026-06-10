@@ -13,13 +13,23 @@ social media campaign generation. Built from `AI_Marketing_Platform_PRD_v1.1.doc
 | Module 2 — Competitive intelligence | ✅ Implemented |
 | Module 5 — Internal article library | ✅ Implemented |
 | Module 3 — Campaign generation (Editorial + Visual agents, image editor, export) | ✅ Implemented |
-| Module 4 — Article-to-content | Phase 5 |
+| Module 4 — Article-to-content | ✅ Implemented |
 
 Module 3 (Phase 4) covers: per-platform campaign configuration (§5.2–5.3), Brand Memory
 per client (§5.3.3, versioned), the Editorial and Visual agents (§5.4), AI image
 generation via the admin-curated Gemini/OpenRouter models (§5.5.4), the Image Editor for
 manual logo placement and custom asset layers (§5.5), and export to ZIP / PDF / JSON / CSV
 (§5.7).
+
+Module 4 (Phase 5) reuses the campaign pipeline in an article-driven mode (§6): it
+generates posts from a Library article, an external URL, or pasted text, with a content
+angle (informational / opinion / promotional / educational) and per-platform link
+handling (§6.4 — e.g. LinkedIn link in the first comment, "Link in bio" on Instagram/
+TikTok). Launch it from the Campaigns page or the "Create content" button on any library
+article. All Module 3 editing, image, and export tooling applies to the result.
+
+The whole v1.1 PRD scope is now implemented. (Direct publishing to social platforms is
+the planned v2.0 follow-up.)
 
 ## Stack
 
