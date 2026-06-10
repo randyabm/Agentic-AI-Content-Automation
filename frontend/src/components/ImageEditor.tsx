@@ -74,7 +74,8 @@ export function ImageEditor({
             opacity: g?.opacity ?? 1,
             rotation: g?.rotation ?? 0,
             locked: g?.locked ?? false,
-            visible: g?.visible ?? Boolean(state.logo),
+            // Visible by default: placing the logo is the editor's main purpose (§5.5.1).
+            visible: g?.visible ?? true,
             z: 999,
           });
         }
@@ -288,7 +289,10 @@ export function ImageEditor({
                   <div
                     key={l.key}
                     className={`layer-row ${selected === l.key ? "selected" : ""}`}
-                    onClick={() => setSelected(l.key)}
+                    onClick={() => {
+                      setSelected(l.key);
+                      if (l.visible === false) patch(l.key, { visible: true });
+                    }}
                   >
                     <span className="layer-name">{l.label}</span>
                     <div className="layer-actions">
