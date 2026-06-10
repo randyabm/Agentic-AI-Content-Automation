@@ -211,6 +211,33 @@ input:focus, select:focus, textarea:focus {
   100% { margin-left: 100%; }
 }
 
+/* Tabs */
+.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1.25rem; }
+.tab {
+  font: inherit;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+.tab:hover { color: var(--text); }
+.tab-active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+/* Competitors */
+.competitor-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.competitor-actions { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; }
+.versus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0.75rem 0; }
+.versus-col h4 { margin: 0 0 0.4rem; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.versus-col ul { margin: 0; padding-left: 1.1rem; }
+.versus-col li { margin-bottom: 0.3rem; }
+.competitor-profile { margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.5rem; white-space: pre-wrap; }
+.manual-add { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+@media (max-width: 900px) {
+  .versus-grid { grid-template-columns: 1fr; }
+}
+
 /* Edit panel */
 .edit-panel {
   border-top: 1px solid var(--border);

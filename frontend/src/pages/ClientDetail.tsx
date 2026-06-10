@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { Competitors } from "../components/Competitors";
 import type { Client, ExtractionDraft, ExtractionJob } from "../types";
 
 const RUNNING = ["pending", "crawling", "extracting"];
@@ -16,6 +17,7 @@ export default function ClientDetail() {
   const [draft, setDraft] = useState<ExtractionDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [tab, setTab] = useState<"profile" | "competitors">("profile");
   const pollRef = useRef<number | null>(null);
 
   const loadJobs = useCallback(async () => {
@@ -113,13 +115,29 @@ export default function ClientDetail() {
             {client.website_url}
           </a>
         </div>
-        {canEdit && (
+        {canEdit && tab === "profile" && (
           <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
             {running ? "Analyzing…" : "Analyze Website"}
           </button>
         )}
       </div>
 
+      <div className="tabs">
+        <button className={`tab ${tab === "profile" ? "tab-active" : ""}`} onClick={() => setTab("profile")}>
+          Profile
+        </button>
+        <button
+          className={`tab ${tab === "competitors" ? "tab-active" : ""}`}
+          onClick={() => setTab("competitors")}
+        >
+          Competitors
+        </button>
+      </div>
+
+      {tab === "competitors" && <Competitors client={client} />}
+
+      {tab === "profile" && (
+      <>
       {notice && <div className="alert alert-success">{notice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -211,6 +229,8 @@ export default function ClientDetail() {
           )}
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

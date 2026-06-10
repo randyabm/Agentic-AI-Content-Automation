@@ -17,8 +17,9 @@ from app.services.crawler import CrawledPage
 
 logger = logging.getLogger(__name__)
 
-# Keep the corpus within a safe context budget (~150k chars ≈ 40k tokens).
-MAX_CORPUS_CHARS = 150_000
+# Keep the corpus under ~25k tokens so a single request fits within low
+# per-minute token rate limits (e.g. 30k TPM on entry Anthropic tiers).
+MAX_CORPUS_CHARS = 100_000
 
 PROFILE_SCHEMA_INSTRUCTIONS = """\
 Extract the company profile from the website content below and answer ONLY with a
@@ -72,10 +73,11 @@ def build_corpus(pages: list[CrawledPage]) -> str:
     return "\n".join(chunks)
 
 
-def _complete(cfg: LLMConfig, system_prompt: str, user_prompt: str) -> str:
+def complete_text(cfg: LLMConfig, system_prompt: str, user_prompt: str) -> str:
     api_key = decrypt_secret(cfg.api_key_encrypted)
     if cfg.provider == "anthropic":
-        client = anthropic.Anthropic(api_key=api_key)
+        # Retries with backoff absorb per-minute token rate limits (429s).
+        client = anthropic.Anthropic(api_key=api_key, max_retries=5)
         message = client.messages.create(
             model=cfg.model_name,
             max_tokens=cfg.max_tokens,
@@ -104,23 +106,26 @@ def _complete(cfg: LLMConfig, system_prompt: str, user_prompt: str) -> str:
     raise ExtractionError(f"Unsupported LLM provider: {cfg.provider}")
 
 
-def _parse_json_object(text: str) -> dict:
-    start, end = text.find("{"), text.rfind("}")
+def parse_json_value(text: str, opener: str = "{", closer: str = "}"):
+    """Extract and parse the outermost JSON object (or array) from LLM output."""
+    start, end = text.find(opener), text.rfind(closer)
     if start == -1 or end == -1:
-        raise ExtractionError("The LLM response did not contain a JSON object")
+        raise ExtractionError("The LLM response did not contain the expected JSON")
     try:
         return json.loads(text[start : end + 1])
     except json.JSONDecodeError as exc:
         raise ExtractionError(f"Could not parse the LLM response as JSON: {exc}") from exc
 
 
-def extract_client_profile(db: Session, pages: list[CrawledPage]) -> dict:
+def extract_client_profile(
+    db: Session, pages: list[CrawledPage], function: LLMFunction = LLMFunction.client_extraction
+) -> dict:
     if not pages:
         raise ExtractionError("The crawler could not retrieve any pages from the website")
-    cfg = get_llm_config(db, LLMFunction.client_extraction)
+    cfg = get_llm_config(db, function)
     corpus = build_corpus(pages)
-    raw = _complete(cfg, cfg.system_prompt, f"{PROFILE_SCHEMA_INSTRUCTIONS}\n\nWEBSITE CONTENT:\n\n{corpus}")
-    draft = _parse_json_object(raw)
+    raw = complete_text(cfg, cfg.system_prompt, f"{PROFILE_SCHEMA_INSTRUCTIONS}\n\nWEBSITE CONTENT:\n\n{corpus}")
+    draft = parse_json_value(raw)
 
     expected = {
         "company_name": "", "industry": "", "description": "", "products_services": "",

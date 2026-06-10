@@ -60,6 +60,52 @@ export interface ExtractionJob {
   updated_at: string;
 }
 
+export type AnalysisStatus =
+  | "pending"
+  | "crawling"
+  | "extracting"
+  | "comparing"
+  | "completed"
+  | "failed";
+
+export interface Competitor {
+  id: string;
+  client_id: string;
+  company_name: string;
+  website_url: string;
+  source: "auto" | "manual";
+  identification_reason: string;
+  industry: string;
+  description: string;
+  products_services: string;
+  target_audience: string;
+  value_proposition: string;
+  business_objectives: string[];
+  communication_tone: string;
+  social_media_urls: string[];
+  positioning: string;
+  strengths: string[];
+  weaknesses: string[];
+  analysis_status: AnalysisStatus;
+  analysis_error: string;
+  pages_crawled: number;
+  analyzed_at: string | null;
+  created_at: string;
+}
+
+export interface CompetitorSearchJob {
+  id: string;
+  client_id: string;
+  status: "pending" | "identifying" | "completed" | "failed";
+  num_competitors: number;
+  competitor_type: string;
+  geographic_scope: string;
+  identified: { company_name: string; website_url: string; reason: string }[];
+  error: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LLMConfig {
   id: string;
   function: string;
