@@ -1,0 +1,29 @@
+# Secrets — never commit
+API KEYS.md
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Generated artifacts
+prd_extracted.md
+*.log
+storage/

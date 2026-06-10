@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(extract-text \"AI_Marketing_Platform_PRD_v1.1.docx\")",
+      "Bash(pandoc \"AI_Marketing_Platform_PRD_v1.1.docx\" -t markdown -o prd_extracted.md)",
+      "PowerShell(python --version)",
+      "PowerShell(node --version)",
+      "PowerShell(docker --version)",
+      "PowerShell(docker compose version)",
+      "PowerShell(Start-Process \"C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe\"; $deadline = \\(Get-Date\\).AddMinutes\\(4\\); while \\(\\(Get-Date\\) -lt $deadline\\) { try { docker info 2>$null | Out-Null; if \\($LASTEXITCODE -eq 0\\) { echo \"DOCKER_READY\"; break } } catch {}; Start-Sleep -Seconds 5 })"
+    ]
+  }
+}
