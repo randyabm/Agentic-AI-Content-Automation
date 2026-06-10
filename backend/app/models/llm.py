@@ -37,6 +37,29 @@ class LLMConfig(Base):
     )
 
 
+class VideoModel(Base):
+    """Admin-defined list of video generation models users can choose from.
+
+    Same pattern as ImageModel: the admin curates the list, the end user picks a
+    model at generation time. OpenRouter offers no video models, so each entry
+    targets a dedicated provider: google_veo (Gemini API), fal, or replicate.
+    """
+
+    __tablename__ = "video_models"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), default="google_veo")  # google_veo | fal | replicate
+    model_name: Mapped[str] = mapped_column(String(150), nullable=False)  # e.g. veo-3.1-fast-generate-preview
+    api_key_encrypted: Mapped[str] = mapped_column(Text, default="")
+    max_duration_seconds: Mapped[int] = mapped_column(Integer, default=8)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ImageModel(Base):
     """Admin-defined list of image generation models users can choose from.
 

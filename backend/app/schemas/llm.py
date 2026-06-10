@@ -59,3 +59,37 @@ class ImageModelOut(BaseModel):
     is_default: bool
     is_active: bool
     updated_at: datetime
+
+
+class VideoModelCreate(BaseModel):
+    display_name: str
+    provider: str = "google_veo"  # google_veo | fal | replicate
+    model_name: str
+    api_key: str | None = None
+    max_duration_seconds: int = Field(8, ge=1, le=60)
+    is_default: bool = False
+    is_active: bool = True
+
+
+class VideoModelUpdate(BaseModel):
+    display_name: str | None = None
+    provider: str | None = None
+    model_name: str | None = None
+    api_key: str | None = None
+    max_duration_seconds: int | None = Field(None, ge=1, le=60)
+    is_default: bool | None = None
+    is_active: bool | None = None
+
+
+class VideoModelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    display_name: str
+    provider: str
+    model_name: str
+    api_key_hint: str = ""
+    max_duration_seconds: int
+    is_default: bool
+    is_active: bool
+    updated_at: datetime

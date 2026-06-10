@@ -9,6 +9,8 @@ import type {
   ImageModel,
   Post,
   PostImage,
+  PostVideo,
+  VideoModel,
 } from "../types";
 
 const PLATFORM_LIMITS: Record<string, number> = {
@@ -27,6 +29,7 @@ export default function CampaignDetail() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [models, setModels] = useState<ImageModel[]>([]);
+  const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -41,15 +44,19 @@ export default function CampaignDetail() {
   useEffect(() => {
     load().catch((e) => setError(e.message));
     api<ImageModel[]>("/image-models").then(setModels).catch(() => {});
+    api<VideoModel[]>("/video-models").then(setVideoModels).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
+  const videoGenerating =
+    campaign?.posts.some((p) => p.videos.some((v) => v.status === "generating")) ?? false;
+
   useEffect(() => {
-    if (campaign?.status !== "generating") return;
+    if (campaign?.status !== "generating" && !videoGenerating) return;
     const t = setInterval(() => load().catch(() => {}), 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaign?.status]);
+  }, [campaign?.status, videoGenerating]);
 
   if (!campaign) return <div className="page-loading">Loading…</div>;
 
@@ -156,6 +163,7 @@ export default function CampaignDetail() {
                 post={post}
                 client={client}
                 models={models}
+                videoModels={videoModels}
                 canEdit={canEdit}
                 onChange={load}
               />
@@ -171,6 +179,7 @@ function PostCard({
   post,
   client,
   models,
+  videoModels,
   canEdit,
   onChange,
 }: {
@@ -178,6 +187,7 @@ function PostCard({
   post: Post;
   client: Client | null;
   models: ImageModel[];
+  videoModels: VideoModel[];
   canEdit: boolean;
   onChange: () => Promise<void>;
 }) {
@@ -276,6 +286,19 @@ function PostCard({
               onChange={onChange}
             />
           ))}
+          {post.videos.map((video) => (
+            <VideoSlot
+              key={video.id}
+              campaignId={campaignId}
+              video={video}
+              models={videoModels}
+              canEdit={canEdit}
+              onChange={onChange}
+            />
+          ))}
+          {canEdit && (
+            <AddVideoButton campaignId={campaignId} postId={post.id} platform={post.platform} onChange={onChange} />
+          )}
         </div>
       </div>
     </div>
@@ -440,6 +463,209 @@ function ImageSlot({
           onClose={() => setEditorOpen(false)}
           onSaved={onChange}
         />
+      )}
+    </div>
+  );
+}
+
+function AddVideoButton({
+  campaignId,
+  postId,
+  platform,
+  onChange,
+}: {
+  campaignId: string;
+  postId: string;
+  platform: string;
+  onChange: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const vertical = platform === "instagram" || platform === "tiktok";
+
+  async function add() {
+    setBusy(true);
+    try {
+      await api(`/campaigns/${campaignId}/posts/${postId}/videos`, {
+        method: "POST",
+        body: { aspect_ratio: vertical ? "9:16" : "16:9", duration_seconds: 8 },
+      });
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button className="btn btn-ghost small" onClick={add} disabled={busy}>
+      {busy ? "Adding…" : "+ Add video"}
+    </button>
+  );
+}
+
+function VideoSlot({
+  campaignId,
+  video,
+  models,
+  canEdit,
+  onChange,
+}: {
+  campaignId: string;
+  video: PostVideo;
+  models: VideoModel[];
+  canEdit: boolean;
+  onChange: () => Promise<void>;
+}) {
+  const [url, setUrl] = useState("");
+  const [prompt, setPrompt] = useState(video.prompt);
+  const [negative, setNegative] = useState(video.negative_prompt);
+  const [modelId, setModelId] = useState(video.video_model_id ?? "");
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setPrompt(video.prompt);
+    setNegative(video.negative_prompt);
+  }, [video.prompt, video.negative_prompt]);
+
+  // Load the video file once it's ready (or replaced).
+  useEffect(() => {
+    if (!video.base_object_key || video.status !== "ready") {
+      setUrl("");
+      return;
+    }
+    let active = true;
+    let objectUrl = "";
+    apiBlob(`/campaigns/${campaignId}/videos/${video.id}/file`)
+      .then((b) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(b);
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [campaignId, video.id, video.base_object_key, video.status]);
+
+  async function savePrompt() {
+    await api(`/campaigns/${campaignId}/videos/${video.id}/prompt`, {
+      method: "PATCH",
+      body: { prompt, negative_prompt: negative },
+    });
+    await onChange();
+  }
+
+  async function generate() {
+    setBusy("Queuing…");
+    setError("");
+    try {
+      if (prompt !== video.prompt || negative !== video.negative_prompt) await savePrompt();
+      await api(`/campaigns/${campaignId}/videos/${video.id}/generate`, {
+        method: "POST",
+        body: { video_model_id: modelId || null },
+      });
+      await onChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function upload(file: File) {
+    setBusy("Uploading…");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await api(`/campaigns/${campaignId}/videos/${video.id}/upload`, { method: "POST", formData: fd });
+      await onChange();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm("Remove this video slot?")) return;
+    await api(`/campaigns/${campaignId}/videos/${video.id}`, { method: "DELETE" });
+    await onChange();
+  }
+
+  return (
+    <div className="image-slot video-slot">
+      <div className="image-thumb" style={{ aspectRatio: video.aspect_ratio.replace(":", "/") }}>
+        {url ? (
+          <video src={url} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : video.status === "generating" ? (
+          <div className="image-empty">
+            Generating video…
+            <div className="progress-bar" style={{ width: "80%" }}>
+              <div className="progress-fill indeterminate" />
+            </div>
+          </div>
+        ) : (
+          <div className="image-empty">🎬 No video yet</div>
+        )}
+        {busy && <div className="image-busy">{busy}</div>}
+      </div>
+      <div className="image-meta small muted">
+        Video · {video.aspect_ratio} · {video.duration_seconds}s
+        {video.status === "failed" && <span className="tag tag-red"> failed</span>}
+      </div>
+      {(error || video.error) && <div className="alert alert-error small">{error || video.error}</div>}
+
+      {canEdit && (
+        <div className="image-actions">
+          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="small">
+            <option value="">Default model</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.display_name}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn btn-primary small"
+            onClick={generate}
+            disabled={!!busy || video.status === "generating"}
+          >
+            {video.status === "generating" ? "Generating…" : video.base_object_key ? "Regenerate" : "Generate"}
+          </button>
+          <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
+            Prompt
+          </button>
+          <label className="file-btn btn btn-ghost small">
+            Upload
+            <input
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime"
+              hidden
+              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+            />
+          </label>
+          <button className="btn btn-ghost small danger" onClick={remove}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {showPrompt && canEdit && (
+        <div className="prompt-editor">
+          <label className="small">
+            Video prompt
+            <textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          </label>
+          <label className="small">
+            Negative prompt
+            <textarea rows={2} value={negative} onChange={(e) => setNegative(e.target.value)} />
+          </label>
+          <div className="form-actions">
+            <button className="btn btn-ghost small" onClick={savePrompt}>
+              Save prompt
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

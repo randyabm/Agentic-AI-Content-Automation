@@ -546,6 +546,66 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
         db.close()
 
 
+@celery_app.task(name="video.generate")
+def run_video_generation(video_id: str) -> None:
+    """Generate a post video with the configured provider (long-running)."""
+    from app.models.campaign import PostVideo, VideoStatus
+    from app.services import storage
+    from app.services.video_gen import generate_video, get_video_model
+
+    db = SessionLocal()
+    try:
+        video = db.get(PostVideo, video_id)
+        if video is None:
+            logger.error("Post video %s not found", video_id)
+            return
+        model = get_video_model(db, video.video_model_id)
+        video.status = VideoStatus.generating
+        video.error = ""
+        video.video_model_id = model.id
+        db.commit()
+
+        data, content_type = generate_video(
+            model, video.prompt, video.negative_prompt, video.aspect_ratio, video.duration_seconds
+        )
+
+        post = db.get(Post, video.post_id)
+        campaign_id = post.campaign_id if post else "unknown"
+        version = len(video.generation_history) + 1
+        key = f"campaigns/{campaign_id}/videos/{video.id}/v{version}.mp4"
+        storage.upload_object(key, data, content_type)
+
+        history = list(video.generation_history)
+        history.append({
+            "object_key": key,
+            "prompt": video.prompt,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        video.generation_history = history
+        video.base_object_key = key
+        video.is_uploaded = False
+        video.status = VideoStatus.ready
+        db.commit()
+        logger.info("Video %s generated (%d bytes)", video_id, len(data))
+    except ExtractionError as exc:
+        _fail_video(db, video_id, str(exc))
+    except Exception as exc:  # noqa: BLE001 — slot must always end in a terminal state
+        logger.exception("Video generation %s crashed", video_id)
+        _fail_video(db, video_id, f"Unexpected error: {exc}")
+    finally:
+        db.close()
+
+
+def _fail_video(db, video_id: str, error: str) -> None:
+    from app.models.campaign import PostVideo, VideoStatus
+
+    video = db.get(PostVideo, video_id)
+    if video is not None:
+        video.status = VideoStatus.failed
+        video.error = error
+        db.commit()
+
+
 @celery_app.task(name="article.import_url")
 def import_article_from_url(article_id: str) -> None:
     """Fetch + extract a manually added article (added as a placeholder row first)."""

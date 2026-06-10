@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_admin
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.db.session import get_db
-from app.models.llm import ImageModel, LLMConfig
+from app.models.llm import ImageModel, LLMConfig, VideoModel
 from app.models.user import User
 from app.schemas.llm import (
     ImageModelCreate,
@@ -13,6 +13,9 @@ from app.schemas.llm import (
     ImageModelUpdate,
     LLMConfigOut,
     LLMConfigUpdate,
+    VideoModelCreate,
+    VideoModelOut,
+    VideoModelUpdate,
 )
 from app.services import audit
 
@@ -121,5 +124,80 @@ def delete_image_model(model_id: str, db: Session = Depends(get_db), actor: User
 
 def _clear_other_defaults(db: Session, exclude_id: str | None) -> None:
     for m in db.scalars(select(ImageModel).where(ImageModel.is_default)).all():
+        if m.id != exclude_id:
+            m.is_default = False
+
+
+# --- Video models (same admin-curated pattern as image models) ---
+
+
+def _video_model_out(m: VideoModel) -> VideoModelOut:
+    out = VideoModelOut.model_validate(m)
+    out.api_key_hint = mask_secret(decrypt_secret(m.api_key_encrypted))
+    return out
+
+
+@router.get("/video-models", response_model=list[VideoModelOut])
+def list_video_models(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """All authenticated users can list video models; non-admins only see active ones."""
+    models = db.scalars(select(VideoModel).order_by(VideoModel.display_name)).all()
+    if user.role.value != "admin":
+        models = [m for m in models if m.is_active]
+    return [_video_model_out(m) for m in models]
+
+
+@router.post("/video-models", response_model=VideoModelOut, status_code=status.HTTP_201_CREATED)
+def create_video_model(body: VideoModelCreate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+    model = VideoModel(
+        display_name=body.display_name,
+        provider=body.provider,
+        model_name=body.model_name,
+        api_key_encrypted=encrypt_secret(body.api_key or ""),
+        max_duration_seconds=body.max_duration_seconds,
+        is_default=body.is_default,
+        is_active=body.is_active,
+    )
+    if body.is_default:
+        _clear_other_video_defaults(db, exclude_id=None)
+    db.add(model)
+    db.commit()
+    audit.record(db, actor, "video_model.create", "video_model", model.id, {"model": body.model_name})
+    return _video_model_out(model)
+
+
+@router.patch("/video-models/{model_id}", response_model=VideoModelOut)
+def update_video_model(
+    model_id: str,
+    body: VideoModelUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    model = db.get(VideoModel, model_id)
+    if model is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Video model not found")
+    changes = body.model_dump(exclude_unset=True)
+    if "api_key" in changes:
+        model.api_key_encrypted = encrypt_secret(changes.pop("api_key") or "")
+    if changes.get("is_default"):
+        _clear_other_video_defaults(db, exclude_id=model.id)
+    for field, value in changes.items():
+        setattr(model, field, value)
+    db.commit()
+    audit.record(db, actor, "video_model.update", "video_model", model.id)
+    return _video_model_out(model)
+
+
+@router.delete("/video-models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_video_model(model_id: str, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+    model = db.get(VideoModel, model_id)
+    if model is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Video model not found")
+    db.delete(model)
+    db.commit()
+    audit.record(db, actor, "video_model.delete", "video_model", model_id)
+
+
+def _clear_other_video_defaults(db: Session, exclude_id: str | None) -> None:
+    for m in db.scalars(select(VideoModel).where(VideoModel.is_default)).all():
         if m.id != exclude_id:
             m.is_default = False

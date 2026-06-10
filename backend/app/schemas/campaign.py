@@ -2,7 +2,14 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.campaign import CampaignObjective, CampaignStatus, Platform, PostStatus, VisualFormat
+from app.models.campaign import (
+    CampaignObjective,
+    CampaignStatus,
+    Platform,
+    PostStatus,
+    VideoStatus,
+    VisualFormat,
+)
 
 
 class PlatformConfigIn(BaseModel):
@@ -90,6 +97,34 @@ class PostImageOut(BaseModel):
     composited_object_key: str
 
 
+class PostVideoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    post_id: str
+    aspect_ratio: str
+    duration_seconds: int
+    prompt: str
+    negative_prompt: str
+    prompt_history: list
+    video_model_id: str | None
+    base_object_key: str
+    is_uploaded: bool
+    generation_history: list
+    status: VideoStatus
+    error: str
+
+
+class PostVideoCreate(BaseModel):
+    aspect_ratio: str = "16:9"
+    duration_seconds: int = Field(8, ge=1, le=60)
+    prompt: str = ""
+
+
+class GenerateVideoRequest(BaseModel):
+    video_model_id: str | None = None
+
+
 class PostOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +140,7 @@ class PostOut(BaseModel):
     rationale: str
     status: PostStatus
     images: list[PostImageOut]
+    videos: list[PostVideoOut]
 
 
 class PostAssetOut(BaseModel):

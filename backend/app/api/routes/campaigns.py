@@ -15,6 +15,8 @@ from app.models.campaign import (
     Post,
     PostAsset,
     PostImage,
+    PostVideo,
+    VideoStatus,
 )
 from app.models.client import Client
 from app.models.user import User
@@ -26,10 +28,13 @@ from app.schemas.campaign import (
     CampaignUpdate,
     CanvasUpdate,
     GenerateImageRequest,
+    GenerateVideoRequest,
     PostAssetOut,
     PostOut,
     PostImageOut,
     PostUpdate,
+    PostVideoCreate,
+    PostVideoOut,
     PromptUpdate,
     RegenerateRequest,
 )
@@ -40,7 +45,7 @@ from app.services.export import EXPORTERS
 from app.services.extraction import ExtractionError
 from app.services.image_gen import generate_image, get_image_model
 from app.services.platforms import PLATFORM_SPECS
-from app.workers.tasks import generate_campaign, regenerate_platform
+from app.workers.tasks import generate_campaign, regenerate_platform, run_video_generation
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -450,6 +455,148 @@ def save_canvas(
     db.commit()
     db.refresh(image)
     return image
+
+
+# --- videos (provider-abstracted generation; key configured later by an Admin) ---
+
+
+def _get_video_or_404(db: Session, campaign_id: str, video_id: str) -> PostVideo:
+    video = db.get(PostVideo, video_id)
+    if video is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Video slot not found")
+    post = db.get(Post, video.post_id)
+    if post is None or post.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Video slot not found")
+    return video
+
+
+@router.post(
+    "/{campaign_id}/posts/{post_id}/videos", response_model=PostVideoOut, status_code=status.HTTP_201_CREATED
+)
+def create_video_slot(
+    campaign_id: str,
+    post_id: str,
+    body: PostVideoCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    post = db.get(Post, post_id)
+    if post is None or post.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
+    prompt = body.prompt.strip()
+    if not prompt and post.images:
+        # Seed the video prompt from the post's first image prompt — same visual concept in motion.
+        prompt = post.images[0].prompt
+    video = PostVideo(
+        post_id=post.id,
+        aspect_ratio=body.aspect_ratio,
+        duration_seconds=body.duration_seconds,
+        prompt=prompt,
+    )
+    db.add(video)
+    db.commit()
+    db.refresh(video)
+    return video
+
+
+@router.patch("/{campaign_id}/videos/{video_id}/prompt", response_model=PostVideoOut)
+def update_video_prompt(
+    campaign_id: str,
+    video_id: str,
+    body: PromptUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    video = _get_video_or_404(db, campaign_id, video_id)
+    changes = body.model_dump(exclude_unset=True)
+    changes.pop("additional_guidance", None)  # image-only field
+    if "prompt" in changes or "negative_prompt" in changes:
+        history = list(video.prompt_history)
+        history.append({
+            "prompt": video.prompt,
+            "negative_prompt": video.negative_prompt,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        video.prompt_history = history
+    for field, value in changes.items():
+        setattr(video, field, value)
+    db.commit()
+    db.refresh(video)
+    return video
+
+
+@router.post(
+    "/{campaign_id}/videos/{video_id}/generate",
+    response_model=PostVideoOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def generate_slot_video(
+    campaign_id: str,
+    video_id: str,
+    body: GenerateVideoRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Queue async video generation (providers take minutes; the slot tracks status)."""
+    video = _get_video_or_404(db, campaign_id, video_id)
+    if video.status == VideoStatus.generating:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This video is already being generated")
+    if not video.prompt.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Write a video prompt first")
+    if body.video_model_id:
+        video.video_model_id = body.video_model_id
+    video.status = VideoStatus.generating
+    video.error = ""
+    db.commit()
+    run_video_generation.delay(video.id)
+    audit.record(db, actor, "campaign.video_generate", "campaign", campaign_id, {"video_id": video_id})
+    db.refresh(video)
+    return video
+
+
+@router.post("/{campaign_id}/videos/{video_id}/upload", response_model=PostVideoOut)
+def upload_slot_video(
+    campaign_id: str,
+    video_id: str,
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    video = _get_video_or_404(db, campaign_id, video_id)
+    if file.content_type not in {"video/mp4", "video/webm", "video/quicktime"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Video must be MP4, WebM, or MOV")
+    data = file.file.read()
+    if len(data) > 200 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Video must be 200 MB or smaller")
+    key = f"campaigns/{campaign_id}/videos/{video.id}/uploaded"
+    storage.upload_object(key, data, file.content_type)
+    video.base_object_key = key
+    video.is_uploaded = True
+    video.status = VideoStatus.ready
+    video.error = ""
+    db.commit()
+    db.refresh(video)
+    return video
+
+
+@router.get("/{campaign_id}/videos/{video_id}/file")
+def get_video_file(
+    campaign_id: str, video_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+):
+    video = _get_video_or_404(db, campaign_id, video_id)
+    if not video.base_object_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No video generated yet")
+    data, content_type = storage.get_object(video.base_object_key)
+    return Response(content=data, media_type=content_type)
+
+
+@router.delete("/{campaign_id}/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_video_slot(
+    campaign_id: str, video_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    video = _get_video_or_404(db, campaign_id, video_id)
+    db.delete(video)
+    db.commit()
 
 
 # --- custom assets (PRD §5.5.2) ---

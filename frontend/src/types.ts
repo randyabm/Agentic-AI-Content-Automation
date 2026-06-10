@@ -205,6 +205,18 @@ export interface Setting {
   updated_at: string;
 }
 
+export interface VideoModel {
+  id: string;
+  display_name: string;
+  provider: string;
+  model_name: string;
+  api_key_hint: string;
+  max_duration_seconds: number;
+  is_default: boolean;
+  is_active: boolean;
+  updated_at: string;
+}
+
 // --- Campaigns (Module 3) ---
 
 export type CampaignPlatform =
@@ -297,6 +309,24 @@ export interface PostImage {
   composited_object_key: string;
 }
 
+export type VideoStatus = "draft" | "generating" | "ready" | "failed";
+
+export interface PostVideo {
+  id: string;
+  post_id: string;
+  aspect_ratio: string;
+  duration_seconds: number;
+  prompt: string;
+  negative_prompt: string;
+  prompt_history: PromptVersion[];
+  video_model_id: string | null;
+  base_object_key: string;
+  is_uploaded: boolean;
+  generation_history: GenerationVersion[];
+  status: VideoStatus;
+  error: string;
+}
+
 export interface Post {
   id: string;
   campaign_id: string;
@@ -310,6 +340,7 @@ export interface Post {
   rationale: string;
   status: PostStatus;
   images: PostImage[];
+  videos: PostVideo[];
 }
 
 export interface PostAsset {

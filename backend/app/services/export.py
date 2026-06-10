@@ -102,6 +102,16 @@ def campaign_payload(db: Session, campaign: Campaign, client: Client) -> dict:
                     }
                     for img in post.images
                 ],
+                "videos": [
+                    {
+                        "aspect_ratio": vid.aspect_ratio,
+                        "duration_seconds": vid.duration_seconds,
+                        "prompt": vid.prompt,
+                        "status": vid.status.value,
+                        "has_video": bool(vid.base_object_key),
+                    }
+                    for vid in post.videos
+                ],
             }
             for post in posts
         ],
@@ -154,6 +164,14 @@ def export_zip(db: Session, campaign: Campaign, client: Client) -> tuple[bytes, 
                     if data:
                         name = f"{platform}/post{post.position + 1}_img{img.slot_index + 1}.png"
                         zf.writestr(name, data)
+                for vidx, vid in enumerate(post.videos):
+                    if not vid.base_object_key:
+                        continue
+                    try:
+                        vdata = storage.get_object(vid.base_object_key)[0]
+                        zf.writestr(f"{platform}/post{post.position + 1}_video{vidx + 1}.mp4", vdata)
+                    except Exception:  # noqa: BLE001 — a missing video must not abort the export
+                        pass
             zf.writestr(f"{platform}/copy.csv", rows.getvalue())
 
         zf.writestr(

@@ -31,6 +31,14 @@ article. All Module 3 editing, image, and export tooling applies to the result.
 The whole v1.1 PRD scope is now implemented. (Direct publishing to social platforms is
 the planned v2.0 follow-up.)
 
+**Beyond the PRD — video generation:** each post can have video slots (prompt seeded
+from the post's image prompt, editable, with history). Generation runs async in Celery
+against an admin-curated video model list (System Settings → Video generation models).
+OpenRouter has no video models, so each entry targets its own provider — Google Veo
+(Gemini API), fal.ai, or Replicate — with its own API key (stored encrypted). Until an
+Admin adds a key, generation fails gracefully with a clear message; users can also
+upload their own MP4/WebM/MOV. Videos are included in the ZIP export and the JSON.
+
 ## Stack
 
 - **Backend:** Python FastAPI + SQLAlchemy + Celery (Redis) + httpx/BeautifulSoup crawler

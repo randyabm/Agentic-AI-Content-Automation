@@ -145,6 +145,46 @@ class Post(Base):
     images: Mapped[list["PostImage"]] = relationship(
         back_populates="post", cascade="all, delete-orphan", order_by="PostImage.slot_index"
     )
+    videos: Mapped[list["PostVideo"]] = relationship(
+        back_populates="post", cascade="all, delete-orphan", order_by="PostVideo.created_at"
+    )
+
+
+class VideoStatus(str, enum.Enum):
+    draft = "draft"            # slot created, prompt editable, nothing generated yet
+    generating = "generating"  # provider job running (async, can take minutes)
+    ready = "ready"
+    failed = "failed"
+
+
+class PostVideo(Base):
+    """A video slot for a post. Unlike images, generation is long-running, so the
+    slot tracks its own async status and the work happens in a Celery task."""
+
+    __tablename__ = "post_videos"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    post_id: Mapped[str] = mapped_column(String(36), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    aspect_ratio: Mapped[str] = mapped_column(String(20), default="16:9")
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=8)
+
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    negative_prompt: Mapped[str] = mapped_column(Text, default="")
+    prompt_history: Mapped[list] = mapped_column(JSON, default=list)  # [{prompt, negative_prompt, created_at}]
+
+    video_model_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    base_object_key: Mapped[str] = mapped_column(String(500), default="")  # current generated/uploaded video
+    is_uploaded: Mapped[bool] = mapped_column(Boolean, default=False)
+    generation_history: Mapped[list] = mapped_column(JSON, default=list)  # [{object_key, prompt, created_at}]
+
+    status: Mapped[VideoStatus] = mapped_column(Enum(VideoStatus), default=VideoStatus.draft)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    post: Mapped[Post] = relationship(back_populates="videos")
 
 
 class PostImage(Base):

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ArticleSources } from "../components/ArticleSources";
-import type { ImageModel, LLMConfig, Setting } from "../types";
+import type { ImageModel, LLMConfig, Setting, VideoModel } from "../types";
 
 export default function SystemSettings() {
   return (
@@ -11,6 +11,7 @@ export default function SystemSettings() {
       </div>
       <LLMConfigSection />
       <ImageModelSection />
+      <VideoModelSection />
       <ArticleSources />
       <GlobalSettingsSection />
     </div>
@@ -258,6 +259,173 @@ function ImageModelSection() {
               </td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function VideoModelSection() {
+  const [models, setModels] = useState<VideoModel[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    display_name: "",
+    provider: "google_veo",
+    model_name: "",
+    api_key: "",
+    max_duration_seconds: 8,
+    is_default: false,
+  });
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<VideoModel[]>("/video-models").then(setModels).catch((e) => setError(e.message));
+  }, []);
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      const created = await api<VideoModel>("/video-models", {
+        method: "POST",
+        body: { ...form, api_key: form.api_key || undefined },
+      });
+      setModels((prev) =>
+        [...prev.map((m) => (created.is_default ? { ...m, is_default: false } : m)), created],
+      );
+      setForm({ display_name: "", provider: "google_veo", model_name: "", api_key: "", max_duration_seconds: 8, is_default: false });
+      setShowForm(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add model");
+    }
+  }
+
+  async function patch(id: string, body: Record<string, unknown>) {
+    setError("");
+    try {
+      const updated = await api<VideoModel>(`/video-models/${id}`, { method: "PATCH", body });
+      setModels((prev) =>
+        prev.map((m) => (m.id === id ? updated : updated.is_default ? { ...m, is_default: false } : m)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm("Remove this video model from the list?")) return;
+    try {
+      await api(`/video-models/${id}`, { method: "DELETE" });
+      setModels((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  function setKey(id: string) {
+    const key = window.prompt("Paste the API key for this video model (stored encrypted):");
+    if (key) patch(id, { api_key: key });
+  }
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Video generation models</h2>
+        <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ Add model"}
+        </button>
+      </div>
+      <p className="muted">
+        Admin-curated list. OpenRouter does not offer video, so each model targets its own provider
+        (Google Veo / fal.ai / Replicate) with its own API key.
+      </p>
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {showForm && (
+        <form className="form-inline" onSubmit={create}>
+          <label>
+            Display name
+            <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} required />
+          </label>
+          <label>
+            Provider
+            <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
+              <option value="google_veo">Google Veo (Gemini API)</option>
+              <option value="fal">fal.ai</option>
+              <option value="replicate">Replicate</option>
+            </select>
+          </label>
+          <label>
+            Model ID
+            <input placeholder="veo-3.1-fast-generate-preview" value={form.model_name}
+              onChange={(e) => setForm({ ...form, model_name: e.target.value })} required />
+          </label>
+          <label>
+            API key
+            <input type="password" value={form.api_key} onChange={(e) => setForm({ ...form, api_key: e.target.value })} />
+          </label>
+          <label>
+            Max secs
+            <input type="number" min={1} max={60} value={form.max_duration_seconds}
+              onChange={(e) => setForm({ ...form, max_duration_seconds: Number(e.target.value) })} />
+          </label>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={form.is_default}
+              onChange={(e) => setForm({ ...form, is_default: e.target.checked })} />
+            Default
+          </label>
+          <button className="btn btn-primary">Add</button>
+        </form>
+      )}
+
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Provider</th>
+            <th>Model ID</th>
+            <th>API key</th>
+            <th>Default</th>
+            <th>Active</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {models.map((m) => (
+            <tr key={m.id}>
+              <td>{m.display_name}</td>
+              <td>{m.provider}</td>
+              <td className="mono">{m.model_name}</td>
+              <td>
+                {m.api_key_hint ? (
+                  <span className="mono">{m.api_key_hint}</span>
+                ) : (
+                  <span className="tag tag-red">missing</span>
+                )}{" "}
+                <button className="btn btn-ghost" onClick={() => setKey(m.id)}>Set</button>
+              </td>
+              <td>
+                {m.is_default ? (
+                  <span className="tag tag-green">default</span>
+                ) : (
+                  <button className="btn btn-ghost" onClick={() => patch(m.id, { is_default: true })}>
+                    Make default
+                  </button>
+                )}
+              </td>
+              <td>
+                <button className="btn btn-ghost" onClick={() => patch(m.id, { is_active: !m.is_active })}>
+                  {m.is_active ? "✓ active" : "✗ inactive"}
+                </button>
+              </td>
+              <td>
+                <button className="btn btn-ghost danger" onClick={() => remove(m.id)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+          {models.length === 0 && (
+            <tr><td colSpan={7} className="muted">No video models yet. Add one to enable video generation.</td></tr>
+          )}
         </tbody>
       </table>
     </div>
