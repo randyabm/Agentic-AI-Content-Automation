@@ -30,3 +30,9 @@ storage/
 
 # TS build cache
 *.tsbuildinfo
+
+# Celery runtime state
+backend/celerybeat-schedule
+
+# Local Claude Code settings (permissions, personal tooling)
+.claude/settings.local.json
