@@ -1,3 +1,4 @@
+from app.models.article import Article, ArticleSource
 from app.models.audit import AuditLog
 from app.models.client import Client, ExtractionJob
 from app.models.competitor import Competitor, CompetitorSearchJob
@@ -6,6 +7,8 @@ from app.models.setting import Setting
 from app.models.user import PasswordResetToken, RefreshToken, User
 
 __all__ = [
+    "Article",
+    "ArticleSource",
     "AuditLog",
     "Client",
     "Competitor",

@@ -106,6 +106,57 @@ export interface CompetitorSearchJob {
   updated_at: string;
 }
 
+export type ArticleEntryType = "auto" | "manual";
+export type ArticleStatus = "active" | "archived";
+export type SyncFrequency = "daily" | "weekly" | "on_demand";
+
+export interface Article {
+  id: string;
+  title: string;
+  author: string;
+  publication_date: string | null;
+  source_url: string;
+  summary: string;
+  body: string;
+  tags: string[];
+  entry_type: ArticleEntryType;
+  status: ArticleStatus;
+  needs_review: boolean;
+  source_id: string | null;
+  last_used_in_campaign: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArticleListItem {
+  id: string;
+  title: string;
+  author: string;
+  publication_date: string | null;
+  source_url: string;
+  summary: string;
+  tags: string[];
+  entry_type: ArticleEntryType;
+  status: ArticleStatus;
+  needs_review: boolean;
+  created_at: string;
+}
+
+export interface ArticleSource {
+  id: string;
+  name: string;
+  url: string;
+  frequency: SyncFrequency;
+  max_articles_per_sync: number;
+  auto_publish: boolean;
+  duplicate_detection: boolean;
+  is_active: boolean;
+  last_synced_at: string | null;
+  last_sync_status: string;
+  last_sync_detail: string;
+  created_at: string;
+}
+
 export interface LLMConfig {
   id: string;
   function: string;

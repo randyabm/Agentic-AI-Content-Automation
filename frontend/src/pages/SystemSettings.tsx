@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { ArticleSources } from "../components/ArticleSources";
 import type { ImageModel, LLMConfig, Setting } from "../types";
 
 export default function SystemSettings() {
@@ -10,6 +11,7 @@ export default function SystemSettings() {
       </div>
       <LLMConfigSection />
       <ImageModelSection />
+      <ArticleSources />
       <GlobalSettingsSection />
     </div>
   );

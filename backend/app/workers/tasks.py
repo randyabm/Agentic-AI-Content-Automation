@@ -1,23 +1,30 @@
-"""Background jobs: website crawl + LLM extraction (PRD §3.3) and competitive
-intelligence (PRD §4)."""
+"""Background jobs: website crawl + LLM extraction (PRD §3.3), competitive
+intelligence (PRD §4), and article library auto-sync (PRD §7)."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import anthropic
 
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
+from app.models.article import Article, ArticleEntryType, ArticleSource, ArticleStatus, SyncFrequency
 from app.models.client import Client, ExtractionJob, JobStatus
 from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJob, CompetitorSource, SearchJobStatus
 from app.models.llm import LLMFunction
 from app.models.setting import Setting
+from app.services.article_intel import discover_article_urls, extract_article, fetch_clean_page
 from app.services.competitor_intel import compare_with_client, identify_competitors
 from app.services.crawler import CrawlConfig, crawl_site
 from app.services.extraction import ExtractionError, extract_client_profile
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+FREQUENCY_INTERVALS = {
+    SyncFrequency.daily: timedelta(days=1),
+    SyncFrequency.weekly: timedelta(weeks=1),
+}
 
 
 def _crawl_config(db) -> CrawlConfig:
@@ -237,3 +244,161 @@ def _fail_competitor(db, competitor_id: str, error: str) -> None:
         competitor.analysis_status = AnalysisStatus.failed
         competitor.analysis_error = error
         db.commit()
+
+
+# --- Article library auto-sync (PRD §7) ---
+
+
+def _normalize_url(url: str) -> str:
+    return url.rstrip("/").lower()
+
+
+def _is_duplicate(db, source: ArticleSource, url: str, title: str, pub_date) -> bool:
+    if db.scalar(select(Article).where(Article.source_url == url.rstrip("/"))):
+        return True
+    if source.duplicate_detection and title:
+        existing = db.scalar(
+            select(Article).where(Article.title == title, Article.publication_date == pub_date)
+        )
+        if existing:
+            return True
+    return False
+
+
+@celery_app.task(name="article_sync.check_due")
+def check_due_sources() -> None:
+    """Periodic (Celery Beat) sweep: trigger a sync for each active source that is due."""
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        sources = db.scalars(select(ArticleSource).where(ArticleSource.is_active.is_(True))).all()
+        for source in sources:
+            if source.frequency == SyncFrequency.on_demand:
+                continue
+            interval = FREQUENCY_INTERVALS.get(source.frequency)
+            if interval is None:
+                continue
+            last = source.last_synced_at
+            if last is None or last.replace(tzinfo=timezone.utc) + interval <= now:
+                if source.last_sync_status != "running":
+                    sync_source.delay(source.id)
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    name="article_sync.run_source",
+    autoretry_for=(anthropic.RateLimitError,),
+    retry_backoff=70,
+    retry_backoff_max=300,
+    max_retries=3,
+)
+def sync_source(source_id: str) -> None:
+    """Discover and import new articles from one configured source (PRD §7.2.1, §7.4)."""
+    db = SessionLocal()
+    try:
+        source = db.get(ArticleSource, source_id)
+        if source is None:
+            logger.error("Article source %s not found", source_id)
+            return
+        source.last_sync_status = "running"
+        source.last_sync_detail = ""
+        db.commit()
+
+        candidates = discover_article_urls(db, source.url, source.max_articles_per_sync)
+        imported = 0
+        skipped = 0
+        for url in candidates:
+            if imported >= source.max_articles_per_sync:
+                break
+            if _is_duplicate(db, source, url, "", None):
+                skipped += 1
+                continue
+            try:
+                page = fetch_clean_page(db, url)
+                data = extract_article(db, page)
+            except ExtractionError as exc:
+                logger.warning("Skipping %s: %s", url, exc)
+                skipped += 1
+                continue
+            if not data["is_article"]:
+                skipped += 1
+                continue
+            if _is_duplicate(db, source, url, data["title"], data["publication_date"]):
+                skipped += 1
+                continue
+            db.add(
+                Article(
+                    title=data["title"],
+                    author=data["author"],
+                    publication_date=data["publication_date"],
+                    source_url=url.rstrip("/"),
+                    summary=data["summary"],
+                    body=data["body"],
+                    tags=data["tags"],
+                    entry_type=ArticleEntryType.auto,
+                    status=ArticleStatus.active,
+                    needs_review=not source.auto_publish,
+                    source_id=source.id,
+                )
+            )
+            db.commit()
+            imported += 1
+
+        source.last_synced_at = datetime.now(timezone.utc)
+        source.last_sync_status = "ok"
+        source.last_sync_detail = f"Imported {imported}, skipped {skipped} of {len(candidates)} candidates"
+        db.commit()
+        logger.info("Source %s sync done: %s", source_id, source.last_sync_detail)
+    except anthropic.RateLimitError:
+        db.rollback()
+        src = db.get(ArticleSource, source_id)
+        if src:
+            src.last_sync_status = "running"
+            db.commit()
+        raise
+    except Exception as exc:  # noqa: BLE001 — always leave the source in a terminal state
+        logger.exception("Article source %s sync crashed", source_id)
+        db.rollback()
+        src = db.get(ArticleSource, source_id)
+        if src:
+            src.last_sync_status = "error"
+            src.last_sync_detail = str(exc)
+            src.last_synced_at = datetime.now(timezone.utc)
+            db.commit()
+    finally:
+        db.close()
+
+
+@celery_app.task(name="article.import_url")
+def import_article_from_url(article_id: str) -> None:
+    """Fetch + extract a manually added article (added as a placeholder row first)."""
+    db = SessionLocal()
+    try:
+        article = db.get(Article, article_id)
+        if article is None:
+            return
+        page = fetch_clean_page(db, article.source_url)
+        data = extract_article(db, page)
+        article.title = data["title"] or article.title
+        article.author = data["author"]
+        article.publication_date = data["publication_date"]
+        article.summary = data["summary"]
+        article.body = data["body"]
+        article.tags = data["tags"]
+        article.status = ArticleStatus.active
+        db.commit()
+        logger.info("Imported manual article %s from %s", article_id, article.source_url)
+    except ExtractionError as exc:
+        article = db.get(Article, article_id)
+        if article:
+            article.summary = f"[Extraction failed: {exc}]"
+            db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Manual article import %s crashed", article_id)
+        article = db.get(Article, article_id)
+        if article:
+            article.summary = f"[Extraction error: {exc}]"
+            db.commit()
+    finally:
+        db.close()

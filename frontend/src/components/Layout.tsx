@@ -11,6 +11,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
         <nav>
           <NavLink to="/clients">Clients</NavLink>
+          <NavLink to="/articles">Article Library</NavLink>
           {user?.role === "admin" && <NavLink to="/users">Users</NavLink>}
           {user?.role === "admin" && <NavLink to="/settings">System Settings</NavLink>}
         </nav>

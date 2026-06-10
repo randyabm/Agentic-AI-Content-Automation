@@ -238,6 +238,42 @@ input:focus, select:focus, textarea:focus {
   .versus-grid { grid-template-columns: 1fr; }
 }
 
+/* Article library */
+.filters-bar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.filters-bar input[type="text"], .filters-bar > input:first-child { flex: 1; min-width: 220px; }
+.filters-bar .checkbox-label { margin-bottom: 0; }
+.article-meta { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.4rem 0; }
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.article-body { white-space: pre-wrap; max-height: 40vh; overflow-y: auto; line-height: 1.6; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; background: var(--bg); }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 1.5rem;
+}
+.modal {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 760px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.modal-header h2 { margin: 0; }
+.modal-actions { border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 1rem; }
+
 /* Edit panel */
 .edit-panel {
   border-top: 1px solid var(--border);

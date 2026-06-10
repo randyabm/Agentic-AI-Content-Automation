@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Layout } from "./components/Layout";
+import Articles from "./pages/Articles";
 import ClientDetail from "./pages/ClientDetail";
 import Clients from "./pages/Clients";
 import Login from "./pages/Login";
@@ -22,6 +23,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/clients" replace />} />
       <Route path="/clients" element={<Protected><Clients /></Protected>} />
       <Route path="/clients/:clientId" element={<Protected><ClientDetail /></Protected>} />
+      <Route path="/articles" element={<Protected><Articles /></Protected>} />
       <Route path="/users" element={<Protected adminOnly><Users /></Protected>} />
       <Route path="/settings" element={<Protected adminOnly><SystemSettings /></Protected>} />
       <Route path="*" element={<Navigate to="/clients" replace />} />
