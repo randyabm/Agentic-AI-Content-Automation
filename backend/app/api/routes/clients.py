@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_editor
 from app.db.session import get_db
-from app.models.client import Client, ExtractionJob, JobStatus
+from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
 from app.models.user import User
 from app.schemas.client import (
+    BrandMemoryUpdate,
+    BrandMemoryVersionOut,
     ClientCreate,
     ClientOut,
     ClientUpdate,
@@ -17,6 +19,11 @@ from app.schemas.client import (
 )
 from app.services import audit, storage
 from app.workers.tasks import run_extraction
+
+BRAND_MEMORY_FIELDS = (
+    "brand_tone", "brand_words_required", "brand_words_forbidden", "brand_colors",
+    "brand_visual_style", "brand_copy_examples", "brand_legal_disclaimer",
+)
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -102,6 +109,38 @@ def get_logo(client_id: str, db: Session = Depends(get_db), _: User = Depends(ge
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no logo")
     data, content_type = storage.get_object(client.logo_object_key)
     return Response(content=data, media_type=content_type)
+
+
+# --- Brand Memory (PRD §5.3.3) ---
+
+
+@router.put("/{client_id}/brand-memory", response_model=ClientOut)
+def update_brand_memory(
+    client_id: str, body: BrandMemoryUpdate, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    """Save Brand Memory and snapshot a new version (change history is maintained)."""
+    client = _get_client_or_404(db, client_id)
+    data = body.model_dump()
+    for field in BRAND_MEMORY_FIELDS:
+        setattr(client, field, data[field])
+    db.add(BrandMemoryVersion(client_id=client.id, snapshot=data, created_by=actor.id))
+    db.commit()
+    audit.record(db, actor, "client.brand_memory_update", "client", client.id)
+    db.refresh(client)
+    return client
+
+
+@router.get("/{client_id}/brand-memory/versions", response_model=list[BrandMemoryVersionOut])
+def list_brand_memory_versions(
+    client_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+):
+    _get_client_or_404(db, client_id)
+    return db.scalars(
+        select(BrandMemoryVersion)
+        .where(BrandMemoryVersion.client_id == client_id)
+        .order_by(BrandMemoryVersion.created_at.desc())
+        .limit(20)
+    ).all()
 
 
 # --- Automatic extraction (PRD §3.3) ---

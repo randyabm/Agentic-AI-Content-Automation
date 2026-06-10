@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { BrandMemory } from "../components/BrandMemory";
 import { Competitors } from "../components/Competitors";
 import type { Client, ExtractionDraft, ExtractionJob } from "../types";
 
@@ -17,7 +18,7 @@ export default function ClientDetail() {
   const [draft, setDraft] = useState<ExtractionDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<"profile" | "competitors">("profile");
+  const [tab, setTab] = useState<"profile" | "competitors" | "brand">("profile");
   const pollRef = useRef<number | null>(null);
 
   const loadJobs = useCallback(async () => {
@@ -115,11 +116,16 @@ export default function ClientDetail() {
             {client.website_url}
           </a>
         </div>
-        {canEdit && tab === "profile" && (
-          <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
-            {running ? "Analyzing…" : "Analyze Website"}
-          </button>
-        )}
+        <div className="competitor-actions">
+          <Link className="btn btn-ghost" to={`/campaigns?client_id=${client.id}`}>
+            Campaigns
+          </Link>
+          {canEdit && tab === "profile" && (
+            <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
+              {running ? "Analyzing…" : "Analyze Website"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="tabs">
@@ -132,9 +138,13 @@ export default function ClientDetail() {
         >
           Competitors
         </button>
+        <button className={`tab ${tab === "brand" ? "tab-active" : ""}`} onClick={() => setTab("brand")}>
+          Brand Memory
+        </button>
       </div>
 
       {tab === "competitors" && <Competitors client={client} />}
+      {tab === "brand" && <BrandMemory client={client} canEdit={canEdit} />}
 
       {tab === "profile" && (
       <>

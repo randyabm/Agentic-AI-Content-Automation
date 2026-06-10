@@ -9,11 +9,20 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.models.article import Article, ArticleEntryType, ArticleSource, ArticleStatus, SyncFrequency
+from app.models.campaign import (
+    Campaign,
+    CampaignPlatform,
+    CampaignStatus,
+    Post,
+    PostImage,
+    PostStatus,
+)
 from app.models.client import Client, ExtractionJob, JobStatus
 from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJob, CompetitorSource, SearchJobStatus
 from app.models.llm import LLMFunction
 from app.models.setting import Setting
 from app.services.article_intel import discover_article_urls, extract_article, fetch_clean_page
+from app.services.campaign_gen import build_context, generate_image_prompts, generate_posts_copy
 from app.services.competitor_intel import compare_with_client, identify_competitors
 from app.services.crawler import CrawlConfig, crawl_site
 from app.services.extraction import ExtractionError, extract_client_profile
@@ -366,6 +375,182 @@ def sync_source(source_id: str) -> None:
             src.last_sync_detail = str(exc)
             src.last_synced_at = datetime.now(timezone.utc)
             db.commit()
+    finally:
+        db.close()
+
+
+# --- Campaign generation (PRD §5 — Module 3) ---
+
+
+def _article_reference_text(db, campaign: Campaign) -> str:
+    """Resolve the optional article reference (library article or external URL)."""
+    if campaign.article_id:
+        article = db.get(Article, campaign.article_id)
+        if article:
+            article.last_used_in_campaign = datetime.now(timezone.utc)
+            db.commit()
+            return f"{article.title}\n\n{article.summary}\n\n{article.body[:5000]}"
+    if campaign.article_url:
+        try:
+            page = fetch_clean_page(db, campaign.article_url)
+            return page.text[:6000]
+        except ExtractionError:
+            return ""
+    return ""
+
+
+@celery_app.task(
+    name="campaign.generate",
+    autoretry_for=(anthropic.RateLimitError,),
+    retry_backoff=70,
+    retry_backoff_max=300,
+    max_retries=4,
+)
+def generate_campaign(campaign_id: str) -> None:
+    """Run the Editorial and Visual agents for every active platform (PRD §5.6)."""
+    db = SessionLocal()
+    try:
+        campaign = db.get(Campaign, campaign_id)
+        if campaign is None:
+            logger.error("Campaign %s not found", campaign_id)
+            return
+        client = db.get(Client, campaign.client_id)
+        if client is None:
+            campaign.status = CampaignStatus.failed
+            campaign.error = "Client no longer exists"
+            db.commit()
+            return
+
+        campaign.status = CampaignStatus.generating
+        campaign.error = ""
+        db.commit()
+
+        # Replace any prior generation output (regenerate-whole-campaign case).
+        for old in db.scalars(select(Post).where(Post.campaign_id == campaign.id)).all():
+            db.delete(old)
+        db.commit()
+
+        article_text = _article_reference_text(db, campaign)
+        context = build_context(db, client, campaign, article_text)
+
+        active = db.scalars(
+            select(CampaignPlatform).where(
+                CampaignPlatform.campaign_id == campaign.id, CampaignPlatform.is_active.is_(True)
+            )
+        ).all()
+        if not active:
+            campaign.status = CampaignStatus.failed
+            campaign.error = "No active platforms were selected for this campaign."
+            db.commit()
+            return
+
+        for cp in active:
+            posts_data = generate_posts_copy(db, client, campaign, cp, context)
+            image_prompts = generate_image_prompts(db, campaign, cp, posts_data, context)
+            for position, (pdata, slots) in enumerate(zip(posts_data, image_prompts)):
+                post = Post(
+                    campaign_id=campaign.id,
+                    platform=cp.platform,
+                    position=position,
+                    headline=pdata["headline"],
+                    copy=pdata["copy"],
+                    cta=pdata["cta"],
+                    hashtags=pdata["hashtags"],
+                    best_time=pdata["best_time"],
+                    rationale=pdata["rationale"],
+                    status=PostStatus.ready,
+                )
+                db.add(post)
+                db.flush()
+                for slot_index, slot in enumerate(slots):
+                    db.add(
+                        PostImage(
+                            post_id=post.id,
+                            slot_index=slot_index,
+                            aspect_ratio=slot["aspect_ratio"],
+                            prompt=slot["prompt"],
+                            negative_prompt=slot["negative_prompt"],
+                        )
+                    )
+            db.commit()
+
+        campaign.status = CampaignStatus.ready
+        db.commit()
+        logger.info("Campaign %s generated for %d platform(s)", campaign_id, len(active))
+    except anthropic.RateLimitError:
+        db.rollback()
+        raise
+    except ExtractionError as exc:
+        _fail_campaign(db, campaign_id, str(exc))
+    except Exception as exc:  # noqa: BLE001 — always leave the campaign in a terminal state
+        logger.exception("Campaign %s generation crashed", campaign_id)
+        _fail_campaign(db, campaign_id, f"Unexpected error: {exc}")
+    finally:
+        db.close()
+
+
+def _fail_campaign(db, campaign_id: str, error: str) -> None:
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is not None:
+        campaign.status = CampaignStatus.failed
+        campaign.error = error
+        db.commit()
+
+
+@celery_app.task(
+    name="campaign.regenerate_platform",
+    autoretry_for=(anthropic.RateLimitError,),
+    retry_backoff=70,
+    max_retries=4,
+)
+def regenerate_platform(campaign_id: str, platform: str) -> None:
+    """Regenerate all posts for a single platform (PRD §5.6 step 21c)."""
+    db = SessionLocal()
+    try:
+        campaign = db.get(Campaign, campaign_id)
+        if campaign is None:
+            return
+        client = db.get(Client, campaign.client_id)
+        cp = db.scalar(
+            select(CampaignPlatform).where(
+                CampaignPlatform.campaign_id == campaign_id, CampaignPlatform.platform == platform
+            )
+        )
+        if client is None or cp is None:
+            return
+
+        for old in db.scalars(
+            select(Post).where(Post.campaign_id == campaign_id, Post.platform == cp.platform)
+        ).all():
+            db.delete(old)
+        db.commit()
+
+        article_text = _article_reference_text(db, campaign)
+        context = build_context(db, client, campaign, article_text)
+        posts_data = generate_posts_copy(db, client, campaign, cp, context)
+        image_prompts = generate_image_prompts(db, campaign, cp, posts_data, context)
+        for position, (pdata, slots) in enumerate(zip(posts_data, image_prompts)):
+            post = Post(
+                campaign_id=campaign.id, platform=cp.platform, position=position,
+                headline=pdata["headline"], copy=pdata["copy"], cta=pdata["cta"],
+                hashtags=pdata["hashtags"], best_time=pdata["best_time"],
+                rationale=pdata["rationale"], status=PostStatus.ready,
+            )
+            db.add(post)
+            db.flush()
+            for slot_index, slot in enumerate(slots):
+                db.add(PostImage(
+                    post_id=post.id, slot_index=slot_index, aspect_ratio=slot["aspect_ratio"],
+                    prompt=slot["prompt"], negative_prompt=slot["negative_prompt"],
+                ))
+        campaign.status = CampaignStatus.ready
+        db.commit()
+    except anthropic.RateLimitError:
+        db.rollback()
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Platform regeneration crashed for campaign %s", campaign_id)
+        _fail_campaign(db, campaign_id, f"Unexpected error: {exc}")
     finally:
         db.close()
 

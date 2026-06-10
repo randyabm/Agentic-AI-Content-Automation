@@ -19,6 +19,18 @@ DEFAULT_SYSTEM_PROMPTS = {
         "website and must extract a structured client profile. Be factual: only state what "
         "the content supports. Respond in English."
     ),
+    LLMFunction.editorial_agent: (
+        "You are an expert social media copywriter. You write platform-native copy that "
+        "respects each platform's character limits, brand voice, and Brand Memory rules. "
+        "You always return valid JSON exactly as instructed and never invent facts about "
+        "the brand."
+    ),
+    LLMFunction.visual_agent: (
+        "You are an expert art director who writes detailed prompts for AI image "
+        "generation models. Your prompts specify subject, composition, style, lighting, "
+        "and color palette aligned with the brand, plus a negative prompt. You always "
+        "return valid JSON exactly as instructed."
+    ),
 }
 
 DEFAULT_SETTINGS = [

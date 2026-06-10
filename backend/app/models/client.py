@@ -26,6 +26,16 @@ class Client(Base):
     social_media_urls: Mapped[list] = mapped_column(JSON, default=list)
     logo_object_key: Mapped[str] = mapped_column(String(500), default="")  # S3/MinIO object key
     notes: Mapped[str] = mapped_column(Text, default="")
+
+    # Brand Memory (PRD §5.3.3) — persistent context injected into all campaign prompts.
+    brand_tone: Mapped[str] = mapped_column(Text, default="")               # tone & voice guidelines
+    brand_words_required: Mapped[list] = mapped_column(JSON, default=list)  # words/phrases to always use
+    brand_words_forbidden: Mapped[list] = mapped_column(JSON, default=list) # words/phrases to never use
+    brand_colors: Mapped[list] = mapped_column(JSON, default=list)         # corporate colors (hex codes)
+    brand_visual_style: Mapped[str] = mapped_column(Text, default="")       # e.g. minimalist, vibrant, corporate
+    brand_copy_examples: Mapped[list] = mapped_column(JSON, default=list)   # approved copy few-shot examples
+    brand_legal_disclaimer: Mapped[str] = mapped_column(Text, default="")   # recurring legal/disclaimer text
+
     last_extraction_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -35,6 +45,19 @@ class Client(Base):
     extraction_jobs: Mapped[list["ExtractionJob"]] = relationship(
         back_populates="client", cascade="all, delete-orphan"
     )
+
+
+class BrandMemoryVersion(Base):
+    """Snapshot of a client's Brand Memory each time it is saved (PRD §5.3.3 —
+    Brand Memory is versioned with change history maintained)."""
+
+    __tablename__ = "brand_memory_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    client_id: Mapped[str] = mapped_column(String(36), ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)  # full Brand Memory at save time
+    created_by: Mapped[str] = mapped_column(String(36), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class JobStatus(str, enum.Enum):

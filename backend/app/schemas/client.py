@@ -48,9 +48,37 @@ class ClientOut(BaseModel):
     social_media_urls: list
     logo_object_key: str
     notes: str
+    brand_tone: str
+    brand_words_required: list
+    brand_words_forbidden: list
+    brand_colors: list
+    brand_visual_style: str
+    brand_copy_examples: list
+    brand_legal_disclaimer: str
     last_extraction_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class BrandMemoryUpdate(BaseModel):
+    """Brand Memory fields (PRD §5.3.3). Each save creates a version snapshot."""
+
+    brand_tone: str = ""
+    brand_words_required: list[str] = []
+    brand_words_forbidden: list[str] = []
+    brand_colors: list[str] = []
+    brand_visual_style: str = ""
+    brand_copy_examples: list[str] = []
+    brand_legal_disclaimer: str = ""
+
+
+class BrandMemoryVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    client_id: str
+    snapshot: dict
+    created_at: datetime
 
 
 class ExtractionJobOut(BaseModel):

@@ -73,15 +73,18 @@ def build_corpus(pages: list[CrawledPage]) -> str:
     return "\n".join(chunks)
 
 
-def complete_text(cfg: LLMConfig, system_prompt: str, user_prompt: str) -> str:
+def complete_text(
+    cfg: LLMConfig, system_prompt: str, user_prompt: str, temperature: float | None = None
+) -> str:
     api_key = decrypt_secret(cfg.api_key_encrypted)
+    temp = cfg.temperature if temperature is None else temperature
     if cfg.provider == "anthropic":
         # Retries with backoff absorb per-minute token rate limits (429s).
         client = anthropic.Anthropic(api_key=api_key, max_retries=5)
         message = client.messages.create(
             model=cfg.model_name,
             max_tokens=cfg.max_tokens,
-            temperature=min(cfg.temperature, 1.0),
+            temperature=min(temp, 1.0),
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
@@ -93,7 +96,7 @@ def complete_text(cfg: LLMConfig, system_prompt: str, user_prompt: str) -> str:
             json={
                 "model": cfg.model_name,
                 "max_tokens": cfg.max_tokens,
-                "temperature": cfg.temperature,
+                "temperature": temp,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

@@ -23,9 +23,26 @@ export interface Client {
   social_media_urls: string[];
   logo_object_key: string;
   notes: string;
+  brand_tone: string;
+  brand_words_required: string[];
+  brand_words_forbidden: string[];
+  brand_colors: string[];
+  brand_visual_style: string;
+  brand_copy_examples: string[];
+  brand_legal_disclaimer: string;
   last_extraction_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface BrandMemory {
+  brand_tone: string;
+  brand_words_required: string[];
+  brand_words_forbidden: string[];
+  brand_colors: string[];
+  brand_visual_style: string;
+  brand_copy_examples: string[];
+  brand_legal_disclaimer: string;
 }
 
 export type JobStatus =
@@ -185,5 +202,153 @@ export interface Setting {
   key: string;
   value: string;
   description: string;
+  updated_at: string;
+}
+
+// --- Campaigns (Module 3) ---
+
+export type CampaignPlatform =
+  | "facebook"
+  | "instagram"
+  | "linkedin"
+  | "tiktok"
+  | "x"
+  | "youtube";
+
+export type CampaignObjective =
+  | "awareness"
+  | "consideration"
+  | "conversion"
+  | "retention"
+  | "launch"
+  | "promotion";
+
+export type VisualFormat = "static_image" | "carousel";
+export type CampaignStatus = "draft" | "generating" | "ready" | "failed";
+export type PostStatus = "pending" | "generating" | "ready" | "failed";
+
+export interface PlatformSpec {
+  platform: CampaignPlatform;
+  label: string;
+  char_limit: number;
+  aspect_ratios: string[];
+  formats: VisualFormat[];
+}
+
+export interface PlatformConfig {
+  id: string;
+  platform: CampaignPlatform;
+  is_active: boolean;
+  num_posts: number;
+  images_per_post: number;
+  visual_format: VisualFormat;
+  carousel_slides: number;
+  tone: string;
+  include_cta: boolean;
+  cta_text: string;
+  hashtag_count: number;
+  hashtag_mix: { branded: number; trending: number; niche: number };
+  emojis: string;
+}
+
+export interface PromptVersion {
+  prompt: string;
+  negative_prompt: string;
+  created_at: string;
+}
+
+export interface GenerationVersion {
+  object_key: string;
+  prompt: string;
+  created_at: string;
+}
+
+export interface LayerGeom {
+  asset_id?: string;
+  x: number;
+  y: number;
+  scale: number;
+  rotation?: number;
+  opacity: number;
+  z?: number;
+  locked?: boolean;
+  visible?: boolean;
+}
+
+export interface CanvasState {
+  logo?: LayerGeom;
+  assets?: LayerGeom[];
+}
+
+export interface PostImage {
+  id: string;
+  post_id: string;
+  slot_index: number;
+  aspect_ratio: string;
+  prompt: string;
+  negative_prompt: string;
+  additional_guidance: string;
+  prompt_history: PromptVersion[];
+  image_model_id: string | null;
+  base_object_key: string;
+  is_uploaded: boolean;
+  generation_history: GenerationVersion[];
+  canvas_state: CanvasState;
+  composited_object_key: string;
+}
+
+export interface Post {
+  id: string;
+  campaign_id: string;
+  platform: CampaignPlatform;
+  position: number;
+  headline: string;
+  copy: string;
+  cta: string;
+  hashtags: string[];
+  best_time: string;
+  rationale: string;
+  status: PostStatus;
+  images: PostImage[];
+}
+
+export interface PostAsset {
+  id: string;
+  campaign_id: string;
+  object_key: string;
+  filename: string;
+  content_type: string;
+}
+
+export interface Campaign {
+  id: string;
+  client_id: string;
+  name: string;
+  objective: CampaignObjective;
+  central_theme: string;
+  content_language: string;
+  creativity_level: number;
+  start_date: string | null;
+  end_date: string | null;
+  article_id: string | null;
+  article_url: string;
+  status: CampaignStatus;
+  error: string;
+  created_at: string;
+  updated_at: string;
+  platforms: PlatformConfig[];
+}
+
+export interface CampaignDetail extends Campaign {
+  posts: Post[];
+}
+
+export interface CampaignListItem {
+  id: string;
+  client_id: string;
+  name: string;
+  objective: CampaignObjective;
+  status: CampaignStatus;
+  created_at: string;
   updated_at: string;
 }

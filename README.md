@@ -3,17 +3,23 @@
 Internal web application for client intelligence, competitive analysis, and AI-powered
 social media campaign generation. Built from `AI_Marketing_Platform_PRD_v1.1.docx`.
 
-## Current status — Phase 1 (Core)
+## Current status
 
 | Module | Status |
 |--------|--------|
 | Module 6 — Users & roles (JWT auth, RBAC, audit log, password reset) | ✅ Implemented |
 | Module 7 — LLM config & global settings (encrypted API keys, image model list) | ✅ Implemented |
 | Module 1 — Client management (crawler + Claude extraction, review/confirm flow) | ✅ Implemented |
-| Module 2 — Competitive intelligence | Phase 2 |
-| Module 5 — Internal article library | Phase 3 |
-| Module 3 — Campaign generation + image editor | Phase 4 |
+| Module 2 — Competitive intelligence | ✅ Implemented |
+| Module 5 — Internal article library | ✅ Implemented |
+| Module 3 — Campaign generation (Editorial + Visual agents, image editor, export) | ✅ Implemented |
 | Module 4 — Article-to-content | Phase 5 |
+
+Module 3 (Phase 4) covers: per-platform campaign configuration (§5.2–5.3), Brand Memory
+per client (§5.3.3, versioned), the Editorial and Visual agents (§5.4), AI image
+generation via the admin-curated Gemini/OpenRouter models (§5.5.4), the Image Editor for
+manual logo placement and custom asset layers (§5.5), and export to ZIP / PDF / JSON / CSV
+(§5.7).
 
 ## Stack
 

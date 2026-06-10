@@ -83,4 +83,31 @@ export async function api<T>(
   return res.json() as Promise<T>;
 }
 
+/** Fetch a protected binary resource (image, export) as a Blob, with token refresh. */
+export async function apiBlob(path: string, retried = false): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (res.status === 401 && !retried) {
+    if (await tryRefresh()) return apiBlob(path, true);
+    window.location.href = "/login";
+    throw new ApiError(401, "Session expired");
+  }
+  if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status})`);
+  return res.blob();
+}
+
+/** Trigger a browser download of a protected file (campaign export). */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const blob = await apiBlob(path);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export { API_URL };

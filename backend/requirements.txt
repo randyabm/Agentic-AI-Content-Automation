@@ -16,3 +16,5 @@ beautifulsoup4==4.13.4
 lxml==5.4.0
 anthropic==0.54.0
 boto3==1.38.27
+Pillow==11.2.1
+fpdf2==2.8.3
