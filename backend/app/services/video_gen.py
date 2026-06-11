@@ -6,6 +6,7 @@ dedicated provider:
 - google_veo  — Google Veo via the Gemini API (predictLongRunning + operation polling)
 - fal         — fal.ai queue API (one key, many models: Kling, Veo, Hunyuan, Wan…)
 - replicate   — Replicate predictions API
+- openai_sora — OpenAI Sora via the /v1/videos API (create + poll + download content)
 
 All providers are long-running: generate_video() blocks while polling and is meant
 to be called from a Celery task, never from a request handler.
@@ -66,6 +67,8 @@ def generate_video(
         return _generate_fal(model, api_key, prompt, negative_prompt, aspect_ratio, duration)
     if model.provider == "replicate":
         return _generate_replicate(model, api_key, prompt, negative_prompt, aspect_ratio, duration)
+    if model.provider == "openai_sora":
+        return _generate_openai_sora(model, api_key, prompt, negative_prompt, aspect_ratio, duration)
     raise ExtractionError(f"Unsupported video provider: {model.provider}")
 
 
@@ -154,6 +157,62 @@ def _generate_fal(
             if state in ("FAILED", "CANCELLED"):
                 raise ExtractionError(f"fal.ai generation {state.lower()}.")
     raise ExtractionError("fal.ai generation timed out.")
+
+
+# --- OpenAI Sora (/v1/videos API) ---
+
+# Sora accepts fixed sizes and durations of 4/8/12 seconds.
+_SORA_SIZES = {"16:9": "1280x720", "9:16": "720x1280", "1:1": "1024x1024"}
+
+
+def _generate_openai_sora(
+    model: VideoModel, api_key: str, prompt: str, negative: str, aspect: str, duration: int
+) -> tuple[bytes, str]:
+    headers = {"Authorization": f"Bearer {api_key}"}
+    full_prompt = prompt
+    if negative.strip():
+        full_prompt += f"\n\nAvoid the following: {negative.strip()}"
+    seconds = min((s for s in (4, 8, 12) if s >= duration), default=12)
+
+    with httpx.Client(timeout=60) as client:
+        start = client.post(
+            "https://api.openai.com/v1/videos",
+            headers=headers,
+            json={
+                "model": model.model_name,
+                "prompt": full_prompt,
+                "size": _SORA_SIZES.get(aspect, "1280x720"),
+                "seconds": str(seconds),
+            },
+        )
+        if start.status_code >= 400:
+            raise ExtractionError(f"Sora request failed ({start.status_code}): {start.text[:300]}")
+        video_id = start.json().get("id", "")
+        if not video_id:
+            raise ExtractionError("Sora did not return a video id.")
+
+        deadline = time.monotonic() + MAX_WAIT_S
+        while time.monotonic() < deadline:
+            time.sleep(POLL_INTERVAL_S)
+            poll = client.get(f"https://api.openai.com/v1/videos/{video_id}", headers=headers)
+            if poll.status_code >= 400:
+                raise ExtractionError(f"Sora polling failed ({poll.status_code}): {poll.text[:300]}")
+            data = poll.json()
+            state = data.get("status", "")
+            if state == "completed":
+                content = client.get(
+                    f"https://api.openai.com/v1/videos/{video_id}/content",
+                    headers=headers,
+                    follow_redirects=True,
+                    timeout=300,
+                )
+                if content.status_code >= 400:
+                    raise ExtractionError(f"Could not download the Sora video ({content.status_code})")
+                return content.content, content.headers.get("content-type", "video/mp4")
+            if state == "failed":
+                err = (data.get("error") or {}).get("message", "unknown error")
+                raise ExtractionError(f"Sora generation failed: {err}")
+    raise ExtractionError("Sora generation timed out.")
 
 
 # --- Replicate (predictions API) ---

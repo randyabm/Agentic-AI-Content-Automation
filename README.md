@@ -44,8 +44,11 @@ upload their own MP4/WebM/MOV. Videos are included in the ZIP export and the JSO
 - **Backend:** Python FastAPI + SQLAlchemy + Celery (Redis) + httpx/BeautifulSoup crawler
 - **Frontend:** React + TypeScript (Vite)
 - **Database:** PostgreSQL · **Storage:** MinIO (S3-compatible) · **Email (dev):** Mailpit
-- **LLMs:** Anthropic Claude for text agents; OpenRouter (Gemini image models) for image generation.
-  Admins curate the image model list; users pick a model at generation time.
+- **LLMs:** Anthropic Claude (default) or OpenAI/OpenRouter per text function; OpenRouter
+  (Gemini) or OpenAI (gpt-image-1 / DALL-E) for images; Google Veo, OpenAI Sora, fal.ai,
+  or Replicate for video. Admins curate the image/video model lists; users pick a model
+  at generation time. (Competitor identification stays Anthropic-only — it relies on the
+  server-side web search tool.)
 
 ## Getting started
 

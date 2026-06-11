@@ -94,6 +94,7 @@ function LLMConfigSection() {
               Provider
               <select value={editing.provider} onChange={(e) => setEditing({ ...editing, provider: e.target.value })}>
                 <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
                 <option value="openrouter">OpenRouter</option>
               </select>
             </label>
@@ -139,7 +140,13 @@ function LLMConfigSection() {
 function ImageModelSection() {
   const [models, setModels] = useState<ImageModel[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ display_name: "", model_name: "", api_key: "", is_default: false });
+  const [form, setForm] = useState({
+    display_name: "",
+    provider: "openrouter",
+    model_name: "",
+    api_key: "",
+    is_default: false,
+  });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -152,12 +159,12 @@ function ImageModelSection() {
     try {
       const created = await api<ImageModel>("/image-models", {
         method: "POST",
-        body: { ...form, provider: "openrouter", api_key: form.api_key || undefined },
+        body: { ...form, api_key: form.api_key || undefined },
       });
       setModels((prev) =>
         [...prev.map((m) => (created.is_default ? { ...m, is_default: false } : m)), created],
       );
-      setForm({ display_name: "", model_name: "", api_key: "", is_default: false });
+      setForm({ display_name: "", provider: "openrouter", model_name: "", api_key: "", is_default: false });
       setShowForm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add model");
@@ -206,8 +213,17 @@ function ImageModelSection() {
             <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} required />
           </label>
           <label>
-            Model ID (OpenRouter)
-            <input placeholder="google/gemini-2.5-flash-image" value={form.model_name}
+            Provider
+            <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
+              <option value="openrouter">OpenRouter</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>
+            Model ID
+            <input
+              placeholder={form.provider === "openai" ? "gpt-image-1" : "google/gemini-2.5-flash-image"}
+              value={form.model_name}
               onChange={(e) => setForm({ ...form, model_name: e.target.value })} required />
           </label>
           <label>
@@ -227,6 +243,7 @@ function ImageModelSection() {
         <thead>
           <tr>
             <th>Name</th>
+            <th>Provider</th>
             <th>Model ID</th>
             <th>Default</th>
             <th>Active</th>
@@ -237,6 +254,7 @@ function ImageModelSection() {
           {models.map((m) => (
             <tr key={m.id}>
               <td>{m.display_name}</td>
+              <td>{m.provider}</td>
               <td className="mono">{m.model_name}</td>
               <td>
                 {m.is_default ? (
@@ -337,7 +355,7 @@ function VideoModelSection() {
       </div>
       <p className="muted">
         Admin-curated list. OpenRouter does not offer video, so each model targets its own provider
-        (Google Veo / fal.ai / Replicate) with its own API key.
+        (Google Veo / OpenAI Sora / fal.ai / Replicate) with its own API key.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -351,6 +369,7 @@ function VideoModelSection() {
             Provider
             <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
               <option value="google_veo">Google Veo (Gemini API)</option>
+              <option value="openai_sora">OpenAI Sora</option>
               <option value="fal">fal.ai</option>
               <option value="replicate">Replicate</option>
             </select>

@@ -56,11 +56,15 @@ def generate_image(
     full_prompt = prompt.strip()
     if negative_prompt.strip():
         full_prompt += f"\n\nAvoid the following: {negative_prompt.strip()}"
-    full_prompt += f"\n\nUse a {aspect_ratio} aspect ratio."
 
-    if model.provider != "openrouter":
-        raise ExtractionError(f"Unsupported image provider: {model.provider}")
+    if model.provider == "openrouter":
+        return _generate_openrouter(model, api_key, f"{full_prompt}\n\nUse a {aspect_ratio} aspect ratio.")
+    if model.provider == "openai":
+        return _generate_openai(model, api_key, full_prompt, aspect_ratio)
+    raise ExtractionError(f"Unsupported image provider: {model.provider}")
 
+
+def _generate_openrouter(model: ImageModel, api_key: str, full_prompt: str) -> tuple[bytes, str]:
     response = httpx.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
@@ -83,3 +87,49 @@ def generate_image(
     except (KeyError, IndexError, TypeError) as exc:
         raise ExtractionError(f"Unexpected image model response: {exc}") from exc
     return _data_url_to_bytes(url)
+
+
+# OpenAI image models only accept fixed sizes; map each aspect ratio to the
+# closest supported size (gpt-image-1 / dall-e-3 differ on the wide/tall sizes).
+_OPENAI_SIZES = {
+    "gpt-image": {"square": "1024x1024", "wide": "1536x1024", "tall": "1024x1536"},
+    "dall-e": {"square": "1024x1024", "wide": "1792x1024", "tall": "1024x1792"},
+}
+
+
+def _openai_size(model_name: str, aspect_ratio: str) -> str:
+    family = "dall-e" if model_name.startswith("dall-e") else "gpt-image"
+    try:
+        w, h = (float(p) for p in aspect_ratio.split(":"))
+    except ValueError:
+        w = h = 1
+    shape = "square" if w == h else "wide" if w > h else "tall"
+    return _OPENAI_SIZES[family][shape]
+
+
+def _generate_openai(model: ImageModel, api_key: str, prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
+    response = httpx.post(
+        "https://api.openai.com/v1/images/generations",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "model": model.model_name,
+            "prompt": prompt,
+            "size": _openai_size(model.model_name, aspect_ratio),
+            "n": 1,
+        },
+        timeout=300,
+    )
+    if response.status_code >= 400:
+        raise ExtractionError(f"OpenAI image generation failed ({response.status_code}): {response.text[:300]}")
+    try:
+        item = response.json()["data"][0]
+    except (KeyError, IndexError) as exc:
+        raise ExtractionError(f"Unexpected OpenAI image response: {exc}") from exc
+    if item.get("b64_json"):
+        return base64.b64decode(item["b64_json"]), "image/png"
+    if item.get("url"):  # dall-e-3 returns a temporary URL by default
+        download = httpx.get(item["url"], timeout=120, follow_redirects=True)
+        if download.status_code >= 400:
+            raise ExtractionError(f"Could not download the OpenAI image ({download.status_code})")
+        return download.content, download.headers.get("content-type", "image/png")
+    raise ExtractionError("OpenAI returned no image data.")

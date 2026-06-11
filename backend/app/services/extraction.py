@@ -89,22 +89,34 @@ def complete_text(
             messages=[{"role": "user", "content": user_prompt}],
         )
         return "".join(block.text for block in message.content if block.type == "text")
-    if cfg.provider == "openrouter":
+    if cfg.provider in ("openrouter", "openai"):
+        # Both speak the OpenAI chat-completions dialect; only the base URL differs.
+        base = "https://openrouter.ai/api/v1" if cfg.provider == "openrouter" else "https://api.openai.com/v1"
+        payload: dict = {
+            "model": cfg.model_name,
+            "temperature": temp,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        # OpenAI reasoning models (o-series, gpt-5*) reject max_tokens and fixed
+        # temperature; use the newer parameter and let them default.
+        if cfg.provider == "openai" and (cfg.model_name.startswith("o") or cfg.model_name.startswith("gpt-5")):
+            payload.pop("temperature")
+            payload["max_completion_tokens"] = cfg.max_tokens
+        else:
+            payload["max_tokens"] = cfg.max_tokens
         response = httpx.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": cfg.model_name,
-                "max_tokens": cfg.max_tokens,
-                "temperature": temp,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            },
+            json=payload,
             timeout=180,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise ExtractionError(
+                f"{cfg.provider} request failed ({response.status_code}): {response.text[:300]}"
+            )
         return response.json()["choices"][0]["message"]["content"]
     raise ExtractionError(f"Unsupported LLM provider: {cfg.provider}")
 
