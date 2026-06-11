@@ -193,6 +193,11 @@ function ImageModelSection() {
     }
   }
 
+  function setKey(id: string) {
+    const key = window.prompt("Paste the API key for this image model (stored encrypted):");
+    if (key) patch(id, { api_key: key });
+  }
+
   return (
     <div className="card">
       <div className="card-header">
@@ -245,6 +250,7 @@ function ImageModelSection() {
             <th>Name</th>
             <th>Provider</th>
             <th>Model ID</th>
+            <th>API key</th>
             <th>Default</th>
             <th>Active</th>
             <th></th>
@@ -256,6 +262,14 @@ function ImageModelSection() {
               <td>{m.display_name}</td>
               <td>{m.provider}</td>
               <td className="mono">{m.model_name}</td>
+              <td>
+                {m.api_key_hint ? (
+                  <span className="mono">{m.api_key_hint}</span>
+                ) : (
+                  <span className="tag tag-red">missing</span>
+                )}{" "}
+                <button className="btn btn-ghost" onClick={() => setKey(m.id)}>Set</button>
+              </td>
               <td>
                 {m.is_default ? (
                   <span className="tag tag-green">default</span>
