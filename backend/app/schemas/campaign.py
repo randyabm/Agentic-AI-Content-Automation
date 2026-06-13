@@ -122,6 +122,7 @@ class PostVideoOut(BaseModel):
     video_model_id: str | None
     base_object_key: str
     is_uploaded: bool
+    logo_enabled: bool = True
     generation_history: list
     status: VideoStatus
     error: str
@@ -160,6 +161,15 @@ class PostAssetOut(BaseModel):
     id: str
     campaign_id: str
     object_key: str
+    filename: str
+    content_type: str
+
+
+class ReferenceImageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    campaign_id: str
     filename: str
     content_type: str
 
@@ -223,6 +233,8 @@ class CampaignListItem(BaseModel):
     status: CampaignStatus
     created_at: datetime
     updated_at: datetime
+    # True when the campaign is otherwise done but some image/video is still rendering.
+    visuals_generating: bool = False
 
 
 class PostUpdate(BaseModel):
@@ -246,6 +258,10 @@ class GenerateImageRequest(BaseModel):
 
 class CanvasUpdate(BaseModel):
     canvas_state: dict
+
+
+class LogoToggle(BaseModel):
+    enabled: bool
 
 
 class RegenerateRequest(BaseModel):

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
+import { PlatformIcon } from "../components/PlatformIcon";
 import { PostPreviewModal } from "../components/PostPreview";
+import { RATIO_PRIORITY } from "../ratios";
 import { useAuth } from "../auth";
 import type {
   CampaignDetail as Campaign,
@@ -12,6 +15,7 @@ import type {
   Post,
   PostImage,
   PostVideo,
+  ReferenceImage,
   VideoModel,
 } from "../types";
 
@@ -146,32 +150,40 @@ export default function CampaignDetail() {
         </div>
       )}
 
-      <div className="element-grid">
-        {[...campaign.elements]
-          .sort((a, b) => a.position - b.position)
-          .map((el) => (
-            <ElementCard
-              key={el.id}
-              campaignId={campaign.id}
-              element={el}
-              posts={campaign.posts.filter((p) => p.element_id === el.id)}
-              onOpen={() => setOpenElementId(el.id)}
-            />
-          ))}
-        {orphanPosts.map((post) => (
-          <div key={post.id} className="card element-card" onClick={() => setOpenElementId(`post:${post.id}`)}>
-            <div className="element-thumb">
-              <div className="image-empty">📝</div>
-            </div>
-            <div className="element-card-body">
-              <strong className="small">{post.headline || "Post"}</strong>
-              <div className="platform-chips">
-                <span className="chip">{post.platform}</span>
+      <ReferencesPanel campaignId={campaign.id} canEdit={canEdit} />
+
+      {/* Hide the element cards while the campaign is still generating — they'd
+          just show empty "No image yet" placeholders, which looks unfinished. */}
+      {campaign.status !== "generating" && (
+        <div className="element-grid">
+          {[...campaign.elements]
+            .sort((a, b) => a.position - b.position)
+            .map((el) => (
+              <ElementCard
+                key={el.id}
+                campaignId={campaign.id}
+                element={el}
+                posts={campaign.posts.filter((p) => p.element_id === el.id)}
+                onOpen={() => setOpenElementId(el.id)}
+              />
+            ))}
+          {orphanPosts.map((post) => (
+            <div key={post.id} className="card element-card" onClick={() => setOpenElementId(`post:${post.id}`)}>
+              <div className="element-thumb">
+                <div className="image-empty">📝</div>
+              </div>
+              <div className="element-card-body">
+                <strong className="small">{post.headline || "Post"}</strong>
+                <div className="platform-chips">
+                  <span className="chip">
+                    <PlatformIcon platform={post.platform} size={12} /> {post.platform}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {openElement && (
         <ElementModal
@@ -216,6 +228,9 @@ function ElementCard({
 }) {
   const cover = element.images.find((i) => i.base_object_key) ?? null;
   const coverVideo = element.videos.find((v) => v.base_object_key && v.status === "ready") ?? null;
+  const isGenerating =
+    element.images.some((i) => i.status === "generating") ||
+    element.videos.some((v) => v.status === "generating");
   const ratios = Array.from(
     new Set([...element.images.map((i) => i.aspect_ratio), ...element.videos.map((v) => v.aspect_ratio)])
   );
@@ -233,7 +248,14 @@ function ElementCard({
   return (
     <div className="card element-card" onClick={onOpen}>
       <div className="element-thumb">
-        {cover ? (
+        {isGenerating ? (
+          <div className="image-empty">
+            Generating image…
+            <div className="progress-bar" style={{ width: "80%" }}>
+              <div className="progress-fill indeterminate" />
+            </div>
+          </div>
+        ) : cover ? (
           <ElementThumb campaignId={campaignId} image={cover} />
         ) : coverVideo ? (
           <ElementVideoThumb campaignId={campaignId} video={coverVideo} />
@@ -246,7 +268,7 @@ function ElementCard({
         <div className="platform-chips">
           {element.platforms.map((p) => (
             <span key={p} className="chip">
-              {p}
+              <PlatformIcon platform={p} size={12} /> {p}
             </span>
           ))}
         </div>
@@ -283,6 +305,100 @@ function ElementVideoThumb({ campaignId, video }: { campaignId: string; video: P
     <video src={url} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
   ) : (
     <div className="image-empty">🎬</div>
+  );
+}
+
+function ReferenceThumb({ campaignId, refImg }: { campaignId: string; refImg: ReferenceImage }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    apiBlob(`/campaigns/${campaignId}/references/${refImg.id}/file`)
+      .then((b) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(b);
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [campaignId, refImg.id]);
+  return url ? <img src={url} alt={refImg.filename} /> : <div className="image-empty small">…</div>;
+}
+
+function ReferencesPanel({ campaignId, canEdit }: { campaignId: string; canEdit: boolean }) {
+  const [refs, setRefs] = useState<ReferenceImage[]>([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<ReferenceImage[]>(`/campaigns/${campaignId}/references`).then(setRefs).catch(() => {});
+  }, [campaignId]);
+
+  async function upload(file: File) {
+    setBusy("Uploading…");
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const created = await api<ReferenceImage>(`/campaigns/${campaignId}/references`, { method: "POST", formData: fd });
+      setRefs((prev) => [...prev, created]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm("Remove this reference image?")) return;
+    try {
+      await api(`/campaigns/${campaignId}/references/${id}`, { method: "DELETE" });
+      setRefs((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
+
+  if (!canEdit && refs.length === 0) return null;
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Reference images</h2>
+        {canEdit && (
+          <label className="file-btn btn btn-ghost small">
+            <UploadIcon size={14} /> Add reference
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              hidden
+              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+            />
+          </label>
+        )}
+      </div>
+      <p className="muted small">
+        Uploaded images (e.g. product photos) are used as visual reference so generated images match the
+        real subject. Applied the next time you generate an image.
+      </p>
+      {busy && <div className="alert alert-success small">{busy}</div>}
+      {error && <div className="alert alert-error small">{error}</div>}
+      <div className="reference-grid">
+        {refs.map((r) => (
+          <div className="reference-item" key={r.id}>
+            <ReferenceThumb campaignId={campaignId} refImg={r} />
+            {canEdit && (
+              <button className="reference-remove icon-btn" title="Remove" onClick={() => remove(r.id)}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        ))}
+        {refs.length === 0 && <p className="muted small">No reference images yet.</p>}
+      </div>
+    </div>
   );
 }
 
@@ -389,39 +505,27 @@ function ElementModal({
         <div className="element-modal-layout">
           {element && (
             <div className="element-visuals">
-              <h3 className="small muted">Visuals (shared across platforms)</h3>
-              {element.images.map((img) => (
-                <div key={img.id}>
-                  <p className="muted small">
-                    🔗 {img.aspect_ratio} → {platformsForRatio(img.aspect_ratio).join(", ") || "all"}
-                  </p>
-                  <ImageSlot
-                    campaignId={campaignId}
-                    image={img}
-                    client={client}
-                    models={models}
-                    canEdit={canEdit}
-                    onChange={onChange}
-                  />
-                </div>
-              ))}
-              {element.videos.map((video) => (
-                <VideoSlot
-                  key={video.id}
+              <h3 className="small muted">Visual (shared across platforms)</h3>
+              {element.images.length > 0 && (
+                <ElementVisual
                   campaignId={campaignId}
-                  video={video}
+                  images={element.images}
+                  client={client}
+                  models={models}
+                  canEdit={canEdit}
+                  onChange={onChange}
+                  platformsForRatio={platformsForRatio}
+                />
+              )}
+              {element.videos.length > 0 && (
+                <VideoVisual
+                  campaignId={campaignId}
+                  videos={element.videos}
+                  client={client}
                   models={videoModels}
                   canEdit={canEdit}
                   onChange={onChange}
-                />
-              ))}
-              {canEdit && (
-                <AddVideoButton
-                  campaignId={campaignId}
-                  elementId={element.id}
-                  ratio={element.platform_ratios?.[posts[0]?.platform ?? ""] ?? element.images[0]?.aspect_ratio}
-                  platform={posts[0]?.platform ?? "facebook"}
-                  onChange={onChange}
+                  platformsForRatio={platformsForRatio}
                 />
               )}
             </div>
@@ -436,7 +540,7 @@ function ElementModal({
                     className={`tab ${tab === p.platform ? "active" : ""}`}
                     onClick={() => setTab(p.platform)}
                   >
-                    {p.platform}
+                    <PlatformIcon platform={p.platform} size={14} /> {p.platform}
                   </button>
                 ))}
               </div>
@@ -546,6 +650,114 @@ function CopyForm({
   );
 }
 
+function ratioRank(r: string): number {
+  const i = RATIO_PRIORITY.indexOf(r);
+  return i === -1 ? RATIO_PRIORITY.length : i;
+}
+
+function statusDot(item?: { status: string; base_object_key: string }) {
+  if (!item) return null;
+  if (item.status === "generating") return <span className="ratio-dot busy" />;
+  if (item.status === "ready" && item.base_object_key) return <span className="ratio-dot ok" />;
+  return null;
+}
+
+/** One element = one visual concept. Carousels have several slides (slot_index),
+ *  each with its own prompt; within a slide, the ratio variants are auto-derived
+ *  from the base ratio. So we navigate slides first, then ratios. */
+function ElementVisual({
+  campaignId,
+  images,
+  client,
+  models,
+  canEdit,
+  onChange,
+  platformsForRatio,
+}: {
+  campaignId: string;
+  images: PostImage[];
+  client: Client | null;
+  models: ImageModel[];
+  canEdit: boolean;
+  onChange: () => Promise<void>;
+  platformsForRatio: (ratio: string) => string[];
+}) {
+  const slots = Array.from(new Set(images.map((i) => i.slot_index))).sort((a, b) => a - b);
+  const isCarousel = slots.length > 1;
+  const [slot, setSlot] = useState(slots[0] ?? 0);
+
+  const slotImages = images
+    .filter((i) => i.slot_index === (slots.includes(slot) ? slot : slots[0]))
+    .sort((a, b) => ratioRank(a.aspect_ratio) - ratioRank(b.aspect_ratio));
+  const primaryId = slotImages[0]?.id;
+  const [selId, setSelId] = useState(primaryId);
+  const current = slotImages.find((i) => i.id === selId) ?? slotImages[0];
+  // While any ratio of this slide is generating, lock generation on all of them —
+  // one base generation drives the rest, so a rival generation must be blocked.
+  const slotBusy = slotImages.some((i) => i.status === "generating");
+
+  useEffect(() => {
+    if (!slotImages.some((i) => i.id === selId)) setSelId(primaryId);
+  }, [slotImages, selId, primaryId]);
+
+  if (!current) return null;
+  return (
+    <div className="element-visual">
+      {isCarousel && (
+        <div className="ratio-switch slide-switch">
+          {slots.map((s, idx) => {
+            const slotPrimary = images
+              .filter((i) => i.slot_index === s)
+              .sort((a, b) => ratioRank(a.aspect_ratio) - ratioRank(b.aspect_ratio))[0];
+            return (
+              <button
+                key={s}
+                className={`ratio-tab ${s === slot ? "active" : ""}`}
+                onClick={() => setSlot(s)}
+              >
+                Slide {idx + 1}
+                {statusDot(slotPrimary)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {slotImages.length > 1 && (
+        <div className="ratio-switch">
+          {slotImages.map((img) => (
+            <button
+              key={img.id}
+              className={`ratio-tab ${img.id === selId ? "active" : ""}`}
+              onClick={() => setSelId(img.id)}
+              title={img.id === primaryId ? "Base ratio" : "Derived from the base ratio"}
+            >
+              {img.aspect_ratio}
+              {statusDot(img)}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="muted small ratio-platforms">
+        <span className="ratio-pill">{current.aspect_ratio}</span>
+        {platformsForRatio(current.aspect_ratio).length
+          ? platformsForRatio(current.aspect_ratio).map((p) => <PlatformIcon key={p} platform={p} size={14} />)
+          : "all"}
+      </p>
+      <ImageSlot
+        key={current.id}
+        campaignId={campaignId}
+        image={current}
+        client={client}
+        models={models}
+        canEdit={canEdit}
+        onChange={onChange}
+        cascades={current.id === primaryId && slotImages.length > 1}
+        lockGenerate={slotBusy}
+      />
+    </div>
+  );
+}
+
 function ImageSlot({
   campaignId,
   image,
@@ -553,6 +765,8 @@ function ImageSlot({
   models,
   canEdit,
   onChange,
+  cascades = false,
+  lockGenerate = false,
 }: {
   campaignId: string;
   image: PostImage;
@@ -560,6 +774,8 @@ function ImageSlot({
   models: ImageModel[];
   canEdit: boolean;
   onChange: () => Promise<void>;
+  cascades?: boolean;
+  lockGenerate?: boolean;
 }) {
   const [prompt, setPrompt] = useState(image.prompt);
   const [negative, setNegative] = useState(image.negative_prompt);
@@ -568,6 +784,7 @@ function ImageSlot({
   // Surface the prompt before the first generation so it can be tuned upfront.
   const [showPrompt, setShowPrompt] = useState(!image.base_object_key);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const url = useImageUrl(campaignId, image);
@@ -613,6 +830,37 @@ function ImageSlot({
     }
   }
 
+  async function download() {
+    setBusy("Preparing…");
+    setError("");
+    try {
+      // The composite endpoint renders the final PNG (base + logo + layers + text).
+      const name = `image-${image.aspect_ratio.replace(":", "x")}.png`;
+      await downloadFile(`/campaigns/${campaignId}/images/${image.id}/composite`, name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const logoOn = (image.canvas_state?.logo_enabled ?? true) !== false;
+  async function toggleLogo() {
+    setBusy("Updating…");
+    setError("");
+    try {
+      await api(`/campaigns/${campaignId}/images/${image.id}/logo`, {
+        method: "PATCH",
+        body: { enabled: !logoOn },
+      });
+      await onChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update logo");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div className="image-slot">
       <div className="image-thumb" style={{ aspectRatio: image.aspect_ratio.replace(":", "/") }}>
@@ -624,15 +872,38 @@ function ImageSlot({
             </div>
           </div>
         ) : url ? (
-          <img src={url} alt="post" />
+          <img src={url} alt="post" className="image-zoomable" onClick={() => setLightbox(true)} />
         ) : (
           <div className="image-empty">No image yet</div>
         )}
+        {url && image.status !== "generating" && (
+          <div className="image-overlay">
+            <button className="icon-btn" title="View full size" onClick={() => setLightbox(true)}>
+              <Maximize2 size={18} />
+            </button>
+            {canEdit && image.base_object_key && (
+              <button className="icon-btn" title="Edit image" onClick={() => setEditorOpen(true)}>
+                <Pencil size={18} />
+              </button>
+            )}
+            <button className="icon-btn" title="Download image" onClick={download} disabled={!!busy}>
+              <Download size={18} />
+            </button>
+          </div>
+        )}
         {busy && <div className="image-busy">{busy}</div>}
       </div>
+      {lightbox && url && (
+        <div className="lightbox" onClick={() => setLightbox(false)}>
+          <button className="lightbox-close icon-btn" title="Close" onClick={() => setLightbox(false)}>
+            <X size={20} />
+          </button>
+          <img src={url} alt="full size" className="lightbox-img" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
       <div className="image-meta small muted">
-        {image.aspect_ratio}
-        {image.status === "failed" && <span className="tag tag-red"> failed</span>}
+        <span className="ratio-pill">{image.aspect_ratio}</span>
+        {image.status === "failed" && <span className="tag tag-red">failed</span>}
       </div>
       {(error || image.error) && <div className="alert alert-error small">{error || image.error}</div>}
 
@@ -646,22 +917,44 @@ function ImageSlot({
               </option>
             ))}
           </select>
-          <button className="btn btn-primary small" onClick={generate} disabled={!!busy || image.status === "generating"}>
-            {image.status === "generating" ? "Generating…" : image.base_object_key ? "Regenerate" : "Generate"}
+          <button
+            className="btn btn-primary small"
+            onClick={generate}
+            disabled={!!busy || image.status === "generating" || lockGenerate}
+            title={lockGenerate && image.status !== "generating" ? "The base ratio is generating — it will create this one too" : undefined}
+          >
+            <Sparkles size={14} />
+            {image.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : image.base_object_key ? "Regenerate" : "Generate"}
           </button>
           <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
-            Prompt
+            <Type size={14} /> Prompt
           </button>
-          {image.base_object_key && (
-            <button className="btn btn-ghost small" onClick={() => setEditorOpen(true)}>
-              Edit image
+          <label className={`file-btn btn btn-ghost small ${lockGenerate ? "disabled" : ""}`}>
+            <UploadIcon size={14} /> Upload
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              hidden
+              disabled={!!busy || lockGenerate}
+              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+            />
+          </label>
+          {client?.logo_object_key && (
+            <button
+              className="btn btn-ghost small"
+              onClick={toggleLogo}
+              disabled={!!busy}
+              title="Include the brand logo in the generated image (applied next time you generate)"
+            >
+              {logoOn ? <Eye size={14} /> : <EyeOff size={14} />} Logo {logoOn ? "on" : "off"}
             </button>
           )}
-          <label className="file-btn btn btn-ghost small">
-            Upload
-            <input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-          </label>
         </div>
+      )}
+      {canEdit && cascades && (
+        <p className="muted small cascade-note">
+          <Sparkles size={12} /> Generating this base also creates the other ratios automatically.
+        </p>
       )}
 
       {showPrompt && canEdit && (
@@ -702,54 +995,93 @@ function ImageSlot({
   );
 }
 
-function AddVideoButton({
+/** Videos of an element grouped by ratio (same presentation as images). The base
+ *  ratio is generated; the rest are reframed from it on demand (manual, for cost). */
+function VideoVisual({
   campaignId,
-  elementId,
-  ratio,
-  platform,
+  videos,
+  client,
+  models,
+  canEdit,
   onChange,
+  platformsForRatio,
 }: {
   campaignId: string;
-  elementId: string;
-  ratio: string | undefined;
-  platform: string;
+  videos: PostVideo[];
+  client: Client | null;
+  models: VideoModel[];
+  canEdit: boolean;
   onChange: () => Promise<void>;
+  platformsForRatio: (ratio: string) => string[];
 }) {
-  const [busy, setBusy] = useState(false);
-  const vertical = platform === "instagram" || platform === "tiktok";
-
-  async function add() {
-    setBusy(true);
-    try {
-      await api(`/campaigns/${campaignId}/elements/${elementId}/videos`, {
-        method: "POST",
-        body: { aspect_ratio: ratio || (vertical ? "9:16" : "16:9"), duration_seconds: 8 },
-      });
-      await onChange();
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const ordered = [...videos].sort((a, b) => ratioRank(a.aspect_ratio) - ratioRank(b.aspect_ratio));
+  const primaryId = ordered[0]?.id;
+  const [selId, setSelId] = useState(primaryId);
+  const current = ordered.find((v) => v.id === selId) ?? ordered[0];
+  useEffect(() => {
+    if (!ordered.some((v) => v.id === selId)) setSelId(primaryId);
+  }, [ordered, selId, primaryId]);
+  const slotBusy = ordered.some((v) => v.status === "generating");
+  if (!current) return null;
   return (
-    <button className="btn btn-ghost small" onClick={add} disabled={busy}>
-      {busy ? "Adding…" : "+ Add video"}
-    </button>
+    <div className="element-visual">
+      {ordered.length > 1 && (
+        <div className="ratio-switch">
+          {ordered.map((v) => (
+            <button
+              key={v.id}
+              className={`ratio-tab ${v.id === selId ? "active" : ""}`}
+              onClick={() => setSelId(v.id)}
+              title={v.id === primaryId ? "Base ratio" : "Reframed from the base ratio"}
+            >
+              {v.aspect_ratio}
+              {statusDot(v)}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="muted small ratio-platforms">
+        <span className="ratio-pill">{current.aspect_ratio}</span>
+        {platformsForRatio(current.aspect_ratio).length
+          ? platformsForRatio(current.aspect_ratio).map((p) => <PlatformIcon key={p} platform={p} size={14} />)
+          : "all"}
+      </p>
+      <VideoSlot
+        key={current.id}
+        campaignId={campaignId}
+        video={current}
+        client={client}
+        models={models}
+        canEdit={canEdit}
+        onChange={onChange}
+        isPrimary={current.id === primaryId}
+        hasSiblings={ordered.length > 1}
+        lockGenerate={slotBusy}
+      />
+    </div>
   );
 }
 
 function VideoSlot({
   campaignId,
   video,
+  client,
   models,
   canEdit,
   onChange,
+  isPrimary = false,
+  hasSiblings = false,
+  lockGenerate = false,
 }: {
   campaignId: string;
   video: PostVideo;
+  client?: Client | null;
   models: VideoModel[];
   canEdit: boolean;
   onChange: () => Promise<void>;
+  isPrimary?: boolean;
+  hasSiblings?: boolean;
+  lockGenerate?: boolean;
 }) {
   const [url, setUrl] = useState("");
   const [prompt, setPrompt] = useState(video.prompt);
@@ -823,24 +1155,45 @@ function VideoSlot({
     }
   }
 
-  async function remove() {
-    if (!window.confirm("Remove this video slot?")) return;
-    await api(`/campaigns/${campaignId}/videos/${video.id}`, { method: "DELETE" });
-    await onChange();
+  const logoOn = (video.logo_enabled ?? true) !== false;
+  async function toggleLogo() {
+    setBusy("Updating…");
+    setError("");
+    try {
+      await api(`/campaigns/${campaignId}/videos/${video.id}/logo`, { method: "PATCH", body: { enabled: !logoOn } });
+      await onChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update logo");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deriveVariants() {
+    setBusy("Queuing variants…");
+    setError("");
+    try {
+      await api(`/campaigns/${campaignId}/videos/${video.id}/derive-ratios`, { method: "POST" });
+      await onChange();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not generate variants");
+    } finally {
+      setBusy("");
+    }
   }
 
   return (
     <div className="image-slot video-slot">
       <div className="image-thumb" style={{ aspectRatio: video.aspect_ratio.replace(":", "/") }}>
-        {url ? (
-          <video src={url} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : video.status === "generating" ? (
+        {video.status === "generating" ? (
           <div className="image-empty">
             Generating video…
             <div className="progress-bar" style={{ width: "80%" }}>
               <div className="progress-fill indeterminate" />
             </div>
           </div>
+        ) : url ? (
+          <video src={url} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <div className="image-empty">🎬 No video yet</div>
         )}
@@ -854,40 +1207,65 @@ function VideoSlot({
 
       {canEdit && (
         <div className="image-actions">
-          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="small">
-            <option value="">Default model</option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.display_name}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn btn-primary small"
-            onClick={generate}
-            disabled={!!busy || video.status === "generating"}
-          >
-            {video.status === "generating" ? "Generating…" : video.base_object_key ? "Regenerate" : "Generate"}
-          </button>
-          <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
-            Prompt
-          </button>
-          <label className="file-btn btn btn-ghost small">
-            Upload
+          {isPrimary ? (
+            <>
+              <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="small">
+                <option value="">Default model</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn btn-primary small"
+                onClick={generate}
+                disabled={!!busy || video.status === "generating" || lockGenerate}
+              >
+                <Sparkles size={14} />
+                {video.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : video.base_object_key ? "Regenerate" : "Generate"}
+              </button>
+              <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
+                <Type size={14} /> Prompt
+              </button>
+              {client?.logo_object_key && (
+                <button
+                  className="btn btn-ghost small"
+                  onClick={toggleLogo}
+                  disabled={!!busy}
+                  title="Overlay the brand logo on the video (applied next time you generate)"
+                >
+                  {logoOn ? <Eye size={14} /> : <EyeOff size={14} />} Logo {logoOn ? "on" : "off"}
+                </button>
+              )}
+              {hasSiblings && video.base_object_key && (
+                <button
+                  className="btn btn-secondary small"
+                  onClick={deriveVariants}
+                  disabled={!!busy || lockGenerate}
+                  title="Reframe this base video into the other aspect ratios"
+                >
+                  <Sparkles size={14} /> Generate other ratios
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="muted small">↳ Reframed from the base ratio</span>
+          )}
+          <label className={`file-btn btn btn-ghost small ${lockGenerate ? "disabled" : ""}`}>
+            <UploadIcon size={14} /> Upload
             <input
               type="file"
               accept="video/mp4,video/webm,video/quicktime"
               hidden
+              disabled={!!busy || lockGenerate}
               onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
             />
           </label>
-          <button className="btn btn-ghost small danger" onClick={remove}>
-            ✕
-          </button>
         </div>
       )}
 
-      {showPrompt && canEdit && (
+      {showPrompt && canEdit && isPrimary && (
         <div className="prompt-editor">
           <label className="small">
             Video prompt

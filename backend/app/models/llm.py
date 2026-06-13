@@ -20,6 +20,28 @@ class LLMFunction(str, enum.Enum):
     article_relevance_scoring = "article_relevance_scoring"
 
 
+class ProviderCredential(Base):
+    """A single API key per provider, shared across every LLM function and every
+
+    image/video model that targets the same provider. This is the one place an
+    admin pastes a key; configs and models reference it by their `provider` field
+    (normalized via app.services.providers.credential_provider), so the same
+    Anthropic / OpenAI / OpenRouter key is never entered more than once.
+    """
+
+    __tablename__ = "provider_credentials"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Canonical credential providers: anthropic | openai | openrouter | google | fal | replicate
+    provider: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String(100), default="")
+    api_key_encrypted: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class LLMConfig(Base):
     __tablename__ = "llm_configs"
 

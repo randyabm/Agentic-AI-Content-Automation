@@ -218,6 +218,7 @@ class PostVideo(Base):
     video_model_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     base_object_key: Mapped[str] = mapped_column(String(500), default="")  # current generated/uploaded video
     is_uploaded: Mapped[bool] = mapped_column(Boolean, default=False)
+    logo_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # overlay the client logo on generation
     generation_history: Mapped[list] = mapped_column(JSON, default=list)  # [{object_key, prompt, created_at}]
 
     status: Mapped[VideoStatus] = mapped_column(Enum(VideoStatus), default=VideoStatus.draft)
@@ -276,6 +277,25 @@ class PostImage(Base):
     )
 
     element: Mapped[CampaignElement] = relationship(back_populates="images")
+
+
+class ReferenceImage(Base):
+    """A reference image uploaded for a campaign (e.g. product photos). Passed to
+
+    the image model as visual reference when generating the base image, so the
+    generated visuals match the real subject/product. Distinct from PostAsset,
+    which is an overlay composited on top in the editor.
+    """
+
+    __tablename__ = "reference_images"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    campaign_id: Mapped[str] = mapped_column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    object_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    content_type: Mapped[str] = mapped_column(String(100), default="")
+    created_by: Mapped[str] = mapped_column(String(36), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PostAsset(Base):

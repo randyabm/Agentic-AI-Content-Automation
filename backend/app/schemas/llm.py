@@ -5,6 +5,28 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models.llm import LLMFunction
 
 
+class ProviderCredentialUpdate(BaseModel):
+    api_key: str | None = None  # plaintext in transit (HTTPS); stored encrypted
+    label: str | None = None
+    is_active: bool | None = None
+
+
+class ProviderCredentialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    label: str = ""
+    kinds: list[str] = []
+    api_key_hint: str = ""  # masked, never the real key
+    has_key: bool = False
+    is_active: bool = True
+
+
+class ProviderModelOut(BaseModel):
+    id: str
+    name: str
+
+
 class LLMConfigUpdate(BaseModel):
     provider: str | None = None
     model_name: str | None = None

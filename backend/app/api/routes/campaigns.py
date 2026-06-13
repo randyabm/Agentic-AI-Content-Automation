@@ -17,6 +17,7 @@ from app.models.campaign import (
     PostAsset,
     PostImage,
     PostVideo,
+    ReferenceImage,
     VideoStatus,
 )
 from app.models.client import Client
@@ -31,10 +32,12 @@ from app.schemas.campaign import (
     ElementOut,
     GenerateImageRequest,
     GenerateVideoRequest,
+    LogoToggle,
     PostAssetOut,
     PostOut,
     PostImageOut,
     PostUpdate,
+    ReferenceImageOut,
     PostVideoCreate,
     PostVideoOut,
     PromptUpdate,
@@ -47,7 +50,13 @@ from app.services.export import EXPORTERS
 from app.services.extraction import ExtractionError
 from app.services.image_gen import generate_image, get_image_model
 from app.services.platforms import PLATFORM_SPECS, resolve_platform_ratios
-from app.workers.tasks import generate_campaign, regenerate_platform, run_image_generation, run_video_generation
+from app.workers.tasks import (
+    derive_video_ratios,
+    generate_campaign,
+    regenerate_platform,
+    run_image_generation,
+    run_video_generation,
+)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -102,7 +111,35 @@ def list_campaigns(
     query = select(Campaign).order_by(Campaign.updated_at.desc())
     if client_id:
         query = query.where(Campaign.client_id == client_id)
-    return db.scalars(query).all()
+    campaigns = db.scalars(query).all()
+
+    # Campaigns with any image/video still rendering (so the list can show a
+    # "generating visuals" hint even after the campaign itself is ready).
+    img_ids = db.scalars(
+        select(CampaignElement.campaign_id)
+        .join(PostImage, PostImage.element_id == CampaignElement.id)
+        .where(PostImage.status == VideoStatus.generating)
+    ).all()
+    vid_ids = db.scalars(
+        select(CampaignElement.campaign_id)
+        .join(PostVideo, PostVideo.element_id == CampaignElement.id)
+        .where(PostVideo.status == VideoStatus.generating)
+    ).all()
+    generating = set(img_ids) | set(vid_ids)
+
+    return [
+        CampaignListItem(
+            id=c.id,
+            client_id=c.client_id,
+            name=c.name,
+            objective=c.objective,
+            status=c.status,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+            visuals_generating=c.id in generating,
+        )
+        for c in campaigns
+    ]
 
 
 @router.post("", response_model=CampaignOut, status_code=status.HTTP_202_ACCEPTED)
@@ -457,6 +494,25 @@ def save_canvas(
     return image
 
 
+@router.patch("/{campaign_id}/images/{image_id}/logo", response_model=PostImageOut)
+def toggle_image_logo(
+    campaign_id: str,
+    image_id: str,
+    body: LogoToggle,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_editor),
+):
+    """Show or hide the client logo on this image (logo is included by default)."""
+    image = _get_image_or_404(db, campaign_id, image_id)
+    state = dict(image.canvas_state or {})
+    state["logo_enabled"] = body.enabled
+    image.canvas_state = state
+    image.composited_object_key = ""  # re-composite with/without the logo
+    db.commit()
+    db.refresh(image)
+    return image
+
+
 # --- videos (provider-abstracted generation; key configured later by an Admin) ---
 
 
@@ -552,6 +608,39 @@ def generate_slot_video(
     db.commit()
     run_video_generation.delay(video.id)
     audit.record(db, actor, "campaign.video_generate", "campaign", campaign_id, {"video_id": video_id})
+    db.refresh(video)
+    return video
+
+
+@router.post("/{campaign_id}/videos/{video_id}/derive-ratios", response_model=list[PostVideoOut])
+def derive_video_ratio_variants(
+    campaign_id: str, video_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    """Reframe the base clip into the element's other aspect ratios (ffmpeg, no re-gen)."""
+    source = _get_video_or_404(db, campaign_id, video_id)
+    if not source.base_object_key:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Generate the base video first")
+    element = db.get(CampaignElement, source.element_id)
+    siblings = [v for v in element.videos if v.id != source.id and not v.is_uploaded]
+    if not siblings:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This element has only one aspect ratio")
+    for v in siblings:
+        v.status = VideoStatus.generating
+        v.error = ""
+    db.commit()
+    derive_video_ratios.delay(source.id)
+    audit.record(db, actor, "campaign.video_derive", "campaign", campaign_id, {"video_id": video_id})
+    return list(element.videos)
+
+
+@router.patch("/{campaign_id}/videos/{video_id}/logo", response_model=PostVideoOut)
+def toggle_video_logo(
+    campaign_id: str, video_id: str, body: LogoToggle, db: Session = Depends(get_db), _: User = Depends(require_editor)
+):
+    """Include the client logo when generating this video (applied on next generation)."""
+    video = _get_video_or_404(db, campaign_id, video_id)
+    video.logo_enabled = body.enabled
+    db.commit()
     db.refresh(video)
     return video
 
@@ -658,6 +747,67 @@ def delete_asset(
     if asset is None or asset.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
     db.delete(asset)
+    db.commit()
+
+
+# --- reference images (passed to the image model as visual reference) ---
+
+
+@router.get("/{campaign_id}/references", response_model=list[ReferenceImageOut])
+def list_references(campaign_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _get_campaign_or_404(db, campaign_id)
+    return db.scalars(
+        select(ReferenceImage).where(ReferenceImage.campaign_id == campaign_id).order_by(ReferenceImage.created_at)
+    ).all()
+
+
+@router.post("/{campaign_id}/references", response_model=ReferenceImageOut, status_code=status.HTTP_201_CREATED)
+def upload_reference(
+    campaign_id: str, file: UploadFile, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    _get_campaign_or_404(db, campaign_id)
+    if file.content_type not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reference must be a PNG, JPG or WebP image")
+    data = file.file.read()
+    if len(data) > MAX_ASSET_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reference must be 10 MB or smaller")
+    ref = ReferenceImage(
+        campaign_id=campaign_id,
+        object_key="",
+        filename=file.filename or "reference",
+        content_type=file.content_type,
+        created_by=actor.id,
+    )
+    db.add(ref)
+    db.flush()
+    key = f"campaigns/{campaign_id}/references/{ref.id}"
+    storage.upload_object(key, data, file.content_type)
+    ref.object_key = key
+    db.commit()
+    db.refresh(ref)
+    audit.record(db, actor, "campaign.reference_upload", "campaign", campaign_id, {"reference": ref.id})
+    return ref
+
+
+@router.get("/{campaign_id}/references/{reference_id}/file")
+def get_reference_file(
+    campaign_id: str, reference_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+):
+    ref = db.get(ReferenceImage, reference_id)
+    if ref is None or ref.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reference not found")
+    data, content_type = storage.get_object(ref.object_key)
+    return Response(content=data, media_type=content_type)
+
+
+@router.delete("/{campaign_id}/references/{reference_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_reference(
+    campaign_id: str, reference_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    ref = db.get(ReferenceImage, reference_id)
+    if ref is None or ref.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reference not found")
+    db.delete(ref)
     db.commit()
 
 

@@ -55,6 +55,16 @@ def _place(base: Image.Image, layer: Image.Image, geom: dict) -> None:
 
     x = int(float(geom.get("x", 0.5)) * bw)
     y = int(float(geom.get("y", 0.5)) * bh)
+
+    # Optional contrast scrim behind the logo (auto-placement may request one).
+    if geom.get("scrim"):
+        pad = max(4, int(resized.width * 0.14))
+        rect = [x - pad, y - pad, x + resized.width + pad, y + resized.height + pad]
+        fill = (0, 0, 0, 110) if geom.get("scrim_color", "dark") == "dark" else (255, 255, 255, 150)
+        overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        ImageDraw.Draw(overlay).rounded_rectangle(rect, radius=pad, fill=fill)
+        base.alpha_composite(overlay)
+
     base.alpha_composite(resized, (x, y))
 
 
@@ -143,9 +153,11 @@ def composite_post_image(db: Session, image: PostImage, client: Client) -> bytes
         if layer is not None:
             _place(base, layer, geom)
 
-    # Logo layer on top (if placed and the client has a raster logo).
+    # Logo layer on top ONLY when the user placed one manually in the editor — the
+    # logo is normally rendered into the image by the model at generation time, so we
+    # must not composite a second one here.
     logo_geom = state.get("logo")
-    if logo_geom and client.logo_object_key:
+    if logo_geom and state.get("logo_enabled", True) and client.logo_object_key:
         layer = _load_image(client.logo_object_key)
         if layer is not None:
             _place(base, layer, logo_geom)

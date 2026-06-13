@@ -40,6 +40,10 @@ def get_video_model(db: Session, video_model_id: str | None) -> VideoModel:
         raise ExtractionError(
             "No video generation model is configured. An Admin must add one in System Settings."
         )
+    # Resolve the key now, while we still hold a db session (generate_video does not).
+    from app.services import providers
+
+    model.resolved_api_key = providers.resolve_api_key(db, model.provider, model.api_key_encrypted)
     return model
 
 
@@ -53,11 +57,11 @@ def generate_video(
     """Generate one video and return (bytes, content_type). Blocking — Celery only."""
     if not prompt.strip():
         raise ExtractionError("The video prompt is empty.")
-    api_key = decrypt_secret(model.api_key_encrypted)
+    api_key = getattr(model, "resolved_api_key", "") or decrypt_secret(model.api_key_encrypted)
     if not api_key:
         raise ExtractionError(
-            f"Video model '{model.display_name}' has no API key configured. "
-            "An Admin must set it in System Settings."
+            f"No API key configured for provider '{model.provider}'. "
+            "An Admin must set it under Providers & Keys in System Settings."
         )
     duration = min(duration_seconds, model.max_duration_seconds or duration_seconds)
 

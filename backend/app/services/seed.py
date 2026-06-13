@@ -5,9 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.crypto import encrypt_secret
+from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.security import hash_password
-from app.models.llm import ImageModel, LLMConfig, LLMFunction
+from app.models.llm import ImageModel, LLMConfig, LLMFunction, ProviderCredential, VideoModel
 from app.models.setting import Setting
 from app.models.user import User, UserRole
 
@@ -131,4 +131,47 @@ def seed(db: Session) -> None:
         if key not in existing_keys:
             db.add(Setting(key=key, value=value, description=description))
 
+    _seed_provider_credentials(db, settings)
+
     db.commit()
+
+
+def _seed_provider_credentials(db: Session, settings) -> None:
+    """Populate the central one-key-per-provider table from env keys and from any
+
+    keys already stored on existing configs/models, so the move to central
+    credentials is invisible: on next boot the admin already has their connections.
+    """
+    from app.services.providers import CANONICAL_PROVIDERS, credential_provider
+
+    existing = {c.provider: c for c in db.scalars(select(ProviderCredential)).all()}
+    labels = {p.key: p.label for p in CANONICAL_PROVIDERS}
+
+    # Best key found per canonical provider: env first, then any entity that holds one.
+    found: dict[str, str] = {}
+
+    def offer(entity_provider: str, encrypted: str) -> None:
+        cp = credential_provider(entity_provider)
+        if cp in found:
+            return
+        key = decrypt_secret(encrypted or "")
+        if key:
+            found[cp] = key
+
+    if settings.anthropic_api_key:
+        found.setdefault("anthropic", settings.anthropic_api_key)
+    if settings.openrouter_api_key:
+        found.setdefault("openrouter", settings.openrouter_api_key)
+    for cfg in db.scalars(select(LLMConfig)).all():
+        offer(cfg.provider, cfg.api_key_encrypted)
+    for m in db.scalars(select(ImageModel)).all():
+        offer(m.provider, m.api_key_encrypted)
+    for m in db.scalars(select(VideoModel)).all():
+        offer(m.provider, m.api_key_encrypted)
+
+    for cp, key in found.items():
+        cred = existing.get(cp)
+        if cred is None:
+            db.add(ProviderCredential(provider=cp, label=labels.get(cp, cp), api_key_encrypted=encrypt_secret(key)))
+        elif not decrypt_secret(cred.api_key_encrypted):
+            cred.api_key_encrypted = encrypt_secret(key)

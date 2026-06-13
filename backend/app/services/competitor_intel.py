@@ -105,7 +105,8 @@ def identify_competitors(
         scope=scope,
         profile=_profile_text("COMPANY", client.company_name, client.website_url, client_profile_dict(client)),
     )
-    api = anthropic.Anthropic(api_key=decrypt_secret(cfg.api_key_encrypted), max_retries=5)
+    api_key = getattr(cfg, "resolved_api_key", "") or decrypt_secret(cfg.api_key_encrypted)
+    api = anthropic.Anthropic(api_key=api_key, max_retries=5)
     message = api.messages.create(
         model=cfg.model_name,
         max_tokens=cfg.max_tokens,

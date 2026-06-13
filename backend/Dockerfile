@@ -6,8 +6,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /code
 
-# TTF fonts for server-side text layer rendering (Image Editor text overlays)
-RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-dejavu-extra \
+# TTF fonts for server-side text rendering + ffmpeg for video logo overlay/reframe
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-dejavu-core fonts-dejavu-extra ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -47,13 +47,18 @@ class ExtractionError(Exception):
 
 
 def get_llm_config(db: Session, function: LLMFunction) -> LLMConfig:
+    from app.services import providers
+
     cfg = db.scalar(select(LLMConfig).where(LLMConfig.function == function))
     if cfg is None or not cfg.is_active:
         raise ExtractionError(f"No active LLM configured for function '{function.value}'")
-    if not decrypt_secret(cfg.api_key_encrypted):
+    # The key lives on the central provider credential; fall back to the config's
+    # own key for rows that predate central credentials.
+    cfg.resolved_api_key = providers.resolve_api_key(db, cfg.provider, cfg.api_key_encrypted)
+    if not cfg.resolved_api_key:
         raise ExtractionError(
-            f"The LLM for '{function.value}' has no API key configured. "
-            "An Admin must set it in System Configuration."
+            f"No API key configured for provider '{cfg.provider}'. "
+            "An Admin must set it under Providers & Keys in System Settings."
         )
     return cfg
 
@@ -76,7 +81,7 @@ def build_corpus(pages: list[CrawledPage]) -> str:
 def complete_text(
     cfg: LLMConfig, system_prompt: str, user_prompt: str, temperature: float | None = None
 ) -> str:
-    api_key = decrypt_secret(cfg.api_key_encrypted)
+    api_key = getattr(cfg, "resolved_api_key", "") or decrypt_secret(cfg.api_key_encrypted)
     temp = cfg.temperature if temperature is None else temperature
     if cfg.provider == "anthropic":
         # Retries with backoff absorb per-minute token rate limits (429s).

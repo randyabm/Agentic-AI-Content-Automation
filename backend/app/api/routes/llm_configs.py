@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_admin
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.db.session import get_db
-from app.models.llm import ImageModel, LLMConfig, VideoModel
+from app.models.llm import ImageModel, LLMConfig, ProviderCredential, VideoModel
 from app.models.user import User
 from app.schemas.llm import (
     ImageModelCreate,
@@ -13,13 +13,95 @@ from app.schemas.llm import (
     ImageModelUpdate,
     LLMConfigOut,
     LLMConfigUpdate,
+    ProviderCredentialOut,
+    ProviderCredentialUpdate,
+    ProviderModelOut,
     VideoModelCreate,
     VideoModelOut,
     VideoModelUpdate,
 )
-from app.services import audit
+from app.services import audit, providers
 
 router = APIRouter(tags=["llm-config"])
+
+
+# --- Provider credentials (one key per provider, shared everywhere) ----------
+
+
+@router.get("/provider-credentials", response_model=list[ProviderCredentialOut])
+def list_provider_credentials(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    existing = {c.provider: c for c in db.scalars(select(ProviderCredential)).all()}
+    out: list[ProviderCredentialOut] = []
+    for info in providers.CANONICAL_PROVIDERS:
+        cred = existing.get(info.key)
+        key = decrypt_secret(cred.api_key_encrypted) if cred else ""
+        out.append(
+            ProviderCredentialOut(
+                provider=info.key,
+                label=(cred.label if cred else "") or info.label,
+                kinds=list(info.kinds),
+                api_key_hint=mask_secret(key),
+                has_key=bool(key),
+                is_active=cred.is_active if cred else True,
+            )
+        )
+    return out
+
+
+@router.put("/provider-credentials/{provider}", response_model=ProviderCredentialOut)
+def upsert_provider_credential(
+    provider: str,
+    body: ProviderCredentialUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    info = next((p for p in providers.CANONICAL_PROVIDERS if p.key == provider), None)
+    if info is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown provider '{provider}'")
+    cred = db.scalar(select(ProviderCredential).where(ProviderCredential.provider == provider))
+    if cred is None:
+        cred = ProviderCredential(provider=provider, label=info.label)
+        db.add(cred)
+    changes = body.model_dump(exclude_unset=True)
+    if "api_key" in changes:
+        cred.api_key_encrypted = encrypt_secret(changes.pop("api_key") or "")
+    for field, value in changes.items():
+        setattr(cred, field, value)
+    db.commit()
+    audit.record(db, actor, "provider_credential.update", "provider_credential", cred.id, {"provider": provider})
+    key = decrypt_secret(cred.api_key_encrypted)
+    return ProviderCredentialOut(
+        provider=info.key,
+        label=cred.label or info.label,
+        kinds=list(info.kinds),
+        api_key_hint=mask_secret(key),
+        has_key=bool(key),
+        is_active=cred.is_active,
+    )
+
+
+@router.get("/providers/{provider}/models", response_model=list[ProviderModelOut])
+def list_provider_models(
+    provider: str,
+    kind: str = "text",
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Auto-fetch the available model IDs for a provider so the admin picks from a
+
+    dropdown instead of typing the model ID by hand. Empty list => UI falls back
+    to manual entry (e.g. fal/replicate, or when the provider's API rejects the key).
+    """
+    api_key = providers.resolve_api_key(db, provider)
+    if not api_key:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"No API key set for '{providers.credential_provider(provider)}'. Add it under Providers & Keys first.",
+        )
+    try:
+        return providers.list_models(provider, kind, api_key)
+    except providers.ProviderModelsError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
 
 def _config_out(cfg: LLMConfig) -> LLMConfigOut:

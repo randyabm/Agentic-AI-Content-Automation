@@ -72,9 +72,9 @@ export default function Campaigns() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientFilter]);
 
-  // Poll while any campaign is still generating.
+  // Poll while any campaign is generating — or still rendering its visuals.
   useEffect(() => {
-    if (!campaigns.some((c) => c.status === "generating")) return;
+    if (!campaigns.some((c) => c.status === "generating" || c.visuals_generating)) return;
     const t = setInterval(() => load().catch(() => {}), 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,6 +135,11 @@ export default function Campaigns() {
             </div>
             <p className="muted small">{clientName(c.client_id)}</p>
             <p className="small">Objective: {c.objective}</p>
+            {c.status !== "generating" && c.visuals_generating && (
+              <p className="small tag" style={{ display: "inline-block" }}>
+                ⏳ Generating visuals…
+              </p>
+            )}
             <p className="muted small">Updated {new Date(c.updated_at).toLocaleString()}</p>
           </Link>
         ))}

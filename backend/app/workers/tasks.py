@@ -622,10 +622,30 @@ def run_image_generation(image_id: str, image_model_id: str | None = None) -> No
         prompt = image.prompt
         if image.additional_guidance:
             prompt = f"{prompt}\n\nAdditional guidance: {image.additional_guidance}"
-        data, content_type = generate_image(db, model, prompt, image.negative_prompt, image.aspect_ratio)
 
         element = db.get(CampaignElement, image.element_id)
         campaign_id = element.campaign_id if element else "unknown"
+        # If this is the slide's base ratio, lock the other ratios right away.
+        if element is not None and _is_primary_image(element, image):
+            _set_slot_generating(db, element, image)
+            db.commit()
+        references = _campaign_reference_bytes(db, campaign_id) if element else []
+        logo_bytes = _client_logo_bytes(db, campaign_id, image) if element else None
+        fallback_logo = False
+        try:
+            data, content_type = generate_image(
+                db, model, prompt, image.negative_prompt, image.aspect_ratio,
+                reference_bytes=references, logo_bytes=logo_bytes,
+            )
+        except ExtractionError as exc:
+            # The image-to-image endpoint (logo/refs) is flaky (OpenAI 520s). Rather
+            # than fail the slot, fall back to plain text-to-image and composite the
+            # logo afterwards if one was requested.
+            if not (references or logo_bytes):
+                raise
+            logger.warning("Image-to-image failed for %s (%s); falling back to text-to-image", image.id, exc)
+            data, content_type = generate_image(db, model, prompt, image.negative_prompt, image.aspect_ratio)
+            fallback_logo = bool(logo_bytes)
         version = len(image.generation_history) + 1
         key = f"campaigns/{campaign_id}/images/{image.id}/v{version}.png"
         storage.upload_object(key, data, content_type)
@@ -641,14 +661,28 @@ def run_image_generation(image_id: str, image_model_id: str | None = None) -> No
         image.is_uploaded = False
         image.image_model_id = model.id
         image.composited_object_key = ""  # base changed; previous composite is stale
+        if fallback_logo:
+            _composite_logo_fallback(db, image, data)  # bake failed → overlay the logo instead
         image.status = VideoStatus.ready
         db.commit()
         logger.info("Image %s generated (%d bytes)", image_id, len(data))
+
+        # Auto-derive the element's other ratios from this base so every platform
+        # shares one visual (AI reframe with a local centre-crop fallback). Only the
+        # element's primary ratio cascades, so regenerating a sibling won't loop.
+        if element is not None and _is_primary_image(element, image):
+            if any(
+                s.id != image.id and s.slot_index == image.slot_index and not s.is_uploaded
+                for s in element.images
+            ):
+                derive_element_ratios.delay(image.id, model.id)
     except ExtractionError as exc:
         _fail_image(db, image_id, str(exc))
+        _reset_slot_after_fail(db, image_id)
     except Exception as exc:  # noqa: BLE001 — slot must always end in a terminal state
         logger.exception("Image generation %s crashed", image_id)
         _fail_image(db, image_id, f"Unexpected error: {exc}")
+        _reset_slot_after_fail(db, image_id)
     finally:
         db.close()
 
@@ -661,6 +695,177 @@ def _fail_image(db, image_id: str, error: str) -> None:
         image.status = VideoStatus.failed
         image.error = error
         db.commit()
+
+
+def _campaign_reference_bytes(db, campaign_id: str) -> list[bytes]:
+    """Load the campaign's reference images (product photos etc.) as raw bytes."""
+    from app.models.campaign import ReferenceImage
+    from app.services import storage
+
+    out: list[bytes] = []
+    refs = db.query(ReferenceImage).filter(ReferenceImage.campaign_id == campaign_id).all()
+    for r in refs:
+        try:
+            data, _ = storage.get_object(r.object_key)
+            out.append(data)
+        except Exception as exc:  # noqa: BLE001 — a missing reference must not block generation
+            logger.warning("Could not load reference image %s: %s", r.id, exc)
+    return out
+
+
+def _set_slot_generating(db, element: "CampaignElement", primary: PostImage) -> None:
+    """Mark the other ratios of the same slide as generating the moment the base
+    starts, so the UI locks them and the user can't kick off a rival generation."""
+    from app.models.campaign import VideoStatus
+
+    for sib in element.images:
+        if sib.id != primary.id and sib.slot_index == primary.slot_index and not sib.is_uploaded:
+            sib.status = VideoStatus.generating
+            sib.error = ""
+
+
+def _reset_slot_after_fail(db, image_id: str) -> None:
+    """If the base generation failed, release the siblings we pre-marked so they
+    don't stay stuck in 'generating' (derivation only runs on success)."""
+    from app.models.campaign import CampaignElement, VideoStatus
+
+    image = db.get(PostImage, image_id)
+    element = db.get(CampaignElement, image.element_id) if image else None
+    if element is None:
+        return
+    for sib in element.images:
+        if (
+            sib.id != image.id
+            and sib.slot_index == image.slot_index
+            and sib.status == VideoStatus.generating
+            and not sib.is_uploaded
+        ):
+            sib.status = VideoStatus.ready if sib.base_object_key else VideoStatus.draft
+            sib.error = ""
+    db.commit()
+
+
+def _composite_logo_fallback(db, image: PostImage, base_bytes: bytes) -> None:
+    """When baking the logo into the image fails, place it as an overlay instead
+    (vision-decided spot) so the logo still appears."""
+    from app.services.logo_placement import compute_logo_geom
+
+    try:
+        state = dict(image.canvas_state or {})
+        state["logo"] = compute_logo_geom(db, base_bytes)
+        state.setdefault("logo_enabled", True)
+        image.canvas_state = state
+        image.composited_object_key = ""
+    except Exception as exc:  # noqa: BLE001 — logo fallback must not fail generation
+        logger.warning("Logo composite fallback failed for %s: %s", image.id, exc)
+
+
+def _client_logo_bytes(db, campaign_id: str, image: PostImage) -> bytes | None:
+    """Load the client logo so the image model can render it into the image —
+    unless this image opted out of the logo (logo_enabled False)."""
+    from app.models.campaign import Campaign
+    from app.models.client import Client
+    from app.services import storage
+
+    state = image.canvas_state or {}
+    if state.get("logo_enabled", True) is False:
+        return None
+    campaign = db.get(Campaign, campaign_id)
+    client = db.get(Client, campaign.client_id) if campaign else None
+    if client is None or not client.logo_object_key:
+        return None
+    try:
+        data, _ = storage.get_object(client.logo_object_key)
+        return data
+    except Exception as exc:  # noqa: BLE001 — missing logo must not block generation
+        logger.warning("Could not load client logo for %s: %s", image.id, exc)
+        return None
+
+
+# Ratio precedence for choosing an element's primary image (mirrors ratios.ts).
+_RATIO_PRIORITY = ["1:1", "4:5", "9:16", "16:9", "1.91:1"]
+
+
+def _ratio_rank(im: PostImage):
+    r = _RATIO_PRIORITY.index(im.aspect_ratio) if im.aspect_ratio in _RATIO_PRIORITY else len(_RATIO_PRIORITY)
+    return (r, im.created_at.isoformat() if im.created_at else "")
+
+
+def _is_primary_image(element: "CampaignElement", image: PostImage) -> bool:
+    """True if `image` is the base ratio of its carousel slide. Derivation is scoped
+
+    to one slot (carousel slide): the other RATIOS of the same slide are derived
+    from it — never the other slides, which are distinct content.
+    """
+    same_slot = [im for im in element.images if im.slot_index == image.slot_index]
+    if len(same_slot) <= 1:
+        return False
+    return min(same_slot, key=_ratio_rank).id == image.id
+
+
+@celery_app.task(name="image.derive_ratios")
+def derive_element_ratios(source_image_id: str, image_model_id: str | None = None) -> None:
+    """Regenerate every other ratio of an element from one base image, so all
+    platforms share the same visual. AI outpainting first, local crop as fallback."""
+    from app.models.campaign import VideoStatus
+    from app.services import storage
+    from app.services.image_gen import generate_image_from, get_image_model, reframe_local
+
+    db = SessionLocal()
+    try:
+        source = db.get(PostImage, source_image_id)
+        if source is None or not source.base_object_key:
+            return
+        element = db.get(CampaignElement, source.element_id)
+        if element is None:
+            return
+        model = get_image_model(db, image_model_id or source.image_model_id)
+        source_bytes, _ = storage.get_object(source.base_object_key)
+        # If the base wears its logo as an overlay (baking failed/fallback), the
+        # derived ratios must overlay one too so all ratios stay consistent.
+        source_uses_composite_logo = bool((source.canvas_state or {}).get("logo"))
+
+        for sib in element.images:
+            # Only the OTHER RATIOS of the same carousel slide — never other slides.
+            if sib.id == source.id or sib.slot_index != source.slot_index or sib.is_uploaded:
+                continue
+            sib.status = VideoStatus.generating
+            sib.error = ""
+            db.commit()
+            try:
+                effective_prompt = sib.prompt or source.prompt
+                try:
+                    data, ct = generate_image_from(
+                        db, model, source_bytes, effective_prompt, sib.negative_prompt, sib.aspect_ratio
+                    )
+                except Exception as exc:  # noqa: BLE001 — any AI failure falls back to local crop
+                    logger.warning("AI reframe failed for %s (%s); using local crop", sib.id, exc)
+                    data, ct = reframe_local(source_bytes, sib.aspect_ratio)
+
+                version = len(sib.generation_history) + 1
+                key = f"campaigns/{element.campaign_id}/images/{sib.id}/v{version}.png"
+                storage.upload_object(key, data, ct)
+                history = list(sib.generation_history)
+                history.append({
+                    "object_key": key,
+                    "prompt": effective_prompt,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+                sib.generation_history = history
+                sib.base_object_key = key
+                sib.is_uploaded = False
+                sib.image_model_id = model.id
+                sib.composited_object_key = ""
+                if source_uses_composite_logo:
+                    _composite_logo_fallback(db, sib, data)
+                sib.status = VideoStatus.ready
+                db.commit()
+                logger.info("Derived ratio %s for image %s", sib.aspect_ratio, sib.id)
+            except Exception as exc:  # noqa: BLE001 — each sibling ends in a terminal state
+                logger.exception("Deriving ratio for %s failed", sib.id)
+                _fail_image(db, sib.id, f"Reframe error: {exc}")
+    finally:
+        db.close()
 
 
 @celery_app.task(name="video.generate")
@@ -688,6 +893,10 @@ def run_video_generation(video_id: str) -> None:
 
         element = db.get(CampaignElement, video.element_id)
         campaign_id = element.campaign_id if element else "unknown"
+        # Overlay the client logo (vision-placed on the first frame) unless disabled.
+        if element is not None and video.logo_enabled:
+            data = _overlay_video_logo(db, campaign_id, data)
+            content_type = "video/mp4"
         version = len(video.generation_history) + 1
         key = f"campaigns/{campaign_id}/videos/{video.id}/v{version}.mp4"
         storage.upload_object(key, data, content_type)
@@ -721,6 +930,76 @@ def _fail_video(db, video_id: str, error: str) -> None:
         video.status = VideoStatus.failed
         video.error = error
         db.commit()
+
+
+def _overlay_video_logo(db, campaign_id: str, video_bytes: bytes) -> bytes:
+    """Overlay the client logo onto a generated clip — the vision model picks the
+    spot from the first frame, then ffmpeg burns it in. Best-effort."""
+    from app.models.campaign import Campaign
+    from app.models.client import Client
+    from app.services import storage
+    from app.services.logo_placement import compute_logo_geom
+    from app.services.video_edit import extract_first_frame, overlay_logo
+
+    campaign = db.get(Campaign, campaign_id)
+    client = db.get(Client, campaign.client_id) if campaign else None
+    if client is None or not client.logo_object_key:
+        return video_bytes
+    try:
+        logo_bytes, _ = storage.get_object(client.logo_object_key)
+        geom = compute_logo_geom(db, extract_first_frame(video_bytes))
+        return overlay_logo(video_bytes, logo_bytes, geom)
+    except Exception as exc:  # noqa: BLE001 — overlay must not fail generation
+        logger.warning("Video logo overlay failed for campaign %s: %s", campaign_id, exc)
+        return video_bytes
+
+
+@celery_app.task(name="video.derive_ratios")
+def derive_video_ratios(source_video_id: str) -> None:
+    """Reframe one base clip into the element's other aspect ratios locally with
+    ffmpeg — cheap, no re-generation (user triggers this when happy with the base)."""
+    from app.models.campaign import VideoStatus
+    from app.services import storage
+    from app.services.video_edit import reframe_video
+
+    db = SessionLocal()
+    try:
+        source = db.get(PostVideo, source_video_id)
+        if source is None or not source.base_object_key:
+            return
+        element = db.get(CampaignElement, source.element_id)
+        if element is None:
+            return
+        source_bytes, _ = storage.get_object(source.base_object_key)
+        for sib in element.videos:
+            if sib.id == source.id or sib.is_uploaded:
+                continue
+            sib.status = VideoStatus.generating
+            sib.error = ""
+            db.commit()
+            try:
+                data = reframe_video(source_bytes, sib.aspect_ratio)
+                version = len(sib.generation_history) + 1
+                key = f"campaigns/{element.campaign_id}/videos/{sib.id}/v{version}.mp4"
+                storage.upload_object(key, data, "video/mp4")
+                history = list(sib.generation_history)
+                history.append({
+                    "object_key": key,
+                    "prompt": source.prompt,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+                sib.generation_history = history
+                sib.base_object_key = key
+                sib.is_uploaded = False
+                sib.video_model_id = source.video_model_id
+                sib.status = VideoStatus.ready
+                db.commit()
+                logger.info("Derived video ratio %s for %s", sib.aspect_ratio, sib.id)
+            except Exception as exc:  # noqa: BLE001 — each sibling ends terminal
+                logger.exception("Deriving video ratio for %s failed", sib.id)
+                _fail_video(db, sib.id, f"Reframe error: {exc}")
+    finally:
+        db.close()
 
 
 @celery_app.task(name="article.import_url")

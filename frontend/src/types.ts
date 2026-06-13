@@ -174,6 +174,20 @@ export interface ArticleSource {
   created_at: string;
 }
 
+export interface ProviderCredential {
+  provider: string;
+  label: string;
+  kinds: string[];
+  api_key_hint: string;
+  has_key: boolean;
+  is_active: boolean;
+}
+
+export interface ProviderModel {
+  id: string;
+  name: string;
+}
+
 export interface LLMConfig {
   id: string;
   function: string;
@@ -315,8 +329,16 @@ export interface TextLayerState {
   visible?: boolean;
 }
 
+export interface ReferenceImage {
+  id: string;
+  campaign_id: string;
+  filename: string;
+  content_type: string;
+}
+
 export interface CanvasState {
   logo?: LayerGeom;
+  logo_enabled?: boolean; // logo included by default; false hides it on this image
   assets?: LayerGeom[];
   texts?: TextLayerState[];
 }
@@ -353,6 +375,7 @@ export interface PostVideo {
   video_model_id: string | null;
   base_object_key: string;
   is_uploaded: boolean;
+  logo_enabled?: boolean;
   generation_history: GenerationVersion[];
   status: VideoStatus;
   error: string;
@@ -413,4 +436,5 @@ export interface CampaignListItem {
   status: CampaignStatus;
   created_at: string;
   updated_at: string;
+  visuals_generating?: boolean;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiBlob } from "../api";
+import { PlatformIcon } from "./PlatformIcon";
 import type { CampaignElement, Client, Post, PostImage } from "../types";
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -190,7 +191,7 @@ export function PostPreviewModal({
               className={`tab ${platform === p ? "tab-active" : ""}`}
               onClick={() => setPlatform(p)}
             >
-              {PLATFORM_LABELS[p] ?? p}
+              <PlatformIcon platform={p} size={15} /> {PLATFORM_LABELS[p] ?? p}
             </button>
           ))}
         </div>
