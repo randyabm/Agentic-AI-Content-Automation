@@ -11,7 +11,7 @@ scale is the layer width as a fraction of the base width, and opacity is 0..1.
 import io
 import logging
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy.orm import Session
 
 from app.models.campaign import PostAsset, PostImage
@@ -58,6 +58,73 @@ def _place(base: Image.Image, layer: Image.Image, geom: dict) -> None:
     base.alpha_composite(resized, (x, y))
 
 
+# Font families offered by the editor, mapped to DejaVu TTFs (installed in the image).
+# Keyed by (family, bold, italic).
+_FONT_FILES = {
+    ("sans", False, False): "DejaVuSans.ttf",
+    ("sans", True, False): "DejaVuSans-Bold.ttf",
+    ("sans", False, True): "DejaVuSans-Oblique.ttf",
+    ("sans", True, True): "DejaVuSans-BoldOblique.ttf",
+    ("serif", False, False): "DejaVuSerif.ttf",
+    ("serif", True, False): "DejaVuSerif-Bold.ttf",
+    ("serif", False, True): "DejaVuSerif-Italic.ttf",
+    ("serif", True, True): "DejaVuSerif-BoldItalic.ttf",
+    ("mono", False, False): "DejaVuSansMono.ttf",
+    ("mono", True, False): "DejaVuSansMono-Bold.ttf",
+    ("mono", False, True): "DejaVuSansMono-Oblique.ttf",
+    ("mono", True, True): "DejaVuSansMono-BoldOblique.ttf",
+}
+
+
+def _load_font(family: str, bold: bool, italic: bool, px: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    name = _FONT_FILES.get((family, bold, italic)) or _FONT_FILES[("sans", bold, italic)]
+    try:
+        return ImageFont.truetype(name, px)
+    except OSError:
+        logger.warning("Font %s not available; falling back to default", name)
+        return ImageFont.load_default(px)
+
+
+def _hex_to_rgb(color: str) -> tuple[int, int, int]:
+    color = (color or "#ffffff").lstrip("#")
+    if len(color) == 3:
+        color = "".join(c * 2 for c in color)
+    try:
+        return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+    except ValueError:
+        return (255, 255, 255)
+
+
+def _place_text(base: Image.Image, geom: dict) -> None:
+    """Render one text layer. Geometry mirrors the editor: x/y are the top-left as a
+    fraction of the base size, size is the font height as a fraction of the base width."""
+    if geom.get("visible") is False:
+        return
+    text = str(geom.get("text") or "").strip("\n")
+    if not text.strip():
+        return
+    bw, bh = base.size
+    px = max(8, int(bw * float(geom.get("size", 0.06))))
+    font = _load_font(str(geom.get("font", "sans")), bool(geom.get("bold")), bool(geom.get("italic")), px)
+    opacity = max(0.0, min(1.0, float(geom.get("opacity", 1.0))))
+    fill = (*_hex_to_rgb(str(geom.get("color", "#ffffff"))), int(255 * opacity))
+
+    # Draw onto a transparent tile so rotation and alpha compositing work like images.
+    tile = Image.new("RGBA", (bw * 2, bh * 2), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tile)
+    # Match the browser's line-height: 1.2 used by the editor preview.
+    draw.multiline_text((0, 0), text, font=font, fill=fill, spacing=int(px * 0.2))
+    tile = tile.crop(tile.getbbox() or (0, 0, 1, 1))
+
+    rotation = float(geom.get("rotation", 0) or 0)
+    if rotation:
+        tile = tile.rotate(-rotation, expand=True, resample=Image.BICUBIC)
+
+    x = int(float(geom.get("x", 0.1)) * bw)
+    y = int(float(geom.get("y", 0.1)) * bh)
+    base.alpha_composite(tile, (x, y))
+
+
 def composite_post_image(db: Session, image: PostImage, client: Client) -> bytes:
     """Composite the base image with the logo and asset layers; return PNG bytes."""
     base_data, _ = storage.get_object(image.base_object_key)
@@ -83,13 +150,20 @@ def composite_post_image(db: Session, image: PostImage, client: Client) -> bytes
         if layer is not None:
             _place(base, layer, logo_geom)
 
+    # Text layers above everything but the logo's sibling overlays, ordered by z.
+    for geom in sorted(state.get("texts", []), key=lambda t: t.get("z", 0)):
+        try:
+            _place_text(base, geom)
+        except Exception as exc:  # noqa: BLE001 — a bad text layer must not abort export
+            logger.warning("Could not render text layer: %s", exc)
+
     out = io.BytesIO()
     base.convert("RGB").save(out, format="PNG")
     return out.getvalue()
 
 
 def _campaign_id(db: Session, image: PostImage) -> str:
-    from app.models.campaign import Post
+    from app.models.campaign import CampaignElement
 
-    post = db.get(Post, image.post_id)
-    return post.campaign_id if post else ""
+    element = db.get(CampaignElement, image.element_id)
+    return element.campaign_id if element else ""

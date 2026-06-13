@@ -8,7 +8,6 @@ const ANGLES = ["informational", "opinion", "promotional", "educational"] as con
 
 interface PlatformDraft {
   enabled: boolean;
-  num_posts: number;
   hashtag_count: number;
   emojis: string;
 }
@@ -40,6 +39,7 @@ export function ArticleContentForm({
   const [linkFormat, setLinkFormat] = useState("direct");
   const [mentionAuthor, setMentionAuthor] = useState(true);
   const [generateImages, setGenerateImages] = useState(false);
+  const [numPosts, setNumPosts] = useState(2);
   const [platforms, setPlatforms] = useState<Record<string, PlatformDraft>>({});
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -51,7 +51,6 @@ export function ArticleContentForm({
       for (const spec of s) {
         init[spec.platform] = {
           enabled: ["linkedin", "instagram"].includes(spec.platform),
-          num_posts: 2,
           hashtag_count: spec.platform === "x" ? 2 : 4,
           emojis: "moderate",
         };
@@ -89,6 +88,13 @@ export function ArticleContentForm({
         link_format: linkFormat,
         mention_author: mentionAuthor,
         generate_images: generateImages,
+        // Each post is an element shared by every enabled platform (same visual,
+        // ratio-adjusted per platform).
+        elements: Array.from({ length: numPosts }, () => ({
+          element_type: generateImages ? "image" : "text",
+          theme: "",
+          platforms: specs.filter((s) => platforms[s.platform]?.enabled).map((s) => s.platform),
+        })),
         platforms: specs
           .filter((s) => platforms[s.platform]?.enabled)
           .map((s) => {
@@ -96,7 +102,6 @@ export function ArticleContentForm({
             return {
               platform: s.platform,
               is_active: true,
-              num_posts: d.num_posts,
               hashtag_count: d.hashtag_count,
               emojis: d.emojis,
               include_cta: true,
@@ -216,6 +221,10 @@ export function ArticleContentForm({
       </div>
 
       <h3>Platforms</h3>
+      <label style={{ maxWidth: "12rem" }}>
+        Posts (shared across platforms)
+        <input type="number" min={1} max={20} value={numPosts} onChange={(e) => setNumPosts(Number(e.target.value))} />
+      </label>
       <div className="platform-config-list">
         {specs.map((s) => {
           const d = platforms[s.platform];
@@ -232,16 +241,6 @@ export function ArticleContentForm({
               </label>
               {d.enabled && (
                 <div className="platform-config-fields">
-                  <label>
-                    Posts
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={d.num_posts}
-                      onChange={(e) => update(s.platform, { num_posts: Number(e.target.value) })}
-                    />
-                  </label>
                   <label>
                     Hashtags
                     <input

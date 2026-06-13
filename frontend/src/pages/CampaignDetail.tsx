@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
+import { PostPreviewModal } from "../components/PostPreview";
 import { useAuth } from "../auth";
 import type {
   CampaignDetail as Campaign,
+  CampaignElement,
   Client,
   ImageModel,
   Post,
@@ -32,6 +34,7 @@ export default function CampaignDetail() {
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [openElementId, setOpenElementId] = useState<string | null>(null);
 
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
@@ -48,34 +51,33 @@ export default function CampaignDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
-  const videoGenerating =
-    campaign?.posts.some((p) => p.videos.some((v) => v.status === "generating")) ?? false;
+  const mediaGenerating =
+    campaign?.elements.some(
+      (el) =>
+        el.videos.some((v) => v.status === "generating") ||
+        el.images.some((i) => i.status === "generating")
+    ) ?? false;
 
   useEffect(() => {
-    if (campaign?.status !== "generating" && !videoGenerating) return;
+    if (campaign?.status !== "generating" && !mediaGenerating) return;
     const t = setInterval(() => load().catch(() => {}), 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaign?.status, videoGenerating]);
+  }, [campaign?.status, mediaGenerating]);
 
   if (!campaign) return <div className="page-loading">Loading…</div>;
 
-  const platforms = Array.from(new Set(campaign.posts.map((p) => p.platform)));
+  // Posts not linked to any element (legacy campaigns) get their own cards.
+  const orphanPosts = campaign.posts.filter((p) => !p.element_id);
+  const openElement = campaign.elements.find((el) => el.id === openElementId) ?? null;
+  const openOrphan = openElementId?.startsWith("post:")
+    ? orphanPosts.find((p) => p.id === openElementId.slice(5)) ?? null
+    : null;
 
   async function regenerateAll() {
     setBusy("Regenerating…");
     try {
       await api(`/campaigns/${campaign!.id}/regenerate`, { method: "POST", body: {} });
-      await load();
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function regeneratePlatform(platform: string) {
-    setBusy(`Regenerating ${platform}…`);
-    try {
-      await api(`/campaigns/${campaign!.id}/platforms/${platform}/regenerate`, { method: "POST", body: {} });
       await load();
     } finally {
       setBusy("");
@@ -144,50 +146,320 @@ export default function CampaignDetail() {
         </div>
       )}
 
-      {platforms.map((platform) => (
-        <div key={platform} className="platform-section">
-          <div className="card-header">
-            <h2>{platform}</h2>
-            {canEdit && campaign.status !== "generating" && (
-              <button className="btn btn-ghost" onClick={() => regeneratePlatform(platform)} disabled={!!busy}>
-                Regenerate {platform}
-              </button>
-            )}
+      <div className="element-grid">
+        {[...campaign.elements]
+          .sort((a, b) => a.position - b.position)
+          .map((el) => (
+            <ElementCard
+              key={el.id}
+              campaignId={campaign.id}
+              element={el}
+              posts={campaign.posts.filter((p) => p.element_id === el.id)}
+              onOpen={() => setOpenElementId(el.id)}
+            />
+          ))}
+        {orphanPosts.map((post) => (
+          <div key={post.id} className="card element-card" onClick={() => setOpenElementId(`post:${post.id}`)}>
+            <div className="element-thumb">
+              <div className="image-empty">📝</div>
+            </div>
+            <div className="element-card-body">
+              <strong className="small">{post.headline || "Post"}</strong>
+              <div className="platform-chips">
+                <span className="chip">{post.platform}</span>
+              </div>
+            </div>
           </div>
-          {campaign.posts
-            .filter((p) => p.platform === platform)
-            .map((post) => (
-              <PostCard
-                key={post.id}
-                campaignId={campaign.id}
-                post={post}
-                client={client}
-                models={models}
-                videoModels={videoModels}
-                canEdit={canEdit}
-                onChange={load}
-              />
-            ))}
-        </div>
-      ))}
+        ))}
+      </div>
+
+      {openElement && (
+        <ElementModal
+          campaignId={campaign.id}
+          element={openElement}
+          posts={campaign.posts.filter((p) => p.element_id === openElement.id)}
+          client={client}
+          models={models}
+          videoModels={videoModels}
+          canEdit={canEdit && campaign.status !== "generating"}
+          onChange={load}
+          onClose={() => setOpenElementId(null)}
+        />
+      )}
+      {openOrphan && (
+        <ElementModal
+          campaignId={campaign.id}
+          element={null}
+          posts={[openOrphan]}
+          client={client}
+          models={models}
+          videoModels={videoModels}
+          canEdit={canEdit && campaign.status !== "generating"}
+          onChange={load}
+          onClose={() => setOpenElementId(null)}
+        />
+      )}
     </div>
   );
 }
 
-function PostCard({
+function ElementCard({
   campaignId,
-  post,
+  element,
+  posts,
+  onOpen,
+}: {
+  campaignId: string;
+  element: CampaignElement;
+  posts: Post[];
+  onOpen: () => void;
+}) {
+  const cover = element.images.find((i) => i.base_object_key) ?? null;
+  const coverVideo = element.videos.find((v) => v.base_object_key && v.status === "ready") ?? null;
+  const ratios = Array.from(
+    new Set([...element.images.map((i) => i.aspect_ratio), ...element.videos.map((v) => v.aspect_ratio)])
+  );
+  const generatedCount = element.images.filter((i) => i.base_object_key).length;
+  const videoCount = element.videos.length;
+  const readyVideos = element.videos.filter((v) => v.base_object_key).length;
+  const headline = posts[0]?.headline || element.theme;
+  const meta = [
+    element.element_type as string,
+    ratios.join(", "),
+    element.images.length > 0 ? `${generatedCount}/${element.images.length} images` : "",
+    videoCount > 0 ? `${readyVideos}/${videoCount} video${videoCount > 1 ? "s" : ""}` : "",
+  ].filter(Boolean);
+
+  return (
+    <div className="card element-card" onClick={onOpen}>
+      <div className="element-thumb">
+        {cover ? (
+          <ElementThumb campaignId={campaignId} image={cover} />
+        ) : coverVideo ? (
+          <ElementVideoThumb campaignId={campaignId} video={coverVideo} />
+        ) : (
+          <div className="image-empty">{videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}</div>
+        )}
+      </div>
+      <div className="element-card-body">
+        <strong className="small element-headline">{headline}</strong>
+        <div className="platform-chips">
+          {element.platforms.map((p) => (
+            <span key={p} className="chip">
+              {p}
+            </span>
+          ))}
+        </div>
+        <div className="muted small element-meta">
+          {meta.join(" · ")}
+          {(element.images.some((i) => i.status === "generating") ||
+            element.videos.some((v) => v.status === "generating")) && (
+            <span className="tag"> generating…</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ElementVideoThumb({ campaignId, video }: { campaignId: string; video: PostVideo }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    apiBlob(`/campaigns/${campaignId}/videos/${video.id}/file`)
+      .then((b) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(b);
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [campaignId, video.id, video.base_object_key]);
+  return url ? (
+    <video src={url} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+  ) : (
+    <div className="image-empty">🎬</div>
+  );
+}
+
+function ElementThumb({ campaignId, image }: { campaignId: string; image: PostImage }) {
+  const url = useImageUrl(campaignId, image);
+  return url ? <img src={url} alt="element" /> : <div className="image-empty">…</div>;
+}
+
+// Resolve the preview blob URL for an image, preferring the composite when the
+// canvas has visible layers (composited_object_key is cleared after each edit).
+function useImageUrl(campaignId: string, image: PostImage): string {
+  const [url, setUrl] = useState("");
+  const state = image.canvas_state || {};
+  const hasLayers =
+    (state.logo?.visible !== false && !!state.logo) ||
+    (state.assets || []).some((a) => a.visible !== false) ||
+    (state.texts || []).some((t) => t.visible !== false);
+  useEffect(() => {
+    if (!image.base_object_key) {
+      setUrl("");
+      return;
+    }
+    let active = true;
+    let objectUrl = "";
+    const path =
+      image.composited_object_key || hasLayers
+        ? `/campaigns/${campaignId}/images/${image.id}/composite`
+        : `/campaigns/${campaignId}/images/${image.id}/base`;
+    apiBlob(path)
+      .then((b) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(b);
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId, image.id, image.base_object_key, image.composited_object_key, hasLayers, image.canvas_state]);
+  return url;
+}
+
+function ElementModal({
+  campaignId,
+  element,
+  posts,
   client,
   models,
   videoModels,
   canEdit,
   onChange,
+  onClose,
 }: {
   campaignId: string;
-  post: Post;
+  element: CampaignElement | null;
+  posts: Post[];
   client: Client | null;
   models: ImageModel[];
   videoModels: VideoModel[];
+  canEdit: boolean;
+  onChange: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState(posts[0]?.platform ?? "");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const activePost = posts.find((p) => p.platform === tab) ?? posts[0] ?? null;
+
+  // Platforms sharing each image's ratio, so a visual is shown once with its audience.
+  function platformsForRatio(ratio: string): string[] {
+    if (!element) return [];
+    return element.platforms.filter((p) => (element.platform_ratios?.[p] ?? ratio) === ratio);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal element-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{element ? element.theme || element.element_type : activePost?.headline || "Post"}</h2>
+          <div className="competitor-actions">
+            {element && client && posts.length > 0 && (
+              <button className="btn btn-ghost" onClick={() => setPreviewOpen(true)}>
+                👁 Preview
+              </button>
+            )}
+            <button className="btn btn-ghost" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+
+        {previewOpen && element && client && (
+          <PostPreviewModal
+            campaignId={campaignId}
+            element={element}
+            posts={posts}
+            client={client}
+            initialPlatform={activePost?.platform ?? element.platforms[0]}
+            onClose={() => setPreviewOpen(false)}
+          />
+        )}
+
+        <div className="element-modal-layout">
+          {element && (
+            <div className="element-visuals">
+              <h3 className="small muted">Visuals (shared across platforms)</h3>
+              {element.images.map((img) => (
+                <div key={img.id}>
+                  <p className="muted small">
+                    🔗 {img.aspect_ratio} → {platformsForRatio(img.aspect_ratio).join(", ") || "all"}
+                  </p>
+                  <ImageSlot
+                    campaignId={campaignId}
+                    image={img}
+                    client={client}
+                    models={models}
+                    canEdit={canEdit}
+                    onChange={onChange}
+                  />
+                </div>
+              ))}
+              {element.videos.map((video) => (
+                <VideoSlot
+                  key={video.id}
+                  campaignId={campaignId}
+                  video={video}
+                  models={videoModels}
+                  canEdit={canEdit}
+                  onChange={onChange}
+                />
+              ))}
+              {canEdit && (
+                <AddVideoButton
+                  campaignId={campaignId}
+                  elementId={element.id}
+                  ratio={element.platform_ratios?.[posts[0]?.platform ?? ""] ?? element.images[0]?.aspect_ratio}
+                  platform={posts[0]?.platform ?? "facebook"}
+                  onChange={onChange}
+                />
+              )}
+            </div>
+          )}
+
+          <div className="element-copy">
+            {posts.length > 1 && (
+              <div className="tab-bar">
+                {posts.map((p) => (
+                  <button
+                    key={p.id}
+                    className={`tab ${tab === p.platform ? "active" : ""}`}
+                    onClick={() => setTab(p.platform)}
+                  >
+                    {p.platform}
+                  </button>
+                ))}
+              </div>
+            )}
+            {activePost && (
+              <CopyForm key={activePost.id} campaignId={campaignId} post={activePost} canEdit={canEdit} onChange={onChange} />
+            )}
+            {posts.length === 0 && <p className="muted small">This element has no posts.</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CopyForm({
+  campaignId,
+  post,
+  canEdit,
+  onChange,
+}: {
+  campaignId: string;
+  post: Post;
   canEdit: boolean;
   onChange: () => Promise<void>;
 }) {
@@ -237,70 +509,39 @@ function PostCard({
   };
 
   return (
-    <div className="card post-card">
-      <div className="post-main">
-        <div className="post-copy">
-          <label className="small">
-            Headline
-            <input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
-          </label>
-          <label className="small">
-            Copy{" "}
-            <span className={copy.length > limit ? "char-over" : "muted"}>
-              {copy.length}/{limit}
-            </span>
-            <textarea rows={6} value={copy} onChange={(e) => mark(setCopy)(e.target.value)} readOnly={!canEdit} />
-          </label>
-          <label className="small">
-            Call to action
-            <input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
-          </label>
-          <label className="small">
-            Hashtags
-            <input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
-          </label>
-          {post.best_time && <p className="muted small">⏰ Suggested: {post.best_time}</p>}
-          {post.rationale && <p className="muted small">💡 {post.rationale}</p>}
-          {canEdit && (
-            <div className="form-actions">
-              <button className="btn btn-primary" onClick={saveCopy} disabled={!dirty || !!busy}>
-                Save
-              </button>
-              <button className="btn btn-ghost" onClick={regenerate} disabled={!!busy}>
-                Regenerate copy
-              </button>
-              {busy && <span className="muted small">{busy}</span>}
-            </div>
-          )}
+    <div className="post-copy">
+      <label className="small">
+        Headline
+        <input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
+      </label>
+      <label className="small">
+        Copy{" "}
+        <span className={copy.length > limit ? "char-over" : "muted"}>
+          {copy.length}/{limit}
+        </span>
+        <textarea rows={6} value={copy} onChange={(e) => mark(setCopy)(e.target.value)} readOnly={!canEdit} />
+      </label>
+      <label className="small">
+        Call to action
+        <input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
+      </label>
+      <label className="small">
+        Hashtags
+        <input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
+      </label>
+      {post.best_time && <p className="muted small">⏰ Suggested: {post.best_time}</p>}
+      {post.rationale && <p className="muted small">💡 {post.rationale}</p>}
+      {canEdit && (
+        <div className="form-actions">
+          <button className="btn btn-primary" onClick={saveCopy} disabled={!dirty || !!busy}>
+            Save
+          </button>
+          <button className="btn btn-ghost" onClick={regenerate} disabled={!!busy}>
+            Regenerate copy
+          </button>
+          {busy && <span className="muted small">{busy}</span>}
         </div>
-
-        <div className="post-images">
-          {post.images.map((img) => (
-            <ImageSlot
-              key={img.id}
-              campaignId={campaignId}
-              image={img}
-              client={client}
-              models={models}
-              canEdit={canEdit}
-              onChange={onChange}
-            />
-          ))}
-          {post.videos.map((video) => (
-            <VideoSlot
-              key={video.id}
-              campaignId={campaignId}
-              video={video}
-              models={videoModels}
-              canEdit={canEdit}
-              onChange={onChange}
-            />
-          ))}
-          {canEdit && (
-            <AddVideoButton campaignId={campaignId} postId={post.id} platform={post.platform} onChange={onChange} />
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -320,39 +561,16 @@ function ImageSlot({
   canEdit: boolean;
   onChange: () => Promise<void>;
 }) {
-  const [url, setUrl] = useState("");
   const [prompt, setPrompt] = useState(image.prompt);
   const [negative, setNegative] = useState(image.negative_prompt);
   const [guidance, setGuidance] = useState(image.additional_guidance);
   const [modelId, setModelId] = useState(image.image_model_id ?? "");
-  const [showPrompt, setShowPrompt] = useState(false);
+  // Surface the prompt before the first generation so it can be tuned upfront.
+  const [showPrompt, setShowPrompt] = useState(!image.base_object_key);
   const [editorOpen, setEditorOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-
-  // Refetch the preview whenever the base or composite changes.
-  useEffect(() => {
-    if (!image.base_object_key) {
-      setUrl("");
-      return;
-    }
-    let active = true;
-    let objectUrl = "";
-    const path = image.composited_object_key
-      ? `/campaigns/${campaignId}/images/${image.id}/composite`
-      : `/campaigns/${campaignId}/images/${image.id}/base`;
-    apiBlob(path)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [campaignId, image.id, image.base_object_key, image.composited_object_key]);
+  const url = useImageUrl(campaignId, image);
 
   async function savePrompt() {
     await api(`/campaigns/${campaignId}/images/${image.id}/prompt`, {
@@ -363,12 +581,14 @@ function ImageSlot({
   }
 
   async function generate() {
-    setBusy("Generating image…");
+    setBusy("Queuing…");
     setError("");
     try {
       if (prompt !== image.prompt || negative !== image.negative_prompt || guidance !== image.additional_guidance) {
         await savePrompt();
       }
+      // Generation runs in a background worker; the page polls while it runs,
+      // so navigating away never interrupts it.
       await api(`/campaigns/${campaignId}/images/${image.id}/generate`, {
         method: "POST",
         body: { image_model_id: modelId || null },
@@ -396,11 +616,25 @@ function ImageSlot({
   return (
     <div className="image-slot">
       <div className="image-thumb" style={{ aspectRatio: image.aspect_ratio.replace(":", "/") }}>
-        {url ? <img src={url} alt="post" /> : <div className="image-empty">No image yet</div>}
+        {image.status === "generating" ? (
+          <div className="image-empty">
+            Generating image…
+            <div className="progress-bar" style={{ width: "80%" }}>
+              <div className="progress-fill indeterminate" />
+            </div>
+          </div>
+        ) : url ? (
+          <img src={url} alt="post" />
+        ) : (
+          <div className="image-empty">No image yet</div>
+        )}
         {busy && <div className="image-busy">{busy}</div>}
       </div>
-      <div className="image-meta small muted">{image.aspect_ratio}</div>
-      {error && <div className="alert alert-error small">{error}</div>}
+      <div className="image-meta small muted">
+        {image.aspect_ratio}
+        {image.status === "failed" && <span className="tag tag-red"> failed</span>}
+      </div>
+      {(error || image.error) && <div className="alert alert-error small">{error || image.error}</div>}
 
       {canEdit && (
         <div className="image-actions">
@@ -412,8 +646,8 @@ function ImageSlot({
               </option>
             ))}
           </select>
-          <button className="btn btn-primary small" onClick={generate} disabled={!!busy}>
-            {image.base_object_key ? "Regenerate" : "Generate"}
+          <button className="btn btn-primary small" onClick={generate} disabled={!!busy || image.status === "generating"}>
+            {image.status === "generating" ? "Generating…" : image.base_object_key ? "Regenerate" : "Generate"}
           </button>
           <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
             Prompt
@@ -470,12 +704,14 @@ function ImageSlot({
 
 function AddVideoButton({
   campaignId,
-  postId,
+  elementId,
+  ratio,
   platform,
   onChange,
 }: {
   campaignId: string;
-  postId: string;
+  elementId: string;
+  ratio: string | undefined;
   platform: string;
   onChange: () => Promise<void>;
 }) {
@@ -485,9 +721,9 @@ function AddVideoButton({
   async function add() {
     setBusy(true);
     try {
-      await api(`/campaigns/${campaignId}/posts/${postId}/videos`, {
+      await api(`/campaigns/${campaignId}/elements/${elementId}/videos`, {
         method: "POST",
-        body: { aspect_ratio: vertical ? "9:16" : "16:9", duration_seconds: 8 },
+        body: { aspect_ratio: ratio || (vertical ? "9:16" : "16:9"), duration_seconds: 8 },
       });
       await onChange();
     } finally {
@@ -519,7 +755,8 @@ function VideoSlot({
   const [prompt, setPrompt] = useState(video.prompt);
   const [negative, setNegative] = useState(video.negative_prompt);
   const [modelId, setModelId] = useState(video.video_model_id ?? "");
-  const [showPrompt, setShowPrompt] = useState(false);
+  // Surface the prompt before the first generation so it can be tuned upfront.
+  const [showPrompt, setShowPrompt] = useState(!video.base_object_key && video.status === "draft");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 

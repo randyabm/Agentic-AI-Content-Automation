@@ -13,11 +13,10 @@ from fpdf.enums import XPos, YPos
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.campaign import Campaign, CampaignPlatform, Post, PostImage
+from app.models.campaign import Campaign, CampaignElement, CampaignPlatform, Post, PostImage, PostVideo
 from app.models.client import Client
 from app.services import storage
 from app.services.compositing import composite_post_image
-from app.services.platforms import spec
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +27,17 @@ def _ordered_posts(db: Session, campaign: Campaign) -> list[Post]:
             select(Post).where(Post.campaign_id == campaign.id).order_by(Post.platform, Post.position)
         ).all()
     )
+
+
+def _post_visuals(db: Session, post: Post) -> tuple[list[PostImage], list[PostVideo]]:
+    """The element renditions a post publishes: those matching its platform's ratio."""
+    element = db.get(CampaignElement, post.element_id) if post.element_id else None
+    if element is None:
+        return [], []
+    ratio = (element.platform_ratios or {}).get(post.platform.value)
+    images = [i for i in element.images if not ratio or i.aspect_ratio == ratio]
+    videos = [v for v in element.videos if not ratio or v.aspect_ratio == ratio]
+    return images, videos
 
 
 def _final_image_bytes(db: Session, image: PostImage, client: Client) -> bytes | None:
@@ -76,44 +86,47 @@ def campaign_payload(db: Session, campaign: Campaign, client: Client) -> dict:
         "platforms": [
             {
                 "platform": p.platform.value,
-                "visual_format": p.visual_format.value,
-                "num_posts": p.num_posts,
                 "hashtag_mix": p.hashtag_mix,
             }
             for p in platforms.values()
         ],
         "posts": [
-            {
-                "platform": post.platform.value,
-                "position": post.position,
-                "headline": post.headline,
-                "copy": post.copy,
-                "cta": post.cta,
-                "hashtags": post.hashtags,
-                "best_time": post.best_time,
-                "rationale": post.rationale,
-                "images": [
-                    {
-                        "slot_index": img.slot_index,
-                        "aspect_ratio": img.aspect_ratio,
-                        "prompt": img.prompt,
-                        "negative_prompt": img.negative_prompt,
-                        "has_image": bool(img.base_object_key),
-                    }
-                    for img in post.images
-                ],
-                "videos": [
-                    {
-                        "aspect_ratio": vid.aspect_ratio,
-                        "duration_seconds": vid.duration_seconds,
-                        "prompt": vid.prompt,
-                        "status": vid.status.value,
-                        "has_video": bool(vid.base_object_key),
-                    }
-                    for vid in post.videos
-                ],
-            }
+            _post_payload(db, post)
             for post in posts
+        ],
+    }
+
+
+def _post_payload(db: Session, post: Post) -> dict:
+    images, videos = _post_visuals(db, post)
+    return {
+        "platform": post.platform.value,
+        "position": post.position,
+        "headline": post.headline,
+        "copy": post.copy,
+        "cta": post.cta,
+        "hashtags": post.hashtags,
+        "best_time": post.best_time,
+        "rationale": post.rationale,
+        "images": [
+            {
+                "slot_index": img.slot_index,
+                "aspect_ratio": img.aspect_ratio,
+                "prompt": img.prompt,
+                "negative_prompt": img.negative_prompt,
+                "has_image": bool(img.base_object_key),
+            }
+            for img in images
+        ],
+        "videos": [
+            {
+                "aspect_ratio": vid.aspect_ratio,
+                "duration_seconds": vid.duration_seconds,
+                "prompt": vid.prompt,
+                "status": vid.status.value,
+                "has_video": bool(vid.base_object_key),
+            }
+            for vid in videos
         ],
     }
 
@@ -159,12 +172,13 @@ def export_zip(db: Session, campaign: Campaign, client: Client) -> tuple[bytes, 
                     post.position + 1, post.headline, post.copy, post.cta,
                     " ".join(post.hashtags), post.best_time,
                 ])
-                for img in post.images:
+                images, videos = _post_visuals(db, post)
+                for img in images:
                     data = _final_image_bytes(db, img, client)
                     if data:
                         name = f"{platform}/post{post.position + 1}_img{img.slot_index + 1}.png"
                         zf.writestr(name, data)
-                for vidx, vid in enumerate(post.videos):
+                for vidx, vid in enumerate(videos):
                     if not vid.base_object_key:
                         continue
                     try:
@@ -210,7 +224,7 @@ def export_pdf(db: Session, campaign: Campaign, client: Client) -> tuple[bytes, 
         pdf.set_text_color(0, 0, 0)
 
         # Image preview (first slot with an image).
-        for img in post.images:
+        for img in _post_visuals(db, post)[0]:
             data = _final_image_bytes(db, img, client)
             if data:
                 try:

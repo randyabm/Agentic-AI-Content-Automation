@@ -1,6 +1,6 @@
 from app.models.article import Article, ArticleSource
 from app.models.audit import AuditLog
-from app.models.campaign import Campaign, CampaignPlatform, Post, PostAsset, PostImage, PostVideo
+from app.models.campaign import Campaign, CampaignElement, CampaignPlatform, Post, PostAsset, PostImage, PostVideo
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob
 from app.models.competitor import Competitor, CompetitorSearchJob
 from app.models.llm import ImageModel, LLMConfig, VideoModel
@@ -13,6 +13,7 @@ __all__ = [
     "AuditLog",
     "BrandMemoryVersion",
     "Campaign",
+    "CampaignElement",
     "CampaignPlatform",
     "Client",
     "Competitor",

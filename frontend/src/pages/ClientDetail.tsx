@@ -19,6 +19,8 @@ export default function ClientDetail() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<"profile" | "competitors" | "brand">("profile");
+  const [editing, setEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const loadJobs = useCallback(async () => {
@@ -88,6 +90,45 @@ export default function ClientDetail() {
       await loadJobs();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not confirm extraction");
+    }
+  }
+
+  function startEditing() {
+    if (!client) return;
+    setProfileForm({
+      industry: client.industry,
+      description: client.description,
+      products_services: client.products_services,
+      target_audience: client.target_audience,
+      value_proposition: client.value_proposition,
+      business_objectives: client.business_objectives.join("\n"),
+      communication_tone: client.communication_tone,
+      social_media_urls: client.social_media_urls.join("\n"),
+      notes: client.notes,
+    });
+    setEditing(true);
+    setNotice("");
+    setError("");
+  }
+
+  async function saveProfile() {
+    if (!profileForm) return;
+    setError("");
+    try {
+      const updated = await api<Client>(`/clients/${clientId}`, {
+        method: "PATCH",
+        body: {
+          ...profileForm,
+          business_objectives: profileForm.business_objectives.split("\n").map((s) => s.trim()).filter(Boolean),
+          social_media_urls: profileForm.social_media_urls.split("\n").map((s) => s.trim()).filter(Boolean),
+        },
+      });
+      setClient(updated);
+      setEditing(false);
+      setProfileForm(null);
+      setNotice("Profile updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save profile");
     }
   }
 
@@ -202,40 +243,78 @@ export default function ClientDetail() {
         </div>
       )}
 
-      <div className="two-col">
-        <div className="card">
-          <h2>Profile</h2>
-          <ProfileRow label="Industry / Sector" value={client.industry} />
-          <ProfileRow label="General description" value={client.description} />
-          <ProfileRow label="Products and/or services" value={client.products_services} />
-          <ProfileRow label="Target audience" value={client.target_audience} />
-          <ProfileRow label="Value proposition" value={client.value_proposition} />
-          <ProfileRow label="Business objectives" value={client.business_objectives.join("; ")} />
-          <ProfileRow label="Communication tone" value={client.communication_tone} />
-          <ProfileRow label="Social media" value={client.social_media_urls.join(", ")} />
-          <ProfileRow
-            label="Last extraction"
-            value={client.last_extraction_at ? new Date(client.last_extraction_at).toLocaleString() : ""}
-          />
-          <ProfileRow label="Notes" value={client.notes} />
-        </div>
-        <div className="card">
-          <h2>Logo</h2>
-          {client.logo_object_key ? (
-            <LogoPreview clientId={client.id} />
+      <div className="two-col profile-layout">
+        <div className="card profile-card">
+          <div className="card-header-row">
+            <h2>Profile</h2>
+            {canEdit && !editing && (
+              <button className="btn btn-ghost" onClick={startEditing}>
+                Edit profile
+              </button>
+            )}
+          </div>
+
+          {editing && profileForm ? (
+            <>
+              <Field label="Industry / Sector" value={profileForm.industry} onChange={(v) => setProfileForm({ ...profileForm, industry: v })} />
+              <Area label="General description" rows={8} value={profileForm.description} onChange={(v) => setProfileForm({ ...profileForm, description: v })} />
+              <Area label="Products and/or services" rows={6} value={profileForm.products_services} onChange={(v) => setProfileForm({ ...profileForm, products_services: v })} />
+              <Area label="Target audience" value={profileForm.target_audience} onChange={(v) => setProfileForm({ ...profileForm, target_audience: v })} />
+              <Area label="Value proposition" value={profileForm.value_proposition} onChange={(v) => setProfileForm({ ...profileForm, value_proposition: v })} />
+              <Area label="Business objectives (one per line)" value={profileForm.business_objectives} onChange={(v) => setProfileForm({ ...profileForm, business_objectives: v })} />
+              <Field label="Communication tone" value={profileForm.communication_tone} onChange={(v) => setProfileForm({ ...profileForm, communication_tone: v })} />
+              <Area label="Social media URLs (one per line)" rows={3} value={profileForm.social_media_urls} onChange={(v) => setProfileForm({ ...profileForm, social_media_urls: v })} />
+              <Area label="Notes" rows={3} value={profileForm.notes} onChange={(v) => setProfileForm({ ...profileForm, notes: v })} />
+              <div className="form-actions">
+                <button className="btn btn-primary" onClick={saveProfile}>
+                  Save profile
+                </button>
+                <button className="btn btn-ghost" onClick={() => { setEditing(false); setProfileForm(null); }}>
+                  Cancel
+                </button>
+              </div>
+            </>
           ) : (
-            <p className="muted">No logo uploaded.</p>
+            <>
+              <ProfileSection label="Industry / Sector" value={client.industry} />
+              <ProfileSection label="General description" value={client.description} />
+              <ProfileSection label="Products and/or services" value={client.products_services} />
+              <ProfileSection label="Target audience" value={client.target_audience} />
+              <ProfileSection label="Value proposition" value={client.value_proposition} />
+              <ProfileSection label="Business objectives" list={client.business_objectives} />
+              <ProfileSection label="Communication tone" value={client.communication_tone} />
+              <ProfileSection label="Social media" links={client.social_media_urls} />
+              <ProfileSection label="Notes" value={client.notes} />
+            </>
           )}
-          {canEdit && (
-            <label className="btn btn-ghost file-btn">
-              Upload logo
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                hidden
-                onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])}
-              />
-            </label>
+        </div>
+        <div className="profile-side">
+          <div className="card">
+            <h2>Logo</h2>
+            <div className="logo-box">
+              {client.logo_object_key ? (
+                <LogoPreview clientId={client.id} />
+              ) : (
+                <p className="muted">No logo uploaded.</p>
+              )}
+            </div>
+            {canEdit && (
+              <label className="btn btn-ghost file-btn">
+                Upload logo
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                  hidden
+                  onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])}
+                />
+              </label>
+            )}
+          </div>
+          {client.last_extraction_at && (
+            <div className="card">
+              <h2>Last analysis</h2>
+              <p className="muted">{new Date(client.last_extraction_at).toLocaleString()}</p>
+            </div>
           )}
         </div>
       </div>
@@ -245,11 +324,52 @@ export default function ClientDetail() {
   );
 }
 
-function ProfileRow({ label, value }: { label: string; value: string }) {
+type ProfileForm = {
+  industry: string;
+  description: string;
+  products_services: string;
+  target_audience: string;
+  value_proposition: string;
+  business_objectives: string;
+  communication_tone: string;
+  social_media_urls: string;
+  notes: string;
+};
+
+function ProfileSection({
+  label,
+  value,
+  list,
+  links,
+}: {
+  label: string;
+  value?: string;
+  list?: string[];
+  links?: string[];
+}) {
+  const empty = !value && !list?.length && !links?.length;
   return (
-    <div className="profile-row">
-      <div className="profile-label">{label}</div>
-      <div className={value ? "" : "muted"}>{value || "—"}</div>
+    <div className="profile-section">
+      <div className="profile-section-label">{label}</div>
+      {empty ? (
+        <div className="muted">—</div>
+      ) : list ? (
+        <ul className="profile-list">
+          {list.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      ) : links ? (
+        <div className="profile-links">
+          {links.map((url, i) => (
+            <a key={i} href={url} target="_blank" rel="noreferrer">
+              {url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+            </a>
+          ))}
+        </div>
+      ) : (
+        <div className="profile-section-text">{value}</div>
+      )}
     </div>
   );
 }
@@ -263,11 +383,21 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
   );
 }
 
-function Area({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function Area({
+  label,
+  value,
+  onChange,
+  rows = 4,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+}) {
   return (
     <label>
       {label}
-      <textarea rows={4} value={value} onChange={(e) => onChange(e.target.value)} />
+      <textarea rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }

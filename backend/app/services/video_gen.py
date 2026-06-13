@@ -161,8 +161,23 @@ def _generate_fal(
 
 # --- OpenAI Sora (/v1/videos API) ---
 
-# Sora accepts fixed sizes and durations of 4/8/12 seconds.
-_SORA_SIZES = {"16:9": "1280x720", "9:16": "720x1280", "1:1": "1024x1024"}
+# Sora accepts fixed sizes (720x1280, 1280x720, 1024x1792, 1792x1024 — no square)
+# and durations of 4/8/12 seconds.
+def _sora_size(aspect: str) -> str:
+    try:
+        w, h = (float(p) for p in aspect.split(":"))
+    except ValueError:
+        w, h = 16, 9
+    ratio = w / h if h else 1
+    if ratio >= 1.6:   # 16:9 and wider
+        return "1280x720"
+    if ratio > 1:      # mildly landscape (e.g. 4:3, 1.91:1 handled above)
+        return "1792x1024"
+    if ratio == 1:     # square not supported; favor landscape
+        return "1280x720"
+    if ratio > 0.625:  # mildly portrait (e.g. 4:5, 3:4)
+        return "1024x1792"
+    return "720x1280"  # 9:16 and taller
 
 
 def _generate_openai_sora(
@@ -181,7 +196,7 @@ def _generate_openai_sora(
             json={
                 "model": model.model_name,
                 "prompt": full_prompt,
-                "size": _SORA_SIZES.get(aspect, "1280x720"),
+                "size": _sora_size(aspect),
                 "seconds": str(seconds),
             },
         )

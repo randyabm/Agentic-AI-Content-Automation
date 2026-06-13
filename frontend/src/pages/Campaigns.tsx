@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ArticleContentForm } from "../components/ArticleContentForm";
+import { resolvePlatformRatios } from "../ratios";
 import type {
   ArticleListItem,
   CampaignListItem,
   CampaignObjective,
   Client,
+  ElementType,
   PlatformSpec,
-  VisualFormat,
 } from "../types";
 
 const OBJECTIVES: CampaignObjective[] = [
@@ -20,12 +21,24 @@ const OBJECTIVES: CampaignObjective[] = [
   "promotion",
 ];
 
-interface PlatformDraft {
-  enabled: boolean;
-  num_posts: number;
-  images_per_post: number;
-  visual_format: VisualFormat;
+const ELEMENT_LABELS: Record<ElementType, string> = {
+  image: "🖼️ Image",
+  carousel: "🎠 Carousel",
+  video: "🎬 Video",
+  text: "✍️ Text only",
+};
+
+interface ElementDraft {
+  key: number;
+  element_type: ElementType;
+  theme: string;
+  platforms: string[];
+  ratio_overrides: Record<string, string>;
   carousel_slides: number;
+  video_duration_seconds: number;
+}
+
+interface PlatformSettings {
   hashtag_count: number;
   emojis: string;
   include_cta: boolean;
@@ -150,42 +163,62 @@ function CreateCampaign({
   const [language, setLanguage] = useState("en");
   const [articleId, setArticleId] = useState("");
   const [articleUrl, setArticleUrl] = useState("");
-  const [platforms, setPlatforms] = useState<Record<string, PlatformDraft>>({});
+  const [elements, setElements] = useState<ElementDraft[]>([]);
+  const [nextKey, setNextKey] = useState(1);
+  const [settings, setSettings] = useState<Record<string, PlatformSettings>>({});
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api<PlatformSpec[]>("/campaigns/platforms").then((s) => {
-      setSpecs(s);
-      const init: Record<string, PlatformDraft> = {};
-      for (const spec of s) {
-        init[spec.platform] = {
-          enabled: ["instagram", "linkedin"].includes(spec.platform),
-          num_posts: 3,
-          images_per_post: 1,
-          visual_format: "static_image",
-          carousel_slides: 3,
-          hashtag_count: spec.platform === "x" ? 2 : 5,
-          emojis: "moderate",
-          include_cta: true,
-          tone: "",
-        };
-      }
-      setPlatforms(init);
-    });
+    api<PlatformSpec[]>("/campaigns/platforms").then(setSpecs);
     api<ArticleListItem[]>("/articles?article_status=active").then(setArticles).catch(() => {});
   }, []);
 
-  const update = (p: string, patch: Partial<PlatformDraft>) =>
-    setPlatforms((prev) => ({ ...prev, [p]: { ...prev[p], ...patch } }));
+  function addElement(type: ElementType) {
+    setElements((prev) => [
+      ...prev,
+      {
+        key: nextKey,
+        element_type: type,
+        theme: "",
+        platforms: ["instagram", "linkedin"],
+        ratio_overrides: {},
+        carousel_slides: 3,
+        video_duration_seconds: 8,
+      },
+    ]);
+    setNextKey((k) => k + 1);
+  }
 
-  const anyEnabled = useMemo(() => Object.values(platforms).some((p) => p.enabled), [platforms]);
+  const updateElement = (key: number, patch: Partial<ElementDraft>) =>
+    setElements((prev) => prev.map((el) => (el.key === key ? { ...el, ...patch } : el)));
+
+  const removeElement = (key: number) => setElements((prev) => prev.filter((el) => el.key !== key));
+
+  const duplicateElement = (el: ElementDraft) => {
+    setElements((prev) => [...prev, { ...el, key: nextKey, ratio_overrides: { ...el.ratio_overrides } }]);
+    setNextKey((k) => k + 1);
+  };
+
+  // Platforms used by at least one element — these get a settings panel.
+  const usedPlatforms = useMemo(
+    () => specs.filter((s) => elements.some((el) => el.platforms.includes(s.platform))),
+    [specs, elements],
+  );
+
+  const settingsFor = (p: string): PlatformSettings =>
+    settings[p] ?? { hashtag_count: p === "x" ? 2 : 5, emojis: "moderate", include_cta: true, tone: "" };
+
+  const updateSettings = (p: string, patch: Partial<PlatformSettings>) =>
+    setSettings((prev) => ({ ...prev, [p]: { ...settingsFor(p), ...patch } }));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     if (!clientId) return setError("Select a client.");
-    if (!anyEnabled) return setError("Enable at least one platform.");
+    if (elements.length === 0) return setError("Add at least one element to the campaign.");
+    if (elements.some((el) => el.platforms.length === 0))
+      return setError("Every element needs at least one platform.");
     setSubmitting(true);
     try {
       const payload = {
@@ -197,23 +230,25 @@ function CreateCampaign({
         creativity_level: creativity,
         article_id: articleId || null,
         article_url: articleUrl,
-        platforms: specs
-          .filter((s) => platforms[s.platform]?.enabled)
-          .map((s) => {
-            const d = platforms[s.platform];
-            return {
-              platform: s.platform,
-              is_active: true,
-              num_posts: d.num_posts,
-              images_per_post: d.images_per_post,
-              visual_format: d.visual_format,
-              carousel_slides: d.carousel_slides,
-              hashtag_count: d.hashtag_count,
-              emojis: d.emojis,
-              include_cta: d.include_cta,
-              tone: d.tone,
-            };
-          }),
+        elements: elements.map((el) => ({
+          element_type: el.element_type,
+          theme: el.theme,
+          platforms: el.platforms,
+          ratio_overrides: el.ratio_overrides,
+          carousel_slides: el.carousel_slides,
+          video_duration_seconds: el.video_duration_seconds,
+        })),
+        platforms: usedPlatforms.map((s) => {
+          const d = settingsFor(s.platform);
+          return {
+            platform: s.platform,
+            is_active: true,
+            hashtag_count: d.hashtag_count,
+            emojis: d.emojis,
+            include_cta: d.include_cta,
+            tone: d.tone,
+          };
+        }),
       };
       const created = await api<{ id: string }>("/campaigns", { method: "POST", body: payload });
       onCreated(created.id);
@@ -291,102 +326,83 @@ function CreateCampaign({
         </label>
       </div>
 
-      <h3>Platforms</h3>
-      <div className="platform-config-list">
-        {specs.map((s) => {
-          const d = platforms[s.platform];
-          if (!d) return null;
-          return (
-            <div key={s.platform} className={`platform-config ${d.enabled ? "enabled" : ""}`}>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={d.enabled}
-                  onChange={(e) => update(s.platform, { enabled: e.target.checked })}
-                />
-                <strong>{s.label}</strong>
-                <span className="muted small">({s.char_limit.toLocaleString()} chars)</span>
-              </label>
-              {d.enabled && (
-                <div className="platform-config-fields">
-                  <label>
-                    Posts
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={d.num_posts}
-                      onChange={(e) => update(s.platform, { num_posts: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label>
-                    Format
-                    <select
-                      value={d.visual_format}
-                      onChange={(e) => update(s.platform, { visual_format: e.target.value as VisualFormat })}
-                    >
-                      {s.formats.map((f) => (
-                        <option key={f} value={f}>
-                          {f === "static_image" ? "Static image" : "Carousel"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {d.visual_format === "carousel" ? (
-                    <label>
-                      Slides
-                      <input
-                        type="number"
-                        min={2}
-                        max={10}
-                        value={d.carousel_slides}
-                        onChange={(e) => update(s.platform, { carousel_slides: Number(e.target.value) })}
-                      />
-                    </label>
-                  ) : (
-                    <label>
-                      Images/post
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={d.images_per_post}
-                        onChange={(e) => update(s.platform, { images_per_post: Number(e.target.value) })}
-                      />
-                    </label>
-                  )}
-                  <label>
-                    Hashtags
-                    <input
-                      type="number"
-                      min={0}
-                      max={30}
-                      value={d.hashtag_count}
-                      onChange={(e) => update(s.platform, { hashtag_count: Number(e.target.value) })}
-                    />
-                  </label>
-                  <label>
-                    Emojis
-                    <select value={d.emojis} onChange={(e) => update(s.platform, { emojis: e.target.value })}>
-                      <option value="none">None</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="abundant">Abundant</option>
-                    </select>
-                  </label>
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={d.include_cta}
-                      onChange={(e) => update(s.platform, { include_cta: e.target.checked })}
-                    />
-                    CTA
-                  </label>
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <h3>Campaign elements</h3>
+      <p className="muted small">
+        Each element is one piece of content (an image, a carousel, a video, or a text-only post). Tick the
+        platforms it should be published to — the same visual is reused across them, generating one rendition
+        per required aspect ratio.
+      </p>
+      <div className="element-list">
+        {elements.map((el) => (
+          <ElementCard
+            key={el.key}
+            el={el}
+            specs={specs}
+            onChange={(patch) => updateElement(el.key, patch)}
+            onRemove={() => removeElement(el.key)}
+            onDuplicate={() => duplicateElement(el)}
+          />
+        ))}
+        {elements.length === 0 && <p className="muted">No elements yet — add the first one below.</p>}
       </div>
+      <div className="competitor-actions" style={{ marginTop: "0.5rem" }}>
+        {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((t) => (
+          <button key={t} type="button" className="btn btn-ghost" onClick={() => addElement(t)}>
+            + {ELEMENT_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
+      {usedPlatforms.length > 0 && (
+        <>
+          <h3>Platform settings</h3>
+          <div className="platform-config-list">
+            {usedPlatforms.map((s) => {
+              const d = settingsFor(s.platform);
+              return (
+                <div key={s.platform} className="platform-config enabled">
+                  <label className="checkbox-label">
+                    <strong>{s.label}</strong>
+                    <span className="muted small">({s.char_limit.toLocaleString()} chars)</span>
+                  </label>
+                  <div className="platform-config-fields">
+                    <label>
+                      Hashtags
+                      <input
+                        type="number"
+                        min={0}
+                        max={30}
+                        value={d.hashtag_count}
+                        onChange={(e) => updateSettings(s.platform, { hashtag_count: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      Emojis
+                      <select value={d.emojis} onChange={(e) => updateSettings(s.platform, { emojis: e.target.value })}>
+                        <option value="none">None</option>
+                        <option value="moderate">Moderate</option>
+                        <option value="abundant">Abundant</option>
+                      </select>
+                    </label>
+                    <label>
+                      Tone (optional)
+                      <input value={d.tone} onChange={(e) => updateSettings(s.platform, { tone: e.target.value })} />
+                    </label>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={d.include_cta}
+                        onChange={(e) => updateSettings(s.platform, { include_cta: e.target.checked })}
+                      />
+                      CTA
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div className="form-actions">
         <button className="btn btn-primary" disabled={submitting}>
@@ -394,5 +410,133 @@ function CreateCampaign({
         </button>
       </div>
     </form>
+  );
+}
+
+function ElementCard({
+  el,
+  specs,
+  onChange,
+  onRemove,
+  onDuplicate,
+}: {
+  el: ElementDraft;
+  specs: PlatformSpec[];
+  onChange: (patch: Partial<ElementDraft>) => void;
+  onRemove: () => void;
+  onDuplicate: () => void;
+}) {
+  const [showRatios, setShowRatios] = useState(false);
+
+  const ratios = resolvePlatformRatios(el.platforms, specs, el.ratio_overrides);
+  const uniqueRatios = Array.from(new Set(Object.values(ratios)));
+
+  const togglePlatform = (p: string, on: boolean) => {
+    const platforms = on ? [...el.platforms, p] : el.platforms.filter((x) => x !== p);
+    const overrides = { ...el.ratio_overrides };
+    if (!on) delete overrides[p];
+    onChange({ platforms, ratio_overrides: overrides });
+  };
+
+  return (
+    <div className="platform-config enabled element-card">
+      <div className="card-header">
+        <strong>{ELEMENT_LABELS[el.element_type]}</strong>
+        <div className="competitor-actions">
+          <button type="button" className="btn btn-ghost small" onClick={onDuplicate}>
+            Duplicate
+          </button>
+          <button type="button" className="btn btn-ghost small danger" onClick={onRemove}>
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div className="platform-config-fields">
+        {el.element_type === "carousel" && (
+          <label>
+            Slides
+            <input
+              type="number"
+              min={2}
+              max={10}
+              value={el.carousel_slides}
+              onChange={(e) => onChange({ carousel_slides: Number(e.target.value) })}
+            />
+          </label>
+        )}
+        {el.element_type === "video" && (
+          <label>
+            Duration (s)
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={el.video_duration_seconds}
+              onChange={(e) => onChange({ video_duration_seconds: Number(e.target.value) })}
+            />
+          </label>
+        )}
+      </div>
+
+      <label className="small">
+        Concept / theme for this element (optional)
+        <input value={el.theme} onChange={(e) => onChange({ theme: e.target.value })} placeholder="e.g. product close-up with lifestyle background" />
+      </label>
+
+      <div className="element-platforms">
+        {specs.map((s) => (
+          <label key={s.platform} className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={el.platforms.includes(s.platform)}
+              onChange={(e) => togglePlatform(s.platform, e.target.checked)}
+            />
+            {s.label}
+          </label>
+        ))}
+      </div>
+
+      {el.platforms.length > 0 && el.element_type !== "text" && (
+        <div className="element-ratios small">
+          <span className="muted">
+            Will generate {uniqueRatios.length} rendition{uniqueRatios.length > 1 ? "s" : ""}:{" "}
+            {uniqueRatios.map((r) => (
+              <span key={r} className="tag" style={{ marginRight: "0.3rem" }}>
+                {r}
+              </span>
+            ))}
+          </span>
+          <button type="button" className="btn btn-ghost small" onClick={() => setShowRatios((v) => !v)}>
+            {showRatios ? "Hide ratios" : "Adjust ratios"}
+          </button>
+          {showRatios && (
+            <div className="platform-config-fields">
+              {el.platforms.map((p) => {
+                const spec = specs.find((s) => s.platform === p);
+                if (!spec) return null;
+                return (
+                  <label key={p}>
+                    {spec.label}
+                    <select
+                      value={ratios[p]}
+                      onChange={(e) =>
+                        onChange({ ratio_overrides: { ...el.ratio_overrides, [p]: e.target.value } })
+                      }
+                    >
+                      {spec.aspect_ratios.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiBlob } from "../api";
-import type { CanvasState, Client, LayerGeom, PostAsset, PostImage } from "../types";
+import type { CanvasState, Client, LayerGeom, PostAsset, PostImage, TextLayerState } from "../types";
 
 const STAGE_W = 460;
 
@@ -17,6 +17,13 @@ interface EditorLayer extends LayerGeom {
   label: string;
 }
 
+// CSS stacks matching the backend's DejaVu families so preview ≈ export.
+const TEXT_FONTS: Record<TextLayerState["font"], string> = {
+  sans: "'DejaVu Sans', Verdana, Arial, sans-serif",
+  serif: "'DejaVu Serif', Georgia, serif",
+  mono: "'DejaVu Sans Mono', 'Courier New', monospace",
+};
+
 export function ImageEditor({
   campaignId,
   image,
@@ -32,6 +39,7 @@ export function ImageEditor({
 }) {
   const [baseUrl, setBaseUrl] = useState("");
   const [layers, setLayers] = useState<EditorLayer[]>([]);
+  const [texts, setTexts] = useState<TextLayerState[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [assets, setAssets] = useState<PostAsset[]>([]);
   const [busy, setBusy] = useState("");
@@ -100,7 +108,10 @@ export function ImageEditor({
             visible: g?.visible ?? Boolean(g),
           });
         }
-        if (active) setLayers(built);
+        if (active) {
+          setLayers(built);
+          setTexts(state.texts || []);
+        }
       } catch (e) {
         if (active) setError(e instanceof Error ? e.message : "Could not load editor");
       }
@@ -116,6 +127,10 @@ export function ImageEditor({
     setLayers((prev) => prev.map((l) => (l.key === key ? { ...l, ...p } : l)));
   }
 
+  function patchText(id: string, p: Partial<TextLayerState>) {
+    setTexts((prev) => prev.map((t) => (t.id === id ? { ...t, ...p } : t)));
+  }
+
   function onPointerDown(e: React.PointerEvent, layer: EditorLayer) {
     if (layer.locked) return;
     setSelected(layer.key);
@@ -128,12 +143,52 @@ export function ImageEditor({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
+  function onTextPointerDown(e: React.PointerEvent, t: TextLayerState) {
+    setSelected(`text:${t.id}`);
+    const rect = stageRef.current!.getBoundingClientRect();
+    drag.current = {
+      key: `text:${t.id}`,
+      dx: e.clientX - rect.left - t.x * STAGE_W,
+      dy: e.clientY - rect.top - t.y * stageH,
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
   function onPointerMove(e: React.PointerEvent) {
     if (!drag.current) return;
     const rect = stageRef.current!.getBoundingClientRect();
-    const x = (e.clientX - rect.left - drag.current.dx) / STAGE_W;
-    const y = (e.clientY - rect.top - drag.current.dy) / stageH;
-    patch(drag.current.key, { x: Math.max(-0.2, Math.min(1, x)), y: Math.max(-0.2, Math.min(1, y)) });
+    const x = Math.max(-0.2, Math.min(1, (e.clientX - rect.left - drag.current.dx) / STAGE_W));
+    const y = Math.max(-0.2, Math.min(1, (e.clientY - rect.top - drag.current.dy) / stageH));
+    if (drag.current.key.startsWith("text:")) {
+      patchText(drag.current.key.slice(5), { x, y });
+    } else {
+      patch(drag.current.key, { x, y });
+    }
+  }
+
+  function addText() {
+    const t: TextLayerState = {
+      id: crypto.randomUUID(),
+      text: "Your text",
+      x: 0.1,
+      y: 0.45,
+      size: 0.06,
+      color: "#ffffff",
+      font: "sans",
+      bold: true,
+      italic: false,
+      rotation: 0,
+      opacity: 1,
+      z: texts.length + 1,
+      visible: true,
+    };
+    setTexts((prev) => [...prev, t]);
+    setSelected(`text:${t.id}`);
+  }
+
+  function removeText(id: string) {
+    setTexts((prev) => prev.filter((t) => t.id !== id));
+    setSelected((s) => (s === `text:${id}` ? null : s));
   }
 
   function onPointerUp() {
@@ -190,7 +245,7 @@ export function ImageEditor({
   }
 
   function serialize(): CanvasState {
-    const state: CanvasState = { assets: [] };
+    const state: CanvasState = { assets: [], texts: texts.filter((t) => t.text.trim()) };
     for (const l of layers) {
       const geom: LayerGeom = {
         x: l.x,
@@ -227,6 +282,7 @@ export function ImageEditor({
   }
 
   const sel = layers.find((l) => l.key === selected) || null;
+  const selText = selected?.startsWith("text:") ? texts.find((t) => t.id === selected.slice(5)) || null : null;
   const ordered = [...layers].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
 
   return (
@@ -268,6 +324,32 @@ export function ImageEditor({
                   }}
                 />
               ))}
+            {texts
+              .filter((t) => t.visible !== false)
+              .map((t) => (
+                <div
+                  key={t.id}
+                  onPointerDown={(e) => onTextPointerDown(e, t)}
+                  className={`editor-layer editor-text ${selected === `text:${t.id}` ? "selected" : ""}`}
+                  style={{
+                    left: t.x * STAGE_W,
+                    top: t.y * stageH,
+                    fontSize: t.size * STAGE_W,
+                    color: t.color,
+                    fontFamily: TEXT_FONTS[t.font] || TEXT_FONTS.sans,
+                    fontWeight: t.bold ? 700 : 400,
+                    fontStyle: t.italic ? "italic" : "normal",
+                    opacity: t.opacity,
+                    transform: `rotate(${t.rotation ?? 0}deg)`,
+                    whiteSpace: "pre",
+                    lineHeight: 1.2,
+                    userSelect: "none",
+                    cursor: "move",
+                  }}
+                >
+                  {t.text}
+                </div>
+              ))}
           </div>
 
           <div className="editor-panel">
@@ -280,6 +362,9 @@ export function ImageEditor({
                 onChange={(e) => e.target.files?.[0] && uploadAsset(e.target.files[0])}
               />
             </label>
+            <button className="btn btn-ghost" onClick={addText}>
+              + Add text
+            </button>
 
             <div className="layer-list">
               {ordered
@@ -328,6 +413,40 @@ export function ImageEditor({
                     </div>
                   </div>
                 ))}
+              {texts.map((t) => (
+                <div
+                  key={t.id}
+                  className={`layer-row ${selected === `text:${t.id}` ? "selected" : ""}`}
+                  onClick={() => {
+                    setSelected(`text:${t.id}`);
+                    if (t.visible === false) patchText(t.id, { visible: true });
+                  }}
+                >
+                  <span className="layer-name">T: {t.text.slice(0, 18) || "(empty)"}</span>
+                  <div className="layer-actions">
+                    <button
+                      className="btn-icon"
+                      title="Toggle visibility"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        patchText(t.id, { visible: t.visible === false });
+                      }}
+                    >
+                      {t.visible === false ? "🚫" : "👁"}
+                    </button>
+                    <button
+                      className="btn-icon"
+                      title="Delete text"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeText(t.id);
+                      }}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              ))}
               {layers.length === 0 && (
                 <p className="muted small">
                   {client.logo_object_key ? "Loading layers…" : "This client has no logo. Upload assets to overlay."}
@@ -366,6 +485,87 @@ export function ImageEditor({
                     max={180}
                     value={sel.rotation ?? 0}
                     onChange={(e) => patch(sel.key, { rotation: Number(e.target.value) })}
+                  />
+                </label>
+              </div>
+            )}
+
+            {selText && (
+              <div className="layer-controls">
+                <strong className="small">Text layer</strong>
+                <label className="small">
+                  Text
+                  <textarea
+                    rows={2}
+                    value={selText.text}
+                    onChange={(e) => patchText(selText.id, { text: e.target.value })}
+                  />
+                </label>
+                <div className="row" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <label className="small" style={{ flex: 1 }}>
+                    Font
+                    <select
+                      value={selText.font}
+                      onChange={(e) => patchText(selText.id, { font: e.target.value as TextLayerState["font"] })}
+                    >
+                      <option value="sans">Sans-serif</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Monospace</option>
+                    </select>
+                  </label>
+                  <label className="small">
+                    Color
+                    <input
+                      type="color"
+                      value={selText.color}
+                      onChange={(e) => patchText(selText.id, { color: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    className={`btn btn-ghost ${selText.bold ? "active" : ""}`}
+                    style={{ fontWeight: 700 }}
+                    onClick={() => patchText(selText.id, { bold: !selText.bold })}
+                  >
+                    B
+                  </button>
+                  <button
+                    className={`btn btn-ghost ${selText.italic ? "active" : ""}`}
+                    style={{ fontStyle: "italic" }}
+                    onClick={() => patchText(selText.id, { italic: !selText.italic })}
+                  >
+                    I
+                  </button>
+                </div>
+                <label className="small">
+                  Size: {Math.round(selText.size * 100)}%
+                  <input
+                    type="range"
+                    min={2}
+                    max={25}
+                    value={Math.round(selText.size * 100)}
+                    onChange={(e) => patchText(selText.id, { size: Number(e.target.value) / 100 })}
+                  />
+                </label>
+                <label className="small">
+                  Opacity: {Math.round(selText.opacity * 100)}%
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(selText.opacity * 100)}
+                    onChange={(e) => patchText(selText.id, { opacity: Number(e.target.value) / 100 })}
+                  />
+                </label>
+                <label className="small">
+                  Rotation: {selText.rotation ?? 0}°
+                  <input
+                    type="range"
+                    min={-180}
+                    max={180}
+                    value={selText.rotation ?? 0}
+                    onChange={(e) => patchText(selText.id, { rotation: Number(e.target.value) })}
                   />
                 </label>
               </div>

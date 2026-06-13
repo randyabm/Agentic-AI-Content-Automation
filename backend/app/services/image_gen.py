@@ -6,6 +6,7 @@ completions endpoint when the "image" output modality is requested.
 """
 import base64
 import logging
+import time
 
 import httpx
 from sqlalchemy.orm import Session
@@ -108,17 +109,24 @@ def _openai_size(model_name: str, aspect_ratio: str) -> str:
 
 
 def _generate_openai(model: ImageModel, api_key: str, prompt: str, aspect_ratio: str) -> tuple[bytes, str]:
-    response = httpx.post(
-        "https://api.openai.com/v1/images/generations",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": model.model_name,
-            "prompt": prompt,
-            "size": _openai_size(model.model_name, aspect_ratio),
-            "n": 1,
-        },
-        timeout=300,
-    )
+    # OpenAI's edge occasionally returns transient 5xx (Cloudflare 520s observed);
+    # retry those a couple of times before surfacing an error.
+    for attempt in range(3):
+        response = httpx.post(
+            "https://api.openai.com/v1/images/generations",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model.model_name,
+                "prompt": prompt,
+                "size": _openai_size(model.model_name, aspect_ratio),
+                "n": 1,
+            },
+            timeout=300,
+        )
+        if response.status_code < 500:
+            break
+        logger.warning("OpenAI image generation returned %s (attempt %s)", response.status_code, attempt + 1)
+        time.sleep(2 * (attempt + 1))
     if response.status_code >= 400:
         raise ExtractionError(f"OpenAI image generation failed ({response.status_code}): {response.text[:300]}")
     try:

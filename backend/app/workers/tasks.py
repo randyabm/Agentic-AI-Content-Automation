@@ -11,18 +11,27 @@ from app.db.session import SessionLocal
 from app.models.article import Article, ArticleEntryType, ArticleSource, ArticleStatus, SyncFrequency
 from app.models.campaign import (
     Campaign,
+    CampaignElement,
     CampaignPlatform,
     CampaignStatus,
+    ElementType,
+    Platform,
     Post,
     PostImage,
     PostStatus,
+    PostVideo,
 )
 from app.models.client import Client, ExtractionJob, JobStatus
 from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJob, CompetitorSource, SearchJobStatus
 from app.models.llm import LLMFunction
 from app.models.setting import Setting
 from app.services.article_intel import discover_article_urls, extract_article, fetch_clean_page
-from app.services.campaign_gen import build_context, generate_for_platform, resolve_article
+from app.services.campaign_gen import (
+    build_context,
+    generate_element_prompts,
+    generate_platform_copy,
+    resolve_article,
+)
 from app.services.competitor_intel import compare_with_client, identify_competitors
 from app.services.crawler import CrawlConfig, crawl_site
 from app.services.extraction import ExtractionError, extract_client_profile
@@ -419,30 +428,80 @@ def generate_campaign(campaign_id: str) -> None:
         db.commit()
 
         # Replace any prior generation output (regenerate-whole-campaign case).
+        # Elements are kept; their posts and visual renditions are rebuilt.
         for old in db.scalars(select(Post).where(Post.campaign_id == campaign.id)).all():
             db.delete(old)
+        elements = db.scalars(
+            select(CampaignElement)
+            .where(CampaignElement.campaign_id == campaign.id)
+            .order_by(CampaignElement.position)
+        ).all()
+        for el in elements:
+            for img in list(el.images):
+                db.delete(img)
+            for vid in list(el.videos):
+                db.delete(vid)
         db.commit()
 
-        article = _resolve_article(db, campaign)
-        context = build_context(db, client, campaign, article["text"])
-
-        active = db.scalars(
-            select(CampaignPlatform).where(
-                CampaignPlatform.campaign_id == campaign.id, CampaignPlatform.is_active.is_(True)
-            )
-        ).all()
-        if not active:
+        if not elements:
             campaign.status = CampaignStatus.failed
-            campaign.error = "No active platforms were selected for this campaign."
+            campaign.error = "This campaign has no elements to generate."
             db.commit()
             return
 
-        for cp in active:
-            posts_data, image_prompts = generate_for_platform(db, client, campaign, cp, context, article)
-            for position, (pdata, slots) in enumerate(zip(posts_data, image_prompts)):
-                post = Post(
+        article = _resolve_article(db, campaign)
+        context = build_context(db, client, campaign, article["text"])
+        cp_by_platform = {
+            cp.platform: cp
+            for cp in db.scalars(
+                select(CampaignPlatform).where(
+                    CampaignPlatform.campaign_id == campaign.id, CampaignPlatform.is_active.is_(True)
+                )
+            ).all()
+        }
+
+        # Visual prompts: one Visual Agent pass over all elements, reused per ratio.
+        prompts = (
+            generate_element_prompts(db, campaign, elements, context)
+            if campaign.generate_images
+            else [[] for _ in elements]
+        )
+        for el, slots in zip(elements, prompts):
+            ratios = list(dict.fromkeys((el.platform_ratios or {}).values()))
+            if el.element_type == ElementType.video:
+                for ratio in ratios:
+                    db.add(PostVideo(
+                        element_id=el.id,
+                        aspect_ratio=ratio,
+                        duration_seconds=el.video_duration_seconds,
+                        prompt=slots[0]["prompt"] if slots else "",
+                        negative_prompt=slots[0]["negative_prompt"] if slots else "",
+                    ))
+            elif el.element_type != ElementType.text:
+                for ratio in ratios:
+                    for slot_index, slot in enumerate(slots):
+                        db.add(PostImage(
+                            element_id=el.id,
+                            slot_index=slot_index,
+                            aspect_ratio=ratio,
+                            prompt=slot["prompt"],
+                            negative_prompt=slot["negative_prompt"],
+                        ))
+        db.commit()
+
+        # Editorial copy: per platform, one post per element targeting it.
+        platforms_used = [p for p in Platform if any(p.value in (el.platforms or []) for el in elements)]
+        for platform in platforms_used:
+            cp = cp_by_platform.get(platform)
+            if cp is None:
+                continue
+            els = [el for el in elements if platform.value in (el.platforms or [])]
+            posts_data = generate_platform_copy(db, client, campaign, cp, els, context, article)
+            for position, (el, pdata) in enumerate(zip(els, posts_data)):
+                db.add(Post(
                     campaign_id=campaign.id,
-                    platform=cp.platform,
+                    element_id=el.id,
+                    platform=platform,
                     position=position,
                     headline=pdata["headline"],
                     copy=pdata["copy"],
@@ -451,24 +510,15 @@ def generate_campaign(campaign_id: str) -> None:
                     best_time=pdata["best_time"],
                     rationale=pdata["rationale"],
                     status=PostStatus.ready,
-                )
-                db.add(post)
-                db.flush()
-                for slot_index, slot in enumerate(slots):
-                    db.add(
-                        PostImage(
-                            post_id=post.id,
-                            slot_index=slot_index,
-                            aspect_ratio=slot["aspect_ratio"],
-                            prompt=slot["prompt"],
-                            negative_prompt=slot["negative_prompt"],
-                        )
-                    )
+                ))
             db.commit()
 
         campaign.status = CampaignStatus.ready
         db.commit()
-        logger.info("Campaign %s generated for %d platform(s)", campaign_id, len(active))
+        logger.info(
+            "Campaign %s generated: %d element(s) on %d platform(s)",
+            campaign_id, len(elements), len(platforms_used),
+        )
     except anthropic.RateLimitError:
         db.rollback()
         raise
@@ -496,7 +546,10 @@ def _fail_campaign(db, campaign_id: str, error: str) -> None:
     max_retries=4,
 )
 def regenerate_platform(campaign_id: str, platform: str) -> None:
-    """Regenerate all posts for a single platform (PRD §5.6 step 21c)."""
+    """Regenerate the copy for a single platform (PRD §5.6 step 21c).
+
+    Visual renditions are shared across platforms, so only posts are rebuilt.
+    """
     db = SessionLocal()
     try:
         campaign = db.get(Campaign, campaign_id)
@@ -517,22 +570,24 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
             db.delete(old)
         db.commit()
 
-        article = _resolve_article(db, campaign)
-        context = build_context(db, client, campaign, article["text"])
-        posts_data, image_prompts = generate_for_platform(db, client, campaign, cp, context, article)
-        for position, (pdata, slots) in enumerate(zip(posts_data, image_prompts)):
-            post = Post(
-                campaign_id=campaign.id, platform=cp.platform, position=position,
-                headline=pdata["headline"], copy=pdata["copy"], cta=pdata["cta"],
-                hashtags=pdata["hashtags"], best_time=pdata["best_time"],
-                rationale=pdata["rationale"], status=PostStatus.ready,
-            )
-            db.add(post)
-            db.flush()
-            for slot_index, slot in enumerate(slots):
-                db.add(PostImage(
-                    post_id=post.id, slot_index=slot_index, aspect_ratio=slot["aspect_ratio"],
-                    prompt=slot["prompt"], negative_prompt=slot["negative_prompt"],
+        els = [
+            el for el in db.scalars(
+                select(CampaignElement)
+                .where(CampaignElement.campaign_id == campaign_id)
+                .order_by(CampaignElement.position)
+            ).all()
+            if cp.platform.value in (el.platforms or [])
+        ]
+        if els:
+            article = _resolve_article(db, campaign)
+            context = build_context(db, client, campaign, article["text"])
+            posts_data = generate_platform_copy(db, client, campaign, cp, els, context, article)
+            for position, (el, pdata) in enumerate(zip(els, posts_data)):
+                db.add(Post(
+                    campaign_id=campaign.id, element_id=el.id, platform=cp.platform, position=position,
+                    headline=pdata["headline"], copy=pdata["copy"], cta=pdata["cta"],
+                    hashtags=pdata["hashtags"], best_time=pdata["best_time"],
+                    rationale=pdata["rationale"], status=PostStatus.ready,
                 ))
         campaign.status = CampaignStatus.ready
         db.commit()
@@ -544,6 +599,68 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
         _fail_campaign(db, campaign_id, f"Unexpected error: {exc}")
     finally:
         db.close()
+
+
+@celery_app.task(name="image.generate")
+def run_image_generation(image_id: str, image_model_id: str | None = None) -> None:
+    """Generate a post image with the configured provider (async, same as videos)."""
+    from app.models.campaign import VideoStatus
+    from app.services import storage
+    from app.services.image_gen import generate_image, get_image_model
+
+    db = SessionLocal()
+    try:
+        image = db.get(PostImage, image_id)
+        if image is None:
+            logger.error("Post image %s not found", image_id)
+            return
+        model = get_image_model(db, image_model_id or image.image_model_id)
+        image.status = VideoStatus.generating
+        image.error = ""
+        db.commit()
+
+        prompt = image.prompt
+        if image.additional_guidance:
+            prompt = f"{prompt}\n\nAdditional guidance: {image.additional_guidance}"
+        data, content_type = generate_image(db, model, prompt, image.negative_prompt, image.aspect_ratio)
+
+        element = db.get(CampaignElement, image.element_id)
+        campaign_id = element.campaign_id if element else "unknown"
+        version = len(image.generation_history) + 1
+        key = f"campaigns/{campaign_id}/images/{image.id}/v{version}.png"
+        storage.upload_object(key, data, content_type)
+
+        history = list(image.generation_history)
+        history.append({
+            "object_key": key,
+            "prompt": prompt,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        image.generation_history = history
+        image.base_object_key = key
+        image.is_uploaded = False
+        image.image_model_id = model.id
+        image.composited_object_key = ""  # base changed; previous composite is stale
+        image.status = VideoStatus.ready
+        db.commit()
+        logger.info("Image %s generated (%d bytes)", image_id, len(data))
+    except ExtractionError as exc:
+        _fail_image(db, image_id, str(exc))
+    except Exception as exc:  # noqa: BLE001 — slot must always end in a terminal state
+        logger.exception("Image generation %s crashed", image_id)
+        _fail_image(db, image_id, f"Unexpected error: {exc}")
+    finally:
+        db.close()
+
+
+def _fail_image(db, image_id: str, error: str) -> None:
+    from app.models.campaign import VideoStatus
+
+    image = db.get(PostImage, image_id)
+    if image is not None:
+        image.status = VideoStatus.failed
+        image.error = error
+        db.commit()
 
 
 @celery_app.task(name="video.generate")
@@ -569,8 +686,8 @@ def run_video_generation(video_id: str) -> None:
             model, video.prompt, video.negative_prompt, video.aspect_ratio, video.duration_seconds
         )
 
-        post = db.get(Post, video.post_id)
-        campaign_id = post.campaign_id if post else "unknown"
+        element = db.get(CampaignElement, video.element_id)
+        campaign_id = element.campaign_id if element else "unknown"
         version = len(video.generation_history) + 1
         key = f"campaigns/{campaign_id}/videos/{video.id}/v{version}.mp4"
         storage.upload_object(key, data, content_type)

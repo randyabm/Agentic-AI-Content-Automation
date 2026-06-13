@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
-from app.models.campaign import Campaign, CampaignPlatform, Platform, VisualFormat
+from app.models.campaign import Campaign, CampaignElement, CampaignPlatform, ElementType, Platform
 from app.models.client import Client
 from app.models.competitor import Competitor
 from app.models.llm import LLMFunction
@@ -126,9 +126,31 @@ def build_context(db: Session, client: Client, campaign: Campaign, article_text:
     return "\n".join(blocks)
 
 
+def _element_descriptor(el: CampaignElement) -> str:
+    if el.element_type == ElementType.carousel:
+        desc = f"a carousel of {el.carousel_slides} slides"
+    elif el.element_type == ElementType.video:
+        desc = f"a {el.video_duration_seconds}s video"
+    elif el.element_type == ElementType.text:
+        desc = "a text-only post (no visual)"
+    else:
+        desc = "a single image"
+    if el.theme:
+        desc += f" — concept/theme: {el.theme}"
+    return desc
+
+
+def _element_lines(elements: list[CampaignElement]) -> str:
+    return "\n".join(f"POST {i + 1} accompanies {_element_descriptor(el)}" for i, el in enumerate(elements))
+
+
 EDITORIAL_INSTRUCTIONS = """\
 You are the Editorial Agent for a social media marketing platform. Generate {num_posts}
 distinct {platform} post(s) for a campaign with objective "{objective}".
+
+Each post accompanies one campaign element (its visual). Write copy that matches that
+element's type and concept:
+{element_lines}
 
 Platform rules:
 - Copy MUST NOT exceed {char_limit} characters.
@@ -155,26 +177,33 @@ Write all content in {language}. Ground everything in the context below.
 """
 
 VISUAL_INSTRUCTIONS = """\
-You are the Visual Creative Agent for a social media marketing platform. For each post
-below, write detailed AI image-generation prompt(s) for {platform} (aspect ratio
-{aspect_ratio}). Generate {images_per_post} image prompt(s) per post.
+You are the Visual Creative Agent for a social media marketing platform. For each
+campaign element below, write detailed AI generation prompt(s). Image elements need 1
+prompt, carousels need one prompt per slide (visually coherent as a sequence), and video
+elements need 1 motion/video prompt.
 
 Each prompt must specify subject, composition, style, lighting, and a color palette that
 aligns with the brand's visual style and corporate colors. Provide a negative prompt
-listing elements to avoid. Do not include any text/words to render inside the image
-unless essential.
+listing elements to avoid. If the brand style or your system instructions call for
+headline text rendered inside the image, include the exact wording in double quotes in
+the prompt and describe its placement and typography; otherwise avoid in-image text.
+The same prompt will be rendered at several aspect ratios, so keep the main subject
+centered and the composition flexible.
 
-Answer ONLY with a JSON array — one object per post, in the same order as given:
+ELEMENTS:
+{element_lines}
+
+Answer ONLY with a JSON array — one object per element, in the same order as given:
 [
   {{
-    "images": [
+    "prompts": [
       {{"prompt": string, "negative_prompt": string}},
       ...
     ]
   }},
   ...
 ]
-There must be exactly {images_per_post} image object(s) per post.
+Each element must get exactly the number of prompts stated above.
 """
 
 
@@ -184,10 +213,35 @@ def _emoji_rule(value: str) -> str:
     )
 
 
+def _parse_posts(raw: str, num_posts: int, pspec) -> list[dict]:
+    results = parse_json_value(raw, opener="[", closer="]")
+    if not isinstance(results, list) or not results:
+        raise ExtractionError(f"The Editorial Agent did not return posts for {pspec.label}")
+    posts: list[dict] = []
+    for item in results[:num_posts]:
+        posts.append({
+            "headline": str(item.get("headline", "")).strip(),
+            "copy": str(item.get("copy", "")).strip()[: pspec.char_limit],
+            "cta": str(item.get("cta", "")).strip(),
+            "hashtags": [str(h).strip() for h in item.get("hashtags", []) if str(h).strip()],
+            "best_time": str(item.get("best_time", "")).strip(),
+            "rationale": str(item.get("rationale", "")).strip(),
+        })
+    # Pad if the model returned fewer posts than elements so zip() stays aligned.
+    while len(posts) < num_posts:
+        posts.append({"headline": "", "copy": "", "cta": "", "hashtags": [], "best_time": "", "rationale": ""})
+    return posts
+
+
 def generate_posts_copy(
-    db: Session, client: Client, campaign: Campaign, cp: CampaignPlatform, context: str
+    db: Session,
+    client: Client,
+    campaign: Campaign,
+    cp: CampaignPlatform,
+    elements: list[CampaignElement],
+    context: str,
 ) -> list[dict]:
-    """Editorial Agent: return one dict per post for the given platform."""
+    """Editorial Agent: one post per element for the given platform."""
     cfg = get_llm_config(db, LLMFunction.editorial_agent)
     pspec = spec(cp.platform)
     cta_rule = (
@@ -196,9 +250,10 @@ def generate_posts_copy(
         else "do not include a call to action"
     )
     instructions = EDITORIAL_INSTRUCTIONS.format(
-        num_posts=cp.num_posts,
+        num_posts=len(elements),
         platform=pspec.label,
         objective=campaign.objective.value,
+        element_lines=_element_lines(elements),
         char_limit=pspec.char_limit,
         emojis=_emoji_rule(cp.emojis),
         hashtag_count=cp.hashtag_count,
@@ -209,26 +264,16 @@ def generate_posts_copy(
     )
     temperature = creativity_to_temperature(campaign.creativity_level)
     raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
-    results = parse_json_value(raw, opener="[", closer="]")
-    if not isinstance(results, list) or not results:
-        raise ExtractionError(f"The Editorial Agent did not return posts for {pspec.label}")
-    posts: list[dict] = []
-    for item in results[: cp.num_posts]:
-        copy = str(item.get("copy", "")).strip()[: pspec.char_limit]
-        posts.append({
-            "headline": str(item.get("headline", "")).strip(),
-            "copy": copy,
-            "cta": str(item.get("cta", "")).strip(),
-            "hashtags": [str(h).strip() for h in item.get("hashtags", []) if str(h).strip()],
-            "best_time": str(item.get("best_time", "")).strip(),
-            "rationale": str(item.get("rationale", "")).strip(),
-        })
-    return posts
+    return _parse_posts(raw, len(elements), pspec)
 
 
 ARTICLE_EDITORIAL_INSTRUCTIONS = """\
 You are the Editorial Agent in Article-to-Content mode. Generate {num_posts} {platform}
 post(s) that reference or promote the SOURCE ARTICLE below, with a {angle} angle.
+
+Each post accompanies one campaign element (its visual). Write copy that matches that
+element's type and concept:
+{element_lines}
 
 Platform rules:
 - Copy MUST NOT exceed {char_limit} characters.
@@ -299,6 +344,7 @@ def generate_article_posts_copy(
     client: Client,
     campaign: Campaign,
     cp: CampaignPlatform,
+    elements: list[CampaignElement],
     context: str,
     article_meta: dict,
 ) -> list[dict]:
@@ -306,8 +352,9 @@ def generate_article_posts_copy(
     cfg = get_llm_config(db, LLMFunction.editorial_agent)
     pspec = spec(cp.platform)
     instructions = ARTICLE_EDITORIAL_INSTRUCTIONS.format(
-        num_posts=cp.num_posts,
+        num_posts=len(elements),
         platform=pspec.label,
+        element_lines=_element_lines(elements),
         angle=_ANGLE_LABELS.get(campaign.content_angle, "informational"),
         char_limit=pspec.char_limit,
         emojis=_emoji_rule(cp.emojis),
@@ -326,86 +373,65 @@ def generate_article_posts_copy(
     )
     temperature = creativity_to_temperature(campaign.creativity_level)
     raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
-    results = parse_json_value(raw, opener="[", closer="]")
-    if not isinstance(results, list) or not results:
-        raise ExtractionError(f"The Editorial Agent did not return posts for {pspec.label}")
-    posts: list[dict] = []
-    for item in results[: cp.num_posts]:
-        posts.append({
-            "headline": str(item.get("headline", "")).strip(),
-            "copy": str(item.get("copy", "")).strip()[: pspec.char_limit],
-            "cta": str(item.get("cta", "")).strip(),
-            "hashtags": [str(h).strip() for h in item.get("hashtags", []) if str(h).strip()],
-            "best_time": str(item.get("best_time", "")).strip(),
-            "rationale": str(item.get("rationale", "")).strip(),
-        })
-    return posts
+    return _parse_posts(raw, len(elements), pspec)
 
 
-def generate_for_platform(
+def generate_platform_copy(
     db: Session,
     client: Client,
     campaign: Campaign,
     cp: CampaignPlatform,
+    elements: list[CampaignElement],
     context: str,
     article_meta: dict | None = None,
-) -> tuple[list[dict], list[list[dict]]]:
-    """Generate posts (and, unless disabled, image prompts) for one platform.
-
-    Branches on the campaign generation mode (standard campaign vs. article-to-content)
-    and honours the generate_images flag. Shared by full and per-platform regeneration.
-    """
+) -> list[dict]:
+    """Editorial copy for one platform: one post per element, mode-aware."""
     if campaign.generation_mode == "article":
-        posts_data = generate_article_posts_copy(db, client, campaign, cp, context, article_meta or {})
-    else:
-        posts_data = generate_posts_copy(db, client, campaign, cp, context)
-    if campaign.generate_images:
-        image_prompts = generate_image_prompts(db, campaign, cp, posts_data, context)
-    else:
-        image_prompts = [[] for _ in posts_data]
-    return posts_data, image_prompts
+        return generate_article_posts_copy(db, client, campaign, cp, elements, context, article_meta or {})
+    return generate_posts_copy(db, client, campaign, cp, elements, context)
 
 
-def generate_image_prompts(
-    db: Session,
-    campaign: Campaign,
-    cp: CampaignPlatform,
-    posts_data: list[dict],
-    context: str,
+def _slots_for(el: CampaignElement) -> int:
+    if el.element_type == ElementType.text:
+        return 0
+    if el.element_type == ElementType.carousel:
+        return max(2, el.carousel_slides)
+    return 1
+
+
+def generate_element_prompts(
+    db: Session, campaign: Campaign, elements: list[CampaignElement], context: str
 ) -> list[list[dict]]:
-    """Visual Agent: return, per post, a list of {prompt, negative_prompt} image slots."""
+    """Visual Agent: per element, a list of {prompt, negative_prompt} slots.
+
+    One call covers every visual element of the campaign; text elements get [].
+    The same prompts are reused for every aspect-ratio rendition of the element.
+    """
+    visual = [el for el in elements if _slots_for(el) > 0]
+    if not visual:
+        return [[] for _ in elements]
     cfg = get_llm_config(db, LLMFunction.visual_agent)
-    pspec = spec(cp.platform)
-    aspect = pspec.default_ratio
-    images_per_post = cp.carousel_slides if cp.visual_format == VisualFormat.carousel else cp.images_per_post
-    images_per_post = max(1, images_per_post)
-    instructions = VISUAL_INSTRUCTIONS.format(
-        platform=pspec.label,
-        aspect_ratio=aspect,
-        images_per_post=images_per_post,
+    lines = "\n".join(
+        f"ELEMENT {i + 1}: {_element_descriptor(el)} — produce {_slots_for(el)} prompt(s)"
+        for i, el in enumerate(visual)
     )
-    posts_summary = "\n".join(
-        f"POST {i + 1}: {p['headline']} | {p['copy'][:200]}" for i, p in enumerate(posts_data)
-    )
+    instructions = VISUAL_INSTRUCTIONS.format(element_lines=lines)
     temperature = creativity_to_temperature(campaign.creativity_level)
-    raw = complete_text(
-        cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}\n\nPOSTS:\n{posts_summary}", temperature
-    )
+    raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
     results = parse_json_value(raw, opener="[", closer="]")
     if not isinstance(results, list):
-        raise ExtractionError(f"The Visual Agent did not return image prompts for {pspec.label}")
+        raise ExtractionError("The Visual Agent did not return element prompts")
 
-    per_post: list[list[dict]] = []
-    for idx in range(len(posts_data)):
-        slots: list[dict] = []
+    by_element: dict[str, list[dict]] = {}
+    for idx, el in enumerate(visual):
         item = results[idx] if idx < len(results) else {}
-        images = item.get("images", []) if isinstance(item, dict) else []
-        for slot in range(images_per_post):
-            img = images[slot] if slot < len(images) else {}
+        prompts = item.get("prompts", item.get("images", [])) if isinstance(item, dict) else []
+        slots: list[dict] = []
+        for slot in range(_slots_for(el)):
+            p = prompts[slot] if slot < len(prompts) else {}
             slots.append({
-                "aspect_ratio": aspect,
-                "prompt": str(img.get("prompt", "")).strip(),
-                "negative_prompt": str(img.get("negative_prompt", "")).strip(),
+                "prompt": str(p.get("prompt", "")).strip(),
+                "negative_prompt": str(p.get("negative_prompt", "")).strip(),
             })
-        per_post.append(slots)
-    return per_post
+        by_element[el.id] = slots
+    return [by_element.get(el.id, []) for el in elements]

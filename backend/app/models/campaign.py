@@ -1,10 +1,12 @@
 """Social Media Campaign Generation models (PRD §5 — Module 3).
 
-A Campaign belongs to a client and targets one or more platforms. Each active
-platform holds its own per-platform parameters (§5.3.2) and a set of Posts. Each
-Post carries the Editorial Agent output (copy/hashtags/CTA) and one or more
-PostImage slots, each carrying the Visual Agent prompt plus the Image Editor
-canvas state (logo + uploaded asset layers).
+A Campaign belongs to a client and is composed of CampaignElements (image,
+carousel, video, or text-only). Each element declares the platforms it targets
+and a resolved platform→aspect-ratio map, so one visual concept is generated
+once per unique ratio and shared across platforms. Posts are the per-platform
+materialization of an element: each carries the Editorial Agent copy for that
+platform and points back at its element, whose PostImage/PostVideo renditions
+hold the Visual Agent prompts plus the Image Editor canvas state.
 """
 import enum
 import uuid
@@ -53,6 +55,13 @@ class PostStatus(str, enum.Enum):
     failed = "failed"
 
 
+class ElementType(str, enum.Enum):
+    image = "image"
+    carousel = "carousel"
+    video = "video"
+    text = "text"
+
+
 class Campaign(Base):
     __tablename__ = "campaigns"
 
@@ -91,11 +100,48 @@ class Campaign(Base):
     platforms: Mapped[list["CampaignPlatform"]] = relationship(
         back_populates="campaign", cascade="all, delete-orphan"
     )
+    elements: Mapped[list["CampaignElement"]] = relationship(
+        back_populates="campaign", cascade="all, delete-orphan", order_by="CampaignElement.position"
+    )
     posts: Mapped[list["Post"]] = relationship(back_populates="campaign", cascade="all, delete-orphan")
 
 
+class CampaignElement(Base):
+    """One content piece of the campaign (image, carousel, video, or text-only).
+
+    `platforms` lists the platform values the element is published to, and
+    `platform_ratios` maps each of those platforms to the aspect ratio it will
+    use (auto-resolved with optional user overrides). Visual renditions are
+    generated once per unique ratio and shared by every platform using it.
+    """
+
+    __tablename__ = "campaign_elements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    campaign_id: Mapped[str] = mapped_column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    element_type: Mapped[ElementType] = mapped_column(Enum(ElementType), default=ElementType.image)
+    theme: Mapped[str] = mapped_column(Text, default="")  # optional per-element concept/direction
+    platforms: Mapped[list] = mapped_column(JSON, default=list)        # ["instagram", "facebook", ...]
+    platform_ratios: Mapped[dict] = mapped_column(JSON, default=dict)  # {"instagram": "4:5", ...}
+    carousel_slides: Mapped[int] = mapped_column(Integer, default=3)
+    video_duration_seconds: Mapped[int] = mapped_column(Integer, default=8)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    campaign: Mapped[Campaign] = relationship(back_populates="elements")
+    images: Mapped[list["PostImage"]] = relationship(
+        back_populates="element", cascade="all, delete-orphan",
+        order_by="(PostImage.aspect_ratio, PostImage.slot_index)",
+    )
+    videos: Mapped[list["PostVideo"]] = relationship(
+        back_populates="element", cascade="all, delete-orphan", order_by="PostVideo.created_at"
+    )
+    posts: Mapped[list["Post"]] = relationship(back_populates="element", cascade="all, delete-orphan")
+
+
 class CampaignPlatform(Base):
-    """Per-platform configuration within a campaign (PRD §5.3.2)."""
+    """Per-platform text settings within a campaign (PRD §5.3.2): tone, CTA,
+    hashtags, and emoji density. What gets published is defined by elements."""
 
     __tablename__ = "campaign_platforms"
 
@@ -103,10 +149,6 @@ class CampaignPlatform(Base):
     campaign_id: Mapped[str] = mapped_column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
     platform: Mapped[Platform] = mapped_column(Enum(Platform), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    num_posts: Mapped[int] = mapped_column(Integer, default=3)
-    images_per_post: Mapped[int] = mapped_column(Integer, default=1)
-    visual_format: Mapped[VisualFormat] = mapped_column(Enum(VisualFormat), default=VisualFormat.static_image)
-    carousel_slides: Mapped[int] = mapped_column(Integer, default=3)
     tone: Mapped[str] = mapped_column(Text, default="")          # platform-specific tone override
     include_cta: Mapped[bool] = mapped_column(Boolean, default=True)
     cta_text: Mapped[str] = mapped_column(String(500), default="")  # suggested CTA text (optional)
@@ -125,6 +167,9 @@ class Post(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     campaign_id: Mapped[str] = mapped_column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), index=True)
+    element_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("campaign_elements.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     platform: Mapped[Platform] = mapped_column(Enum(Platform), nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0)  # post index within the platform
 
@@ -142,12 +187,7 @@ class Post(Base):
     )
 
     campaign: Mapped[Campaign] = relationship(back_populates="posts")
-    images: Mapped[list["PostImage"]] = relationship(
-        back_populates="post", cascade="all, delete-orphan", order_by="PostImage.slot_index"
-    )
-    videos: Mapped[list["PostVideo"]] = relationship(
-        back_populates="post", cascade="all, delete-orphan", order_by="PostVideo.created_at"
-    )
+    element: Mapped[CampaignElement | None] = relationship(back_populates="posts")
 
 
 class VideoStatus(str, enum.Enum):
@@ -158,13 +198,16 @@ class VideoStatus(str, enum.Enum):
 
 
 class PostVideo(Base):
-    """A video slot for a post. Unlike images, generation is long-running, so the
-    slot tracks its own async status and the work happens in a Celery task."""
+    """A video rendition of a campaign element (one row per aspect ratio).
+    Generation is long-running, so the slot tracks its own async status and the
+    work happens in a Celery task."""
 
     __tablename__ = "post_videos"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    post_id: Mapped[str] = mapped_column(String(36), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    element_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("campaign_elements.id", ondelete="CASCADE"), index=True
+    )
     aspect_ratio: Mapped[str] = mapped_column(String(20), default="16:9")
     duration_seconds: Mapped[int] = mapped_column(Integer, default=8)
 
@@ -184,11 +227,13 @@ class PostVideo(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    post: Mapped[Post] = relationship(back_populates="videos")
+    element: Mapped[CampaignElement] = relationship(back_populates="videos")
 
 
 class PostImage(Base):
-    """An image slot for a post (PRD §5.4 Agent 2 + §5.5 Image Editor).
+    """An image rendition of a campaign element (PRD §5.4 Agent 2 + §5.5 Image
+    Editor) — one row per (slot, aspect ratio). Shared by every platform of the
+    element that uses that ratio.
 
     Holds the editable Visual Agent prompt, the generated/uploaded base image, the
     generation history, and the Image Editor canvas state (logo + asset layers).
@@ -197,8 +242,10 @@ class PostImage(Base):
     __tablename__ = "post_images"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    post_id: Mapped[str] = mapped_column(String(36), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
-    slot_index: Mapped[int] = mapped_column(Integer, default=0)  # 0..n for carousel/multi-image
+    element_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("campaign_elements.id", ondelete="CASCADE"), index=True
+    )
+    slot_index: Mapped[int] = mapped_column(Integer, default=0)  # 0..n for carousel slides
     aspect_ratio: Mapped[str] = mapped_column(String(20), default="1:1")
 
     prompt: Mapped[str] = mapped_column(Text, default="")               # current editable image prompt
@@ -219,12 +266,16 @@ class PostImage(Base):
     canvas_state: Mapped[dict] = mapped_column(JSON, default=dict)
     composited_object_key: Mapped[str] = mapped_column(String(500), default="")  # final flattened image
 
+    # Generation runs in a Celery task so the UI is never blocked (same as videos).
+    status: Mapped[VideoStatus] = mapped_column(Enum(VideoStatus), default=VideoStatus.draft)
+    error: Mapped[str] = mapped_column(Text, default="")
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    post: Mapped[Post] = relationship(back_populates="images")
+    element: Mapped[CampaignElement] = relationship(back_populates="images")
 
 
 class PostAsset(Base):

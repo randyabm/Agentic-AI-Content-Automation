@@ -9,6 +9,7 @@ from app.api.deps import get_current_user, require_editor
 from app.db.session import get_db
 from app.models.campaign import (
     Campaign,
+    CampaignElement,
     CampaignPlatform,
     CampaignStatus,
     Platform,
@@ -27,6 +28,7 @@ from app.schemas.campaign import (
     CampaignOut,
     CampaignUpdate,
     CanvasUpdate,
+    ElementOut,
     GenerateImageRequest,
     GenerateVideoRequest,
     PostAssetOut,
@@ -39,13 +41,13 @@ from app.schemas.campaign import (
     RegenerateRequest,
 )
 from app.services import audit, storage
-from app.services.campaign_gen import generate_posts_copy
+from app.services.campaign_gen import generate_platform_copy
 from app.services.compositing import composite_post_image
 from app.services.export import EXPORTERS
 from app.services.extraction import ExtractionError
 from app.services.image_gen import generate_image, get_image_model
-from app.services.platforms import PLATFORM_SPECS
-from app.workers.tasks import generate_campaign, regenerate_platform, run_video_generation
+from app.services.platforms import PLATFORM_SPECS, resolve_platform_ratios
+from app.workers.tasks import generate_campaign, regenerate_platform, run_image_generation, run_video_generation
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -67,8 +69,8 @@ def _get_image_or_404(db: Session, campaign_id: str, image_id: str) -> PostImage
     image = db.get(PostImage, image_id)
     if image is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image slot not found")
-    post = db.get(Post, image.post_id)
-    if post is None or post.campaign_id != campaign_id:
+    element = db.get(CampaignElement, image.element_id)
+    if element is None or element.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image slot not found")
     return image
 
@@ -108,8 +110,8 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
     client = db.get(Client, body.client_id)
     if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
-    if not any(p.is_active for p in body.platforms):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select at least one active platform")
+    if not any(el.platforms for el in body.elements):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every element needs at least one platform")
     if body.generation_mode == "article" and not (body.article_id or body.article_url or body.article_text):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -140,22 +142,37 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
     db.add(campaign)
     db.flush()
 
-    for pc in body.platforms:
+    for position, el in enumerate(body.elements):
+        platforms = list(dict.fromkeys(el.platforms))
+        db.add(
+            CampaignElement(
+                campaign_id=campaign.id,
+                position=position,
+                element_type=el.element_type,
+                theme=el.theme,
+                platforms=[p.value for p in platforms],
+                platform_ratios=resolve_platform_ratios(platforms, el.ratio_overrides),
+                carousel_slides=el.carousel_slides,
+                video_duration_seconds=el.video_duration_seconds,
+            )
+        )
+
+    # One settings row per platform used by any element; explicit settings win.
+    settings_by_platform = {pc.platform: pc for pc in body.platforms}
+    used = list(dict.fromkeys(p for el in body.elements for p in el.platforms))
+    for platform in used:
+        pc = settings_by_platform.get(platform)
         db.add(
             CampaignPlatform(
                 campaign_id=campaign.id,
-                platform=pc.platform,
-                is_active=pc.is_active,
-                num_posts=pc.num_posts,
-                images_per_post=pc.images_per_post,
-                visual_format=pc.visual_format,
-                carousel_slides=pc.carousel_slides,
-                tone=pc.tone,
-                include_cta=pc.include_cta,
-                cta_text=pc.cta_text,
-                hashtag_count=pc.hashtag_count,
-                hashtag_mix=pc.hashtag_mix,
-                emojis=pc.emojis,
+                platform=platform,
+                is_active=pc.is_active if pc else True,
+                tone=pc.tone if pc else "",
+                include_cta=pc.include_cta if pc else True,
+                cta_text=pc.cta_text if pc else "",
+                hashtag_count=pc.hashtag_count if pc else 5,
+                hashtag_mix=pc.hashtag_mix if pc else {"branded": 40, "trending": 30, "niche": 30},
+                emojis=pc.emojis if pc else "moderate",
             )
         )
     db.commit()
@@ -173,6 +190,7 @@ def get_campaign(campaign_id: str, db: Session = Depends(get_db), _: User = Depe
         select(Post).where(Post.campaign_id == campaign_id).order_by(Post.platform, Post.position)
     ).all()
     detail.posts = [PostOut.model_validate(p) for p in posts]
+    detail.elements = [ElementOut.model_validate(el) for el in campaign.elements]
     return detail
 
 
@@ -270,24 +288,18 @@ def regenerate_post(
             CampaignPlatform.campaign_id == campaign_id, CampaignPlatform.platform == post.platform
         )
     )
-    if client is None or cp is None:
+    element = db.get(CampaignElement, post.element_id) if post.element_id else None
+    if client is None or cp is None or element is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign platform configuration missing")
 
-    from app.services.campaign_gen import build_context, generate_article_posts_copy, resolve_article
+    from app.services.campaign_gen import build_context, resolve_article
 
     article = resolve_article(db, campaign)
     context = build_context(db, client, campaign, article["text"])
-    original = cp.num_posts
-    cp.num_posts = 1
     try:
-        if campaign.generation_mode == "article":
-            data = generate_article_posts_copy(db, client, campaign, cp, context, article)[0]
-        else:
-            data = generate_posts_copy(db, client, campaign, cp, context)[0]
+        data = generate_platform_copy(db, client, campaign, cp, [element], context, article)[0]
     except ExtractionError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
-    finally:
-        cp.num_posts = original
 
     post.headline = data["headline"]
     post.copy = data["copy"]
@@ -356,32 +368,18 @@ def generate_slot_image(
     actor: User = Depends(require_editor),
 ):
     image = _get_image_or_404(db, campaign_id, image_id)
-    model = get_image_model(db, body.image_model_id)
-    prompt = image.prompt
-    if image.additional_guidance:
-        prompt = f"{prompt}\n\nAdditional guidance: {image.additional_guidance}"
+    if image.status == VideoStatus.generating:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This image is already being generated.")
+    # Validate the model now so a misconfiguration fails fast, then run async in Celery.
     try:
-        data, content_type = generate_image(db, model, prompt, image.negative_prompt, image.aspect_ratio)
+        model = get_image_model(db, body.image_model_id)
     except ExtractionError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
-
-    version = len(image.generation_history) + 1
-    key = f"campaigns/{campaign_id}/images/{image_id}/v{version}.png"
-    storage.upload_object(key, data, content_type)
-
-    history = list(image.generation_history)
-    history.append({
-        "object_key": key,
-        "prompt": prompt,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    image.generation_history = history
-    image.base_object_key = key
-    image.is_uploaded = False
-    image.image_model_id = model.id
-    image.composited_object_key = ""  # base changed; previous composite is stale
+    image.status = VideoStatus.generating
+    image.error = ""
     db.commit()
     db.refresh(image)
+    run_image_generation.delay(image_id, body.image_model_id or model.id)
     audit.record(db, actor, "campaign.image_generate", "campaign", campaign_id, {"image_id": image_id})
     return image
 
@@ -405,6 +403,8 @@ def upload_slot_image(
     image.base_object_key = key
     image.is_uploaded = True
     image.composited_object_key = ""
+    image.status = VideoStatus.ready
+    image.error = ""
     db.commit()
     db.refresh(image)
     return image
@@ -464,31 +464,33 @@ def _get_video_or_404(db: Session, campaign_id: str, video_id: str) -> PostVideo
     video = db.get(PostVideo, video_id)
     if video is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Video slot not found")
-    post = db.get(Post, video.post_id)
-    if post is None or post.campaign_id != campaign_id:
+    element = db.get(CampaignElement, video.element_id)
+    if element is None or element.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Video slot not found")
     return video
 
 
 @router.post(
-    "/{campaign_id}/posts/{post_id}/videos", response_model=PostVideoOut, status_code=status.HTTP_201_CREATED
+    "/{campaign_id}/elements/{element_id}/videos",
+    response_model=PostVideoOut,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_video_slot(
     campaign_id: str,
-    post_id: str,
+    element_id: str,
     body: PostVideoCreate,
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    post = db.get(Post, post_id)
-    if post is None or post.campaign_id != campaign_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
+    element = db.get(CampaignElement, element_id)
+    if element is None or element.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Element not found")
     prompt = body.prompt.strip()
-    if not prompt and post.images:
-        # Seed the video prompt from the post's first image prompt — same visual concept in motion.
-        prompt = post.images[0].prompt
+    if not prompt and element.images:
+        # Seed the video prompt from the element's first image prompt — same visual concept in motion.
+        prompt = element.images[0].prompt
     video = PostVideo(
-        post_id=post.id,
+        element_id=element.id,
         aspect_ratio=body.aspect_ratio,
         duration_seconds=body.duration_seconds,
         prompt=prompt,

@@ -41,6 +41,12 @@ export function BrandMemory({ client, canEdit }: { client: Client; canEdit: bool
   const lines = (v: string[]) => v.join("\n");
   const toLines = (v: string) => v.split("\n").map((s) => s.trim()).filter(Boolean);
 
+  function setColor(i: number, value: string) {
+    const next = [...form.brand_colors];
+    next[i] = value.toUpperCase();
+    setForm({ ...form, brand_colors: next });
+  }
+
   return (
     <div className="card">
       <h2>Brand Memory</h2>
@@ -89,23 +95,47 @@ export function BrandMemory({ client, canEdit }: { client: Client; canEdit: bool
           />
         </label>
       </div>
-      <label>
-        Corporate colors (hex, one per line)
-        <textarea
-          rows={3}
-          value={lines(form.brand_colors)}
-          onChange={(e) => setForm({ ...form, brand_colors: toLines(e.target.value) })}
-          readOnly={!canEdit}
-          placeholder="#1A2B3C"
-        />
-      </label>
-      {form.brand_colors.length > 0 && (
-        <div className="color-swatches">
-          {form.brand_colors.map((c, i) => (
-            <span key={i} className="swatch" style={{ background: c }} title={c} />
-          ))}
-        </div>
-      )}
+      <div className="field-label">Corporate colors</div>
+      <div className="color-picker-list">
+        {form.brand_colors.map((c, i) => (
+          <div key={i} className="color-picker-row">
+            <input
+              type="color"
+              value={/^#[0-9a-fA-F]{6}$/.test(c) ? c : "#000000"}
+              disabled={!canEdit}
+              onChange={(e) => setColor(i, e.target.value)}
+            />
+            <input
+              className="color-hex-input"
+              value={c}
+              readOnly={!canEdit}
+              placeholder="#1A2B3C"
+              onChange={(e) => setColor(i, e.target.value)}
+            />
+            {canEdit && (
+              <button
+                type="button"
+                className="btn btn-ghost color-remove"
+                title="Remove color"
+                onClick={() =>
+                  setForm({ ...form, brand_colors: form.brand_colors.filter((_, j) => j !== i) })
+                }
+              >
+                &times;
+              </button>
+            )}
+          </div>
+        ))}
+        {canEdit && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setForm({ ...form, brand_colors: [...form.brand_colors, "#1A2B3C"] })}
+          >
+            + Add color
+          </button>
+        )}
+      </div>
       <label>
         Approved copy examples (one per line)
         <textarea

@@ -251,16 +251,28 @@ export interface PlatformConfig {
   id: string;
   platform: CampaignPlatform;
   is_active: boolean;
-  num_posts: number;
-  images_per_post: number;
-  visual_format: VisualFormat;
-  carousel_slides: number;
   tone: string;
   include_cta: boolean;
   cta_text: string;
   hashtag_count: number;
   hashtag_mix: { branded: number; trending: number; niche: number };
   emojis: string;
+}
+
+export type ElementType = "image" | "carousel" | "video" | "text";
+
+export interface CampaignElement {
+  id: string;
+  campaign_id: string;
+  position: number;
+  element_type: ElementType;
+  theme: string;
+  platforms: CampaignPlatform[];
+  platform_ratios: Record<string, string>;
+  carousel_slides: number;
+  video_duration_seconds: number;
+  images: PostImage[];
+  videos: PostVideo[];
 }
 
 export interface PromptVersion {
@@ -287,14 +299,31 @@ export interface LayerGeom {
   visible?: boolean;
 }
 
+export interface TextLayerState {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  size: number; // font size as a fraction of the base image width
+  color: string;
+  font: "sans" | "serif" | "mono";
+  bold?: boolean;
+  italic?: boolean;
+  rotation?: number;
+  opacity: number;
+  z?: number;
+  visible?: boolean;
+}
+
 export interface CanvasState {
   logo?: LayerGeom;
   assets?: LayerGeom[];
+  texts?: TextLayerState[];
 }
 
 export interface PostImage {
   id: string;
-  post_id: string;
+  element_id: string;
   slot_index: number;
   aspect_ratio: string;
   prompt: string;
@@ -307,13 +336,15 @@ export interface PostImage {
   generation_history: GenerationVersion[];
   canvas_state: CanvasState;
   composited_object_key: string;
+  status: "draft" | "generating" | "ready" | "failed";
+  error: string;
 }
 
 export type VideoStatus = "draft" | "generating" | "ready" | "failed";
 
 export interface PostVideo {
   id: string;
-  post_id: string;
+  element_id: string;
   aspect_ratio: string;
   duration_seconds: number;
   prompt: string;
@@ -330,6 +361,7 @@ export interface PostVideo {
 export interface Post {
   id: string;
   campaign_id: string;
+  element_id: string | null;
   platform: CampaignPlatform;
   position: number;
   headline: string;
@@ -339,8 +371,6 @@ export interface Post {
   best_time: string;
   rationale: string;
   status: PostStatus;
-  images: PostImage[];
-  videos: PostVideo[];
 }
 
 export interface PostAsset {
@@ -372,6 +402,7 @@ export interface Campaign {
 
 export interface CampaignDetail extends Campaign {
   posts: Post[];
+  elements: CampaignElement[];
 }
 
 export interface CampaignListItem {

@@ -51,3 +51,43 @@ def spec(platform: Platform) -> PlatformSpec:
 
 def dimensions_for(aspect_ratio: str) -> tuple[int, int]:
     return ASPECT_DIMENSIONS.get(aspect_ratio, (1080, 1080))
+
+
+# Tie-break order when several ratios cover the same number of platforms.
+RATIO_PRIORITY = ["1:1", "4:5", "9:16", "16:9", "1.91:1"]
+
+
+def resolve_platform_ratios(
+    platforms: list[Platform], overrides: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Assign one aspect ratio per platform, minimizing the number of distinct
+    ratios (and therefore the number of renditions to generate).
+
+    Greedy set cover over each platform's supported ratios; an override pins a
+    platform to a specific ratio when that platform supports it. Returns
+    {platform_value: ratio}.
+    """
+    overrides = overrides or {}
+    resolved: dict[str, str] = {}
+    remaining: list[Platform] = []
+    for p in platforms:
+        override = overrides.get(p.value)
+        if override and override in spec(p).aspect_ratios:
+            resolved[p.value] = override
+        else:
+            remaining.append(p)
+
+    while remaining:
+        # Ratios pinned by overrides cover compatible platforms for free.
+        best, covered = None, []
+        candidates = list(dict.fromkeys(list(resolved.values()) + RATIO_PRIORITY))
+        for ratio in candidates:
+            takes = [p for p in remaining if ratio in spec(p).aspect_ratios]
+            if len(takes) > len(covered):
+                best, covered = ratio, takes
+        if best is None:  # unreachable: every platform supports at least one ratio
+            best, covered = spec(remaining[0]).default_ratio, [remaining[0]]
+        for p in covered:
+            resolved[p.value] = best
+        remaining = [p for p in remaining if p not in covered]
+    return resolved

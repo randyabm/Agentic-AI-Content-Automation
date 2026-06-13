@@ -28,8 +28,36 @@ DEFAULT_SYSTEM_PROMPTS = {
     LLMFunction.visual_agent: (
         "You are an expert art director who writes detailed prompts for AI image "
         "generation models. Your prompts specify subject, composition, style, lighting, "
-        "and color palette aligned with the brand, plus a negative prompt. You always "
-        "return valid JSON exactly as instructed."
+        "and color palette aligned with the brand, plus a negative prompt. "
+        "When the brand has a mascot or character, feature it as the protagonist with "
+        "expressive, human-like poses and emotions. Favor meme-style social posts: a "
+        "short, witty, first-person headline (max ~12 words) rendered as bold text at "
+        "the top of the image — relatable industry humor, light sarcasm, never mean — "
+        "with the exact headline wording in double quotes and a scene that visually "
+        "sells the joke. You always return valid JSON exactly as instructed."
+    ),
+    LLMFunction.competitor_identification: (
+        "You are a competitive intelligence analyst. Given a client profile, you "
+        "identify real, currently operating competitor companies in the same market "
+        "and region. You never invent companies and you always return valid JSON "
+        "exactly as instructed."
+    ),
+    LLMFunction.competitor_analysis: (
+        "You are a competitive intelligence analyst. You receive crawled content from "
+        "a competitor's website and produce a factual analysis of their positioning, "
+        "offerings, and messaging. Only state what the content supports. Respond in "
+        "English and always return valid JSON exactly as instructed."
+    ),
+    LLMFunction.article_analysis: (
+        "You are an editorial analyst. You receive the text of a web article and "
+        "extract its key topics, claims, and takeaways relevant to the client's "
+        "industry. Be factual and concise, and always return valid JSON exactly as "
+        "instructed."
+    ),
+    LLMFunction.article_relevance_scoring: (
+        "You are an editorial analyst. You score how relevant an article is to a "
+        "client's brand, audience, and content strategy, with a short justification. "
+        "You always return valid JSON exactly as instructed."
     ),
 }
 
@@ -67,9 +95,12 @@ def seed(db: Session) -> None:
         logger.info("Seeded initial admin user %s", settings.admin_email)
 
     anthropic_key = encrypt_secret(settings.anthropic_api_key)
-    existing_functions = {c.function for c in db.scalars(select(LLMConfig)).all()}
+    existing_configs = {c.function: c for c in db.scalars(select(LLMConfig)).all()}
+    for cfg in existing_configs.values():
+        if not cfg.system_prompt and (default := DEFAULT_SYSTEM_PROMPTS.get(cfg.function)):
+            cfg.system_prompt = default
     for function in LLMFunction:
-        if function not in existing_functions:
+        if function not in existing_configs:
             db.add(
                 LLMConfig(
                     function=function,

@@ -5,26 +5,39 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models.campaign import (
     CampaignObjective,
     CampaignStatus,
+    ElementType,
     Platform,
     PostStatus,
     VideoStatus,
-    VisualFormat,
 )
 
 
 class PlatformConfigIn(BaseModel):
+    """Per-platform text settings (tone, CTA, hashtags, emojis)."""
+
     platform: Platform
     is_active: bool = True
-    num_posts: int = Field(3, ge=1, le=20)
-    images_per_post: int = Field(1, ge=1, le=10)
-    visual_format: VisualFormat = VisualFormat.static_image
-    carousel_slides: int = Field(3, ge=2, le=10)
     tone: str = ""
     include_cta: bool = True
     cta_text: str = ""
     hashtag_count: int = Field(5, ge=0, le=30)
     hashtag_mix: dict = Field(default_factory=lambda: {"branded": 40, "trending": 30, "niche": 30})
     emojis: str = "moderate"
+
+
+class ElementIn(BaseModel):
+    """One campaign element: a visual concept plus the platforms it targets.
+
+    `ratio_overrides` pins specific platforms to a ratio; the rest are
+    auto-resolved server-side (minimal set of renditions).
+    """
+
+    element_type: ElementType = ElementType.image
+    theme: str = ""
+    platforms: list[Platform] = Field(min_length=1)
+    ratio_overrides: dict[str, str] = Field(default_factory=dict)
+    carousel_slides: int = Field(3, ge=2, le=10)
+    video_duration_seconds: int = Field(8, ge=1, le=60)
 
 
 class CampaignCreate(BaseModel):
@@ -38,7 +51,8 @@ class CampaignCreate(BaseModel):
     end_date: date | None = None
     article_id: str | None = None
     article_url: str = ""
-    platforms: list[PlatformConfigIn]
+    elements: list[ElementIn] = Field(min_length=1)
+    platforms: list[PlatformConfigIn] = Field(default_factory=list)
 
     # Article-to-Content mode (PRD §6 — Module 4)
     generation_mode: str = "campaign"  # campaign | article
@@ -66,10 +80,6 @@ class PlatformConfigOut(BaseModel):
     id: str
     platform: Platform
     is_active: bool
-    num_posts: int
-    images_per_post: int
-    visual_format: VisualFormat
-    carousel_slides: int
     tone: str
     include_cta: bool
     cta_text: str
@@ -82,7 +92,7 @@ class PostImageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    post_id: str
+    element_id: str
     slot_index: int
     aspect_ratio: str
     prompt: str
@@ -95,13 +105,15 @@ class PostImageOut(BaseModel):
     generation_history: list
     canvas_state: dict
     composited_object_key: str
+    status: str
+    error: str
 
 
 class PostVideoOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    post_id: str
+    element_id: str
     aspect_ratio: str
     duration_seconds: int
     prompt: str
@@ -130,6 +142,7 @@ class PostOut(BaseModel):
 
     id: str
     campaign_id: str
+    element_id: str | None
     platform: Platform
     position: int
     headline: str
@@ -139,8 +152,6 @@ class PostOut(BaseModel):
     best_time: str
     rationale: str
     status: PostStatus
-    images: list[PostImageOut]
-    videos: list[PostVideoOut]
 
 
 class PostAssetOut(BaseModel):
@@ -181,8 +192,25 @@ class CampaignOut(BaseModel):
     platforms: list[PlatformConfigOut]
 
 
+class ElementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    campaign_id: str
+    position: int
+    element_type: ElementType
+    theme: str
+    platforms: list
+    platform_ratios: dict
+    carousel_slides: int
+    video_duration_seconds: int
+    images: list[PostImageOut]
+    videos: list[PostVideoOut]
+
+
 class CampaignDetail(CampaignOut):
     posts: list[PostOut]
+    elements: list[ElementOut] = []
 
 
 class CampaignListItem(BaseModel):
