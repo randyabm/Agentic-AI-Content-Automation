@@ -68,10 +68,11 @@ DEFAULT_SETTINGS = [
     ("crawler_max_depth", "5", "Max link levels to follow from the homepage"),
     ("crawler_max_pages", "200", "Max pages to crawl per site"),
     ("crawler_timeout_seconds", "10", "Max wait time per page response (seconds)"),
+    ("crawler_concurrency", "8", "How many pages the crawler fetches in parallel per depth level"),
     ("crawler_excluded_paths", "", "Comma-separated regex patterns of URL paths to skip"),
     ("crawler_user_agent", "AIMarketingPlatformBot/1.0", "User-Agent header sent by the crawler"),
     ("competitor_crawl_max_depth", "3", "Max link depth when crawling competitor sites"),
-    ("competitor_crawl_max_pages", "30", "Max pages when crawling competitor sites (keeps analysis fast)"),
+    ("competitor_crawl_max_pages", "12", "Max pages when crawling competitor sites (keeps analysis fast)"),
 ]
 
 DEFAULT_IMAGE_MODELS = [

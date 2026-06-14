@@ -10,8 +10,10 @@ from app.core.crypto import decrypt_secret
 from app.models.client import Client
 from app.models.competitor import Competitor
 from app.models.llm import LLMFunction
+from app.services.crawler import CrawledPage
 from app.services.extraction import (
     ExtractionError,
+    build_corpus,
     complete_text,
     get_llm_config,
     parse_json_value,
@@ -43,18 +45,32 @@ COMPANY PROFILE:
 {profile}
 """
 
-COMPARISON_INSTRUCTIONS = """\
-You are a competitive intelligence analyst. Compare the COMPETITOR against the CLIENT
-using the two profiles below and answer ONLY with a single JSON object:
+# Single-call instructions: extract the competitor's profile from its crawled site AND
+# compare it to the client, in one JSON object. Halves the LLM round-trips per
+# competitor versus the separate extract-then-compare flow.
+COMBINED_INSTRUCTIONS = """\
+You are a competitive intelligence analyst. You are given the CLIENT profile (below)
+and the raw crawled website content of a COMPETITOR (in the next message). Do two
+things and answer ONLY with a single JSON object using exactly these keys:
 
 {
+  "industry": string,
+  "description": string (2-4 paragraphs describing the competitor),
+  "products_services": string (detailed list/description of the competitor's products and services),
+  "target_audience": string,
+  "value_proposition": string,
+  "business_objectives": [string, ...] (inferred business objectives of the competitor),
+  "communication_tone": string (perceived communication tone of the competitor's brand),
+  "social_media_urls": [string, ...] (social media profile URLs found in the competitor content),
   "positioning": string (2-3 paragraphs: the competitor's differential positioning relative to the client),
-  "strengths": [string, ...] (4-7 identified strengths of the competitor versus the client),
-  "weaknesses": [string, ...] (4-7 identified weaknesses of the competitor versus the client)
+  "strengths": [string, ...] (4-7 strengths of the competitor versus the client),
+  "weaknesses": [string, ...] (4-7 weaknesses of the competitor versus the client)
 }
 
-Be specific and comparative — every point must relate the competitor to the client.
-Write everything in English. Base your analysis only on the two profiles provided.
+For the first nine keys, extract only from the COMPETITOR website content — never
+invent facts; use an empty string or empty list when something cannot be determined.
+For positioning/strengths/weaknesses, be specific and comparative — every point must
+relate the competitor to the client. Write everything in English.
 """
 
 
@@ -135,27 +151,62 @@ def identify_competitors(
     return cleaned[:count]
 
 
-def compare_with_client(db: Session, client: Client, competitor: Competitor) -> dict:
-    """Comparative LLM analysis (PRD §4.4) using the competitor_analysis config."""
-    cfg = get_llm_config(db, LLMFunction.competitor_analysis)
-    competitor_profile = {
-        "industry": competitor.industry,
-        "description": competitor.description,
-        "products_services": competitor.products_services,
-        "target_audience": competitor.target_audience,
-        "value_proposition": competitor.value_proposition,
-        "business_objectives": competitor.business_objectives,
-        "communication_tone": competitor.communication_tone,
-        "social_media_urls": competitor.social_media_urls,
-    }
-    prompt = (
-        f"{COMPARISON_INSTRUCTIONS}\n\n"
-        f"{_profile_text('CLIENT', client.company_name, client.website_url, client_profile_dict(client))}\n\n"
-        f"{_profile_text('COMPETITOR', competitor.company_name, competitor.website_url, competitor_profile)}"
+def _normalize_analysis(result: dict) -> dict:
+    """Coerce the combined LLM output into the competitor's stored shape."""
+    str_keys = (
+        "industry", "description", "products_services", "target_audience",
+        "value_proposition", "communication_tone", "positioning",
     )
-    result = parse_json_value(complete_text(cfg, cfg.system_prompt, prompt))
-    return {
-        "positioning": str(result.get("positioning", "")),
-        "strengths": [str(s) for s in result.get("strengths", []) if s],
-        "weaknesses": [str(w) for w in result.get("weaknesses", []) if w],
-    }
+    list_keys = ("business_objectives", "social_media_urls", "strengths", "weaknesses")
+    out: dict = {}
+    for key in str_keys:
+        value = result.get(key, "")
+        out[key] = value if isinstance(value, str) else str(value)
+    for key in list_keys:
+        value = result.get(key, [])
+        if not isinstance(value, list):
+            value = [value] if value else []
+        out[key] = [str(item) for item in value if item]
+    return out
+
+
+def analyze_competitor(
+    db: Session, client: Client, competitor: Competitor, pages: list[CrawledPage]
+) -> dict:
+    """Extract the competitor profile and compare it to the client in ONE LLM call.
+
+    The stable client-profile block is sent as a cached prompt prefix (Anthropic
+    prompt caching), so analysing several competitors of the same client reuses it.
+    Returns the competitor's profile fields plus positioning/strengths/weaknesses.
+    """
+    if not pages:
+        raise ExtractionError("The crawler could not retrieve any pages from the competitor's website")
+    cfg = get_llm_config(db, LLMFunction.competitor_analysis)
+    corpus = build_corpus(pages)
+    client_block = _profile_text(
+        "CLIENT", client.company_name, client.website_url, client_profile_dict(client)
+    )
+    cached_prefix = f"{COMBINED_INSTRUCTIONS}\n\n{client_block}"
+    competitor_msg = (
+        f"COMPETITOR WEBSITE CONTENT — {competitor.company_name} ({competitor.website_url}):\n\n{corpus}"
+    )
+
+    if cfg.provider == "anthropic":
+        api_key = getattr(cfg, "resolved_api_key", "") or decrypt_secret(cfg.api_key_encrypted)
+        api = anthropic.Anthropic(api_key=api_key, max_retries=5)
+        message = api.messages.create(
+            model=cfg.model_name,
+            max_tokens=cfg.max_tokens,
+            temperature=min(cfg.temperature, 1.0),
+            system=[
+                {"type": "text", "text": cfg.system_prompt or "You are a competitive intelligence analyst."},
+                {"type": "text", "text": cached_prefix, "cache_control": {"type": "ephemeral"}},
+            ],
+            messages=[{"role": "user", "content": competitor_msg}],
+        )
+        raw = "".join(block.text for block in message.content if block.type == "text")
+    else:
+        # Other providers have no shared-prefix caching; send it all in one prompt.
+        raw = complete_text(cfg, cfg.system_prompt, f"{cached_prefix}\n\n{competitor_msg}")
+
+    return _normalize_analysis(parse_json_value(raw))

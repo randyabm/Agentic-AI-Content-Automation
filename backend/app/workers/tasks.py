@@ -32,7 +32,7 @@ from app.services.campaign_gen import (
     generate_platform_copy,
     resolve_article,
 )
-from app.services.competitor_intel import compare_with_client, identify_competitors
+from app.services.competitor_intel import analyze_competitor, identify_competitors
 from app.services.crawler import CrawlConfig, crawl_site
 from app.services.extraction import ExtractionError, extract_client_profile
 from app.workers.celery_app import celery_app
@@ -52,6 +52,7 @@ def _crawl_config(db) -> CrawlConfig:
         max_depth=int(values.get("crawler_max_depth", 5)),
         max_pages=int(values.get("crawler_max_pages", 200)),
         timeout_seconds=int(values.get("crawler_timeout_seconds", 10)),
+        concurrency=int(values.get("crawler_concurrency", 8)),
         excluded_patterns=excluded,
         user_agent=values.get("crawler_user_agent", "AIMarketingPlatformBot/1.0"),
     )
@@ -216,29 +217,23 @@ def run_competitor_analysis(competitor_id: str) -> None:
 
         pages = crawl_site(competitor.website_url, _competitor_crawl_config(db), on_progress=on_progress)
 
+        # Profile extraction and client comparison happen in a single LLM call.
         competitor.analysis_status = AnalysisStatus.extracting
         competitor.pages_crawled = len(pages)
         db.commit()
 
-        profile = extract_client_profile(db, pages, function=LLMFunction.competitor_analysis)
-        if profile.get("company_name") and not competitor.company_name:
-            competitor.company_name = profile["company_name"]
-        competitor.industry = profile["industry"]
-        competitor.description = profile["description"]
-        competitor.products_services = profile["products_services"]
-        competitor.target_audience = profile["target_audience"]
-        competitor.value_proposition = profile["value_proposition"]
-        competitor.business_objectives = profile["business_objectives"]
-        competitor.communication_tone = profile["communication_tone"]
-        competitor.social_media_urls = profile["social_media_urls"]
-
-        competitor.analysis_status = AnalysisStatus.comparing
-        db.commit()
-
-        comparison = compare_with_client(db, client, competitor)
-        competitor.positioning = comparison["positioning"]
-        competitor.strengths = comparison["strengths"]
-        competitor.weaknesses = comparison["weaknesses"]
+        analysis = analyze_competitor(db, client, competitor, pages)
+        competitor.industry = analysis["industry"]
+        competitor.description = analysis["description"]
+        competitor.products_services = analysis["products_services"]
+        competitor.target_audience = analysis["target_audience"]
+        competitor.value_proposition = analysis["value_proposition"]
+        competitor.business_objectives = analysis["business_objectives"]
+        competitor.communication_tone = analysis["communication_tone"]
+        competitor.social_media_urls = analysis["social_media_urls"]
+        competitor.positioning = analysis["positioning"]
+        competitor.strengths = analysis["strengths"]
+        competitor.weaknesses = analysis["weaknesses"]
         competitor.analysis_status = AnalysisStatus.completed
         competitor.analyzed_at = datetime.now(timezone.utc)
         db.commit()
