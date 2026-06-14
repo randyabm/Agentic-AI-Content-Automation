@@ -15,6 +15,7 @@ export function Competitors({ client }: { client: Client }) {
   const [params, setParams] = useState({ num_competitors: 5, competitor_type: "direct", geographic_scope: "national" });
   const [manualUrl, setManualUrl] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const pollRef = useRef<number | null>(null);
 
@@ -97,16 +98,19 @@ export function Competitors({ client }: { client: Client }) {
     }
   }
 
+  const searching = !!(searchJob && RUNNING_SEARCH.includes(searchJob.status));
+  const selected = competitors.find((c) => c.id === selectedId) ?? competitors[0] ?? null;
+
   return (
-    <div>
+    <div className="competitors">
       {canEdit && (
-        <div className="card">
+        <div className="card comp-search">
           <h2>Find competitors automatically</h2>
           <p className="muted">
             Uses the configured LLM with web search to identify the most relevant competitors,
             then crawls and analyzes each one against this client.
           </p>
-          <form className="form-inline" onSubmit={startSearch}>
+          <form className="comp-search-grid" onSubmit={startSearch}>
             <label>
               Number of competitors (1–20)
               <input type="number" min={1} max={20} value={params.num_competitors}
@@ -129,92 +133,134 @@ export function Competitors({ client }: { client: Client }) {
                 <option value="international">International</option>
               </select>
             </label>
-            <button className="btn btn-primary" disabled={!!(searchJob && RUNNING_SEARCH.includes(searchJob.status))}>
-              {searchJob && RUNNING_SEARCH.includes(searchJob.status) ? "Searching…" : "Find competitors"}
+            <button className="btn btn-primary" disabled={searching}>
+              {searching ? "Searching…" : "Find competitors"}
             </button>
           </form>
-          {searchJob && RUNNING_SEARCH.includes(searchJob.status) && (
+          {searching && (
             <div className="progress-bar"><div className="progress-fill indeterminate" /></div>
           )}
           {searchJob?.status === "failed" && (
             <div className="alert alert-error">Last search failed: {searchJob.error}</div>
           )}
-          <form className="form-inline manual-add" onSubmit={addManual}>
-            <label>
-              Or add a competitor manually by URL
+          <div className="comp-manual">
+            <span className="comp-or">or add one manually</span>
+            <form className="comp-manual-row" onSubmit={addManual}>
               <input type="url" placeholder="https://competitor.com" value={manualUrl}
                 onChange={(e) => setManualUrl(e.target.value)} required />
-            </label>
-            <button className="btn btn-ghost">Add competitor</button>
-          </form>
+              <button className="btn btn-secondary">Add competitor</button>
+            </form>
+          </div>
         </div>
       )}
 
       {error && <div className="alert alert-error">{error}</div>}
 
       {competitors.length === 0 ? (
-        <p className="muted">No competitors yet.</p>
+        <div className="card empty-state">
+          <p className="muted">
+            No competitors yet — run an automatic search above or add one by URL.
+          </p>
+        </div>
       ) : (
-        competitors.map((c) => (
-          <div key={c.id} className="card competitor-card">
-            <div className="competitor-header">
-              <div>
-                <h3>
-                  {c.company_name}{" "}
-                  <span className={`tag ${c.source === "auto" ? "" : "tag-green"}`}>{c.source}</span>
-                </h3>
-                <a href={c.website_url} target="_blank" rel="noreferrer" className="muted small">
-                  {c.website_url}
-                </a>
-                {c.identification_reason && <p className="muted small">{c.identification_reason}</p>}
-              </div>
-              <div className="competitor-actions">
-                <StatusBadge status={c.analysis_status} pages={c.pages_crawled} />
-                {canEdit && c.analysis_status !== "crawling" && c.analysis_status !== "extracting" && c.analysis_status !== "comparing" && (
-                  <button className="btn btn-ghost" onClick={() => reanalyze(c.id)}>Re-analyze</button>
-                )}
-                {canEdit && <button className="btn btn-ghost danger" onClick={() => remove(c.id)}>Remove</button>}
-              </div>
-            </div>
-
-            {c.analysis_status === "failed" && (
-              <div className="alert alert-error">{c.analysis_error}</div>
-            )}
-
-            {c.analysis_status === "completed" && (
-              <>
-                <div className="versus-grid">
-                  <div className="versus-col">
-                    <h4>Strengths vs {client.company_name}</h4>
-                    <ul>{c.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
-                  </div>
-                  <div className="versus-col">
-                    <h4>Weaknesses vs {client.company_name}</h4>
-                    <ul>{c.weaknesses.map((w, i) => <li key={i}>{w}</li>)}</ul>
-                  </div>
-                </div>
-                <button className="btn btn-ghost" onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
-                  {expanded === c.id ? "Hide full profile" : "Show full profile"}
-                </button>
-                {expanded === c.id && (
-                  <div className="competitor-profile">
-                    <Row label="Differential positioning" value={c.positioning} />
-                    <Row label="Industry" value={c.industry} />
-                    <Row label="Description" value={c.description} />
-                    <Row label="Products / services" value={c.products_services} />
-                    <Row label="Target audience" value={c.target_audience} />
-                    <Row label="Value proposition" value={c.value_proposition} />
-                    <Row label="Communication tone" value={c.communication_tone} />
-                    <Row label="Social media" value={c.social_media_urls.join(", ")} />
-                  </div>
-                )}
-              </>
-            )}
+        <div className="card comp-workspace">
+          <div className="comp-tabs" role="tablist">
+            {competitors.map((c) => (
+              <button
+                key={c.id}
+                role="tab"
+                type="button"
+                aria-selected={selected?.id === c.id}
+                className={`comp-tab ${selected?.id === c.id ? "active" : ""}`}
+                onClick={() => setSelectedId(c.id)}
+                title={c.company_name}
+              >
+                <Dot status={c.analysis_status} />
+                <span className="comp-tab-name">{c.company_name}</span>
+              </button>
+            ))}
           </div>
-        ))
+
+          {selected && (
+            <div className="comp-detail" role="tabpanel">
+              <div className="comp-detail-head">
+                <div>
+                  <h3>
+                    {selected.company_name}{" "}
+                    <span className={`tag ${selected.source === "auto" ? "" : "tag-green"}`}>{selected.source}</span>
+                  </h3>
+                  <a href={selected.website_url} target="_blank" rel="noreferrer" className="muted small">
+                    {selected.website_url}
+                  </a>
+                </div>
+                <div className="competitor-actions">
+                  <StatusBadge status={selected.analysis_status} pages={selected.pages_crawled} />
+                  {canEdit && !RUNNING_ANALYSIS.includes(selected.analysis_status) && (
+                    <button className="btn btn-ghost" onClick={() => reanalyze(selected.id)}>Re-analyze</button>
+                  )}
+                  {canEdit && (
+                    <button className="btn btn-ghost danger" onClick={() => remove(selected.id)}>Remove</button>
+                  )}
+                </div>
+              </div>
+
+              {selected.identification_reason && (
+                <p className="comp-reason">{selected.identification_reason}</p>
+              )}
+
+              {selected.analysis_status === "failed" && (
+                <div className="alert alert-error">{selected.analysis_error}</div>
+              )}
+
+              {RUNNING_ANALYSIS.includes(selected.analysis_status) && (
+                <div className="progress-bar"><div className="progress-fill indeterminate" /></div>
+              )}
+
+              {selected.analysis_status === "completed" && (
+                <>
+                  <div className="versus-grid">
+                    <div className="versus-col strengths">
+                      <h4>Strengths vs {client.company_name}</h4>
+                      <ul>{selected.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                    </div>
+                    <div className="versus-col weaknesses">
+                      <h4>Weaknesses vs {client.company_name}</h4>
+                      <ul>{selected.weaknesses.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setExpanded(expanded === selected.id ? null : selected.id)}
+                  >
+                    {expanded === selected.id ? "Hide full profile" : "Show full profile"}
+                  </button>
+                  {expanded === selected.id && (
+                    <div className="competitor-profile">
+                      <Row label="Differential positioning" value={selected.positioning} />
+                      <Row label="Industry" value={selected.industry} />
+                      <Row label="Description" value={selected.description} />
+                      <Row label="Products / services" value={selected.products_services} />
+                      <Row label="Target audience" value={selected.target_audience} />
+                      <Row label="Value proposition" value={selected.value_proposition} />
+                      <Row label="Communication tone" value={selected.communication_tone} />
+                      <Row label="Social media" value={selected.social_media_urls.join(", ")} />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+function Dot({ status }: { status: string }) {
+  const state =
+    status === "completed" ? "ok" : status === "failed" ? "err"
+    : RUNNING_ANALYSIS.includes(status) ? "busy" : "idle";
+  return <span className={`comp-dot ${state}`} aria-hidden />;
 }
 
 function StatusBadge({ status, pages }: { status: string; pages: number }) {

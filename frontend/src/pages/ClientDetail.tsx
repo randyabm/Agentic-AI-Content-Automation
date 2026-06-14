@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
 import { Competitors } from "../components/Competitors";
 import type { Client, ExtractionDraft, ExtractionJob } from "../types";
@@ -21,6 +22,7 @@ export default function ClientDetail() {
   const [tab, setTab] = useState<"profile" | "competitors" | "brand">("profile");
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
+  const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const loadJobs = useCallback(async () => {
@@ -144,18 +146,41 @@ export default function ClientDetail() {
     }
   }
 
+  async function uploadAvatar(blob: Blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "avatar.png");
+    try {
+      const updated = await api<Client>(`/clients/${clientId}/avatar`, { method: "POST", formData });
+      setClient(updated);
+      setPendingAvatar(null);
+      setNotice("Profile photo updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Profile photo upload failed");
+    }
+  }
+
   if (!client) return <div className="page-loading">{error || "Loading…"}</div>;
 
   const running = job && RUNNING.includes(job.status);
 
   return (
     <div>
+      {pendingAvatar && (
+        <AvatarCropper
+          file={pendingAvatar}
+          onCancel={() => setPendingAvatar(null)}
+          onConfirm={uploadAvatar}
+        />
+      )}
       <div className="page-header">
-        <div>
-          <h1>{client.company_name}</h1>
-          <a href={client.website_url} target="_blank" rel="noreferrer" className="muted">
-            {client.website_url}
-          </a>
+        <div className="client-head">
+          <ClientAvatar client={client} />
+          <div>
+            <h1>{client.company_name}</h1>
+            <a href={client.website_url} target="_blank" rel="noreferrer" className="muted">
+              {client.website_url}
+            </a>
+          </div>
         </div>
         <div className="competitor-actions">
           <Link className="btn btn-ghost" to={`/campaigns?client_id=${client.id}`}>
@@ -276,19 +301,43 @@ export default function ClientDetail() {
             </>
           ) : (
             <>
-              <ProfileSection label="Industry / Sector" value={client.industry} />
+              <div className="profile-facts">
+                <ProfileFact label="Industry / Sector" value={client.industry} />
+                <ProfileFact label="Communication tone" value={client.communication_tone} />
+              </div>
               <ProfileSection label="General description" value={client.description} />
               <ProfileSection label="Products and/or services" value={client.products_services} />
               <ProfileSection label="Target audience" value={client.target_audience} />
               <ProfileSection label="Value proposition" value={client.value_proposition} />
               <ProfileSection label="Business objectives" list={client.business_objectives} />
-              <ProfileSection label="Communication tone" value={client.communication_tone} />
               <ProfileSection label="Social media" links={client.social_media_urls} />
               <ProfileSection label="Notes" value={client.notes} />
             </>
           )}
         </div>
         <div className="profile-side">
+          <div className="card">
+            <h2>Profile photo</h2>
+            <p className="muted small">Used as the brand avatar in post previews.</p>
+            <div className="avatar-box">
+              <ClientAvatar client={client} large />
+            </div>
+            {canEdit && (
+              <label className="btn btn-ghost file-btn">
+                {client.avatar_object_key ? "Change photo" : "Upload photo"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setPendingAvatar(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
           <div className="card">
             <h2>Logo</h2>
             <div className="logo-box">
@@ -335,6 +384,15 @@ type ProfileForm = {
   social_media_urls: string;
   notes: string;
 };
+
+function ProfileFact({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="profile-fact">
+      <div className="profile-section-label">{label}</div>
+      <div className="profile-fact-value">{value || "—"}</div>
+    </div>
+  );
+}
 
 function ProfileSection({
   label,
@@ -402,12 +460,17 @@ function Area({
   );
 }
 
-function LogoPreview({ clientId }: { clientId: string }) {
+/** Fetch a protected image endpoint as an object URL (auth header, revoked on cleanup). */
+function useProtectedImage(path: string, enabled: boolean) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
+    if (!enabled) {
+      setSrc(null);
+      return;
+    }
     let revoked: string | null = null;
     const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-    fetch(`${apiUrl}/clients/${clientId}/logo`, {
+    fetch(`${apiUrl}${path}`, {
       headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
     })
       .then((r) => (r.ok ? r.blob() : null))
@@ -420,7 +483,20 @@ function LogoPreview({ clientId }: { clientId: string }) {
     return () => {
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [clientId]);
+  }, [path, enabled]);
+  return src;
+}
+
+function LogoPreview({ clientId }: { clientId: string }) {
+  const src = useProtectedImage(`/clients/${clientId}/logo`, true);
   if (!src) return <p className="muted">Loading logo…</p>;
   return <img src={src} alt="Client logo" className="logo-preview" />;
+}
+
+/** Round brand avatar — the client's profile photo, falling back to its initial. */
+function ClientAvatar({ client, large }: { client: Client; large?: boolean }) {
+  const src = useProtectedImage(`/clients/${client.id}/avatar`, !!client.avatar_object_key);
+  const cls = `client-avatar ${large ? "lg" : ""}`;
+  if (src) return <img src={src} alt="" className={cls} />;
+  return <div className={`${cls} placeholder`}>{(client.company_name[0] ?? "?").toUpperCase()}</div>;
 }

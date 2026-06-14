@@ -98,5 +98,7 @@ it for platform logos.
 
 `create_all` only creates new tables. Columns added to existing tables need a manual
 `ALTER TABLE` (see `CLAUDE.md`). Applied so far: `post_videos.logo_enabled boolean
-NOT NULL DEFAULT true`. New tables (`provider_credentials`, `reference_images`) are
-created automatically.
+NOT NULL DEFAULT true`; `clients.avatar_object_key varchar(500) NOT NULL DEFAULT ''`
+(client profile photo, shown as the author avatar in post previews via
+`GET/POST /clients/{id}/avatar`). New tables (`provider_credentials`,
+`reference_images`) are created automatically.

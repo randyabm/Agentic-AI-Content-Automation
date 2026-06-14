@@ -22,6 +22,7 @@ export interface Client {
   communication_tone: string;
   social_media_urls: string[];
   logo_object_key: string;
+  avatar_object_key: string;
   notes: string;
   brand_tone: string;
   brand_words_required: string[];

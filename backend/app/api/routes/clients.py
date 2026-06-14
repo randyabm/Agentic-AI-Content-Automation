@@ -28,6 +28,7 @@ BRAND_MEMORY_FIELDS = (
 router = APIRouter(prefix="/clients", tags=["clients"])
 
 ALLOWED_LOGO_TYPES = {"image/png", "image/jpeg", "image/svg+xml", "image/webp"}
+ALLOWED_AVATAR_TYPES = {"image/png", "image/jpeg", "image/webp"}
 MAX_LOGO_BYTES = 5 * 1024 * 1024
 
 
@@ -108,6 +109,34 @@ def get_logo(client_id: str, db: Session = Depends(get_db), _: User = Depends(ge
     if not client.logo_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no logo")
     data, content_type = storage.get_object(client.logo_object_key)
+    return Response(content=data, media_type=content_type)
+
+
+@router.post("/{client_id}/avatar", response_model=ClientOut)
+def upload_avatar(
+    client_id: str, file: UploadFile, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    """Upload the client's profile photo (shown as the author avatar in post previews)."""
+    client = _get_client_or_404(db, client_id)
+    if file.content_type not in ALLOWED_AVATAR_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Profile photo must be PNG, JPG, or WebP")
+    data = file.file.read()
+    if len(data) > MAX_LOGO_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Profile photo must be 5 MB or smaller")
+    key = f"clients/{client.id}/avatar"
+    storage.upload_object(key, data, file.content_type)
+    client.avatar_object_key = key
+    db.commit()
+    audit.record(db, actor, "client.avatar_upload", "client", client.id)
+    return client
+
+
+@router.get("/{client_id}/avatar")
+def get_avatar(client_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    client = _get_client_or_404(db, client_id)
+    if not client.avatar_object_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no profile photo")
+    data, content_type = storage.get_object(client.avatar_object_key)
     return Response(content=data, media_type=content_type)
 
 

@@ -47,6 +47,7 @@ class ClientOut(BaseModel):
     communication_tone: str
     social_media_urls: list
     logo_object_key: str
+    avatar_object_key: str
     notes: str
     brand_tone: str
     brand_words_required: list
