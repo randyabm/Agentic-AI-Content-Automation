@@ -18,6 +18,7 @@ class LLMFunction(str, enum.Enum):
     visual_agent = "visual_agent"
     article_analysis = "article_analysis"
     article_relevance_scoring = "article_relevance_scoring"
+    brand_memory = "brand_memory"
 
 
 class ProviderCredential(Base):

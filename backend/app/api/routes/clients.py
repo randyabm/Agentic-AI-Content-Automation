@@ -3,10 +3,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import get_current_user, require_editor
 from app.db.session import get_db
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
+from app.models.onboarding import OnboardingJob, OnboardingStatus, initial_steps
+from app.models.setting import Setting
 from app.models.user import User
 from app.schemas.client import (
     BrandMemoryUpdate,
@@ -16,9 +19,17 @@ from app.schemas.client import (
     ClientUpdate,
     ExtractionConfirm,
     ExtractionJobOut,
+    OnboardingJobOut,
 )
+from app.schemas.article import WordPressImportRequest, WordPressImportResponse
 from app.services import audit, storage
-from app.workers.tasks import run_extraction
+from app.services.wordpress import discover_wp_api
+from app.workers.tasks import (
+    import_client_articles,
+    run_extraction,
+    run_onboarding,
+    run_onboarding_step,
+)
 
 BRAND_MEMORY_FIELDS = (
     "brand_tone", "brand_words_required", "brand_words_forbidden", "brand_colors",
@@ -54,7 +65,27 @@ def create_client(body: ClientCreate, db: Session = Depends(get_db), actor: User
     db.add(client)
     db.commit()
     audit.record(db, actor, "client.create", "client", client.id, {"name": client.company_name})
+
+    # Kick off the full onboarding pipeline in the background unless disabled.
+    auto = db.get(Setting, "onboarding_auto_run")
+    if auto is None or auto.value != "false":
+        job = OnboardingJob(client_id=client.id, steps=initial_steps(), created_by=actor.id)
+        db.add(job)
+        db.commit()
+        run_onboarding.delay(job.id)
     return client
+
+
+@router.get("/onboarding-statuses")
+def onboarding_statuses(
+    db: Session = Depends(get_db), _: User = Depends(get_current_user)
+) -> dict[str, str]:
+    """Latest onboarding status per client, for badges on the clients list."""
+    jobs = db.scalars(select(OnboardingJob).order_by(OnboardingJob.created_at.desc())).all()
+    out: dict[str, str] = {}
+    for job in jobs:
+        out.setdefault(job.client_id, job.status.value)
+    return out
 
 
 @router.get("/{client_id}", response_model=ClientOut)
@@ -191,6 +222,107 @@ def analyze_website(client_id: str, db: Session = Depends(get_db), actor: User =
     db.commit()
     run_extraction.delay(job.id)
     audit.record(db, actor, "client.analyze", "client", client.id, {"job_id": job.id})
+    return job
+
+
+@router.post(
+    "/{client_id}/import-articles",
+    response_model=WordPressImportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def import_articles_from_website(
+    client_id: str,
+    body: WordPressImportRequest = WordPressImportRequest(),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Import the client's articles via their site's WordPress REST API (PRD §7).
+
+    Detects the WP API synchronously so the caller gets immediate feedback if the
+    site is not WordPress; the actual import runs in a Celery task.
+    """
+    client = _get_client_or_404(db, client_id)
+    api_base = discover_wp_api(db, client.website_url)
+    if api_base is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"WordPress REST API not available at {client.website_url}",
+        )
+    import_client_articles.delay(client.id, api_base, body.limit)
+    audit.record(db, actor, "client.import_articles", "client", client.id, {"limit": body.limit})
+    return WordPressImportResponse(
+        detail="Importing articles in the background.", api_base=api_base, limit=body.limit
+    )
+
+
+@router.get("/{client_id}/onboarding", response_model=OnboardingJobOut)
+def get_onboarding(client_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Latest onboarding job for the client (polled by the UI for live progress)."""
+    _get_client_or_404(db, client_id)
+    job = db.scalar(
+        select(OnboardingJob)
+        .where(OnboardingJob.client_id == client_id)
+        .order_by(OnboardingJob.created_at.desc())
+        .limit(1)
+    )
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No onboarding job for this client")
+    return job
+
+
+@router.post("/{client_id}/onboard", response_model=OnboardingJobOut, status_code=status.HTTP_202_ACCEPTED)
+def rerun_onboarding(client_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)):
+    """Re-run the full onboarding pipeline for an existing client."""
+    client = _get_client_or_404(db, client_id)
+    running = db.scalar(
+        select(OnboardingJob).where(
+            OnboardingJob.client_id == client.id,
+            OnboardingJob.status == OnboardingStatus.running,
+        )
+    )
+    if running:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Onboarding is already running for this client")
+    job = OnboardingJob(client_id=client.id, steps=initial_steps(), created_by=actor.id)
+    db.add(job)
+    db.commit()
+    run_onboarding.delay(job.id)
+    audit.record(db, actor, "client.onboard", "client", client.id, {"job_id": job.id})
+    return job
+
+
+@router.post(
+    "/{client_id}/onboarding/retry/{step_key}",
+    response_model=OnboardingJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_onboarding_step(
+    client_id: str, step_key: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    """Re-run a single onboarding step (e.g. retry just 'articles') without redoing the rest."""
+    client = _get_client_or_404(db, client_id)
+    job = db.scalar(
+        select(OnboardingJob)
+        .where(OnboardingJob.client_id == client.id)
+        .order_by(OnboardingJob.created_at.desc())
+        .limit(1)
+    )
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No onboarding job for this client")
+    if job.status == OnboardingStatus.running:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Onboarding is already running for this client")
+    if not any(s["key"] == step_key for s in job.steps):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown onboarding step '{step_key}'")
+    # Reflect "running" synchronously so the client starts polling immediately.
+    for step in job.steps:
+        if step["key"] == step_key:
+            step["status"] = "running"
+            step["detail"] = "Retrying…"
+    flag_modified(job, "steps")
+    job.status = OnboardingStatus.running
+    db.commit()
+    run_onboarding_step.delay(job.id, step_key)
+    audit.record(db, actor, "client.onboard_step", "client", client.id, {"step": step_key})
+    db.refresh(job)
     return job
 
 

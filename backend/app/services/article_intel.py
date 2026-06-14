@@ -101,6 +101,25 @@ def extract_article(db: Session, page: CrawledPage) -> dict:
     }
 
 
+SUMMARY_INSTRUCTIONS = """\
+You are given the title and full text of an article. Write a 200-400 word summary
+of it in English (translate if the source is in another language). Respond with
+the summary text only — no preamble, no headings, no JSON.
+"""
+
+
+def summarize_article(db: Session, title: str, body: str) -> str:
+    """Produce a 200-400 word English summary using the article_analysis LLM.
+
+    Used by the WordPress path, where all metadata already comes structured from
+    the API and the LLM is needed only for the summary.
+    """
+    cfg = get_llm_config(db, LLMFunction.article_analysis)
+    corpus = body[:12000]  # keep well under the per-minute token budget
+    prompt = f"{SUMMARY_INSTRUCTIONS}\n\nTITLE: {title}\n\nARTICLE:\n\n{corpus}"
+    return complete_text(cfg, cfg.system_prompt, prompt).strip()
+
+
 def _looks_like_article(path: str, section_path: str) -> bool:
     """Heuristic: a link is a candidate article if it is either a child of the
     section path, or a root-level page whose slug looks like a post title.

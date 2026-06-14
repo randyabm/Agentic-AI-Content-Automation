@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
 import { Competitors } from "../components/Competitors";
-import type { Client, ExtractionDraft, ExtractionJob } from "../types";
+import type { Client, ExtractionDraft, ExtractionJob, OnboardingJob } from "../types";
 
 const RUNNING = ["pending", "crawling", "extracting"];
 
@@ -23,6 +23,8 @@ export default function ClientDetail() {
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importLimit, setImportLimit] = useState(50);
   const pollRef = useRef<number | null>(null);
 
   const loadJobs = useCallback(async () => {
@@ -74,6 +76,23 @@ export default function ClientDetail() {
       await loadJobs();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start analysis");
+    }
+  }
+
+  async function importArticles() {
+    setError("");
+    setNotice("");
+    setImporting(true);
+    try {
+      const res = await api<{ detail: string; limit: number }>(
+        `/clients/${clientId}/import-articles`,
+        { method: "POST", body: { limit: importLimit } },
+      );
+      setNotice(`${res.detail} Check the Article Library shortly.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not import articles");
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -186,6 +205,28 @@ export default function ClientDetail() {
           <Link className="btn btn-ghost" to={`/campaigns?client_id=${client.id}`}>
             Campaigns
           </Link>
+          <Link className="btn btn-ghost" to={`/articles?client_id=${client.id}`}>
+            Articles
+          </Link>
+          {canEdit && tab === "profile" && (
+            <div className="import-articles-control">
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={importLimit}
+                onChange={(e) =>
+                  setImportLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))
+                }
+                disabled={importing}
+                title="Number of articles to import (1–200)"
+                aria-label="Number of articles to import"
+              />
+              <button className="btn btn-ghost" onClick={importArticles} disabled={importing}>
+                {importing ? "Importing…" : "Import articles from website"}
+              </button>
+            </div>
+          )}
           {canEdit && tab === "profile" && (
             <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
               {running ? "Analyzing…" : "Analyze Website"}
@@ -216,6 +257,9 @@ export default function ClientDetail() {
       <>
       {notice && <div className="alert alert-success">{notice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
+
+      <OnboardingProgress clientId={clientId!} canEdit={canEdit} />
+
 
       {running && (
         <div className="card progress-card">
@@ -369,6 +413,139 @@ export default function ClientDetail() {
       </div>
       </>
       )}
+    </div>
+  );
+}
+
+const STEP_ICON: Record<string, string> = {
+  pending: "○",
+  running: "⏳",
+  ok: "✓",
+  error: "✗",
+  skipped: "–",
+};
+
+function OnboardingProgress({ clientId, canEdit }: { clientId: string; canEdit: boolean }) {
+  const [job, setJob] = useState<OnboardingJob | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const pollRef = useRef<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const j = await api<OnboardingJob>(`/clients/${clientId}/onboarding`);
+      setJob(j);
+      return j;
+    } catch {
+      setJob(null); // 404 = client was never onboarded (e.g. created before this feature)
+      return null;
+    }
+  }, [clientId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Poll while the pipeline is running.
+  useEffect(() => {
+    if (job?.status === "running" && pollRef.current === null) {
+      pollRef.current = window.setInterval(async () => {
+        const j = await load();
+        if (j?.status !== "running" && pollRef.current) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }, 2000);
+    }
+    return () => {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [job?.status, load]);
+
+  async function rerun() {
+    setErr("");
+    setBusy(true);
+    try {
+      setJob(await api<OnboardingJob>(`/clients/${clientId}/onboard`, { method: "POST" }));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not start onboarding");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryStep(stepKey: string) {
+    setErr("");
+    setBusy(true);
+    try {
+      setJob(await api<OnboardingJob>(`/clients/${clientId}/onboarding/retry/${stepKey}`, { method: "POST" }));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not retry step");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!job) {
+    return canEdit ? (
+      <div className="card onboarding-card">
+        <div className="onboarding-head">
+          <strong>Onboarding</strong>
+          <button className="btn btn-ghost small" onClick={rerun} disabled={busy}>
+            {busy ? "Starting…" : "Run onboarding"}
+          </button>
+        </div>
+        {err && <div className="alert alert-error">{err}</div>}
+      </div>
+    ) : null;
+  }
+
+  const running = job.status === "running";
+  const total = job.steps.length;
+  const done = job.steps.filter((s) => s.status === "ok" || s.status === "skipped").length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const title =
+    running ? "Setting up this client…"
+    : job.status === "completed" ? "Onboarding complete"
+    : job.status === "completed_with_errors" ? "Onboarding finished with some errors"
+    : "Onboarding failed";
+
+  return (
+    <div className="card onboarding-card">
+      <div className="onboarding-head">
+        <strong>{running && <span className="spinner-inline" />} {title}</strong>
+        {canEdit && !running && (
+          <button className="btn btn-ghost small" onClick={rerun} disabled={busy}>
+            {busy ? "Starting…" : "Re-run onboarding"}
+          </button>
+        )}
+      </div>
+
+      <div className="onboarding-progress">
+        <div className="progress-bar">
+          <div className="progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="muted small">{done} of {total} steps</span>
+      </div>
+
+      {err && <div className="alert alert-error">{err}</div>}
+      <ul className="onboarding-steps">
+        {job.steps.map((s) => (
+          <li key={s.key} className={`onboarding-step step-${s.status}`}>
+            <span className="step-icon">{STEP_ICON[s.status] ?? "○"}</span>
+            <span className="step-label">{s.label}</span>
+            {s.detail && <span className="step-detail muted small">{s.detail}</span>}
+            {canEdit && !running && s.status === "error" && (
+              <button className="btn btn-ghost small" onClick={() => retryStep(s.key)} disabled={busy}>
+                Retry
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

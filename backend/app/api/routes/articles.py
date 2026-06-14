@@ -38,6 +38,7 @@ def list_articles(
     entry_type: ArticleEntryType | None = None,
     article_status: ArticleStatus | None = None,
     needs_review: bool | None = None,
+    client_id: str | None = None,
     tag: str | None = None,
     limit: int = Query(100, le=500),
     offset: int = 0,
@@ -59,6 +60,8 @@ def list_articles(
         query = query.where(Article.status == article_status)
     if needs_review is not None:
         query = query.where(Article.needs_review.is_(needs_review))
+    if client_id:
+        query = query.where(Article.client_id == client_id)
     if tag:
         query = query.where(func.cast(Article.tags, Text).like(f'%"{tag}"%'))
     query = query.order_by(Article.created_at.desc()).limit(limit).offset(offset)

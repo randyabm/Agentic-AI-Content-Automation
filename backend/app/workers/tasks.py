@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import anthropic
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.session import SessionLocal
 from app.models.article import Article, ArticleEntryType, ArticleSource, ArticleStatus, SyncFrequency
@@ -21,20 +22,29 @@ from app.models.campaign import (
     PostStatus,
     PostVideo,
 )
-from app.models.client import Client, ExtractionJob, JobStatus
+from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
 from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJob, CompetitorSource, SearchJobStatus
 from app.models.llm import LLMFunction
+from app.models.onboarding import OnboardingJob, OnboardingStatus
 from app.models.setting import Setting
-from app.services.article_intel import discover_article_urls, extract_article, fetch_clean_page
+from app.services.article_intel import (
+    discover_article_urls,
+    extract_article,
+    fetch_clean_page,
+    summarize_article,
+)
 from app.services.campaign_gen import (
     build_context,
     generate_element_prompts,
     generate_platform_copy,
     resolve_article,
 )
+from app.services import storage
+from app.services.branding import extract_brand_colors, fetch_site_branding
 from app.services.competitor_intel import analyze_competitor, identify_competitors
+from app.services.wordpress import discover_wp_api, fetch_wp_post_by_url, fetch_wp_posts
 from app.services.crawler import CrawlConfig, crawl_site
-from app.services.extraction import ExtractionError, extract_client_profile
+from app.services.extraction import ExtractionError, extract_client_profile, generate_brand_memory
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -90,6 +100,7 @@ def run_extraction(job_id: str) -> None:
 
         draft = extract_client_profile(db, pages)
         job.draft = draft
+        _apply_site_branding(db, client)
         job.status = JobStatus.awaiting_review
         db.commit()
         logger.info("Extraction job %s ready for review (%d pages)", job_id, len(pages))
@@ -100,6 +111,30 @@ def run_extraction(job_id: str) -> None:
         _fail(db, job_id, f"Unexpected error: {exc}")
     finally:
         db.close()
+
+
+def _apply_site_branding(db, client: Client) -> None:
+    """Recover the site icon (→ profile photo) and logo from the client's website.
+
+    Only fills slots that are still empty, so a user's manual upload is never
+    overwritten. Branding is best-effort: any failure is logged, never fatal.
+    """
+    if client.avatar_object_key and client.logo_object_key:
+        return
+    try:
+        branding = fetch_site_branding(db, client.website_url)
+        if branding["avatar"] and not client.avatar_object_key:
+            key = f"clients/{client.id}/avatar"
+            storage.upload_object(key, *branding["avatar"])
+            client.avatar_object_key = key
+        if branding["logo"] and not client.logo_object_key:
+            key = f"clients/{client.id}/logo"
+            storage.upload_object(key, *branding["logo"])
+            client.logo_object_key = key
+        db.commit()
+    except Exception as exc:  # noqa: BLE001 — branding must never fail the analysis
+        logger.warning("Site branding recovery failed for client %s: %s", client.id, exc)
+        db.rollback()
 
 
 def _fail(db, job_id: str, error: str) -> None:
@@ -186,6 +221,279 @@ def _fail_search(db, job_id: str, error: str) -> None:
         job.status = SearchJobStatus.failed
         job.error = error
         db.commit()
+
+
+# --- Client onboarding pipeline (auto-run on client creation) ---
+
+
+def _setting(db, key: str, default: str) -> str:
+    row = db.get(Setting, key)
+    return row.value if row and row.value else default
+
+
+def _set_step(db, job: OnboardingJob, key: str, status: str, detail: str = "") -> None:
+    for step in job.steps:
+        if step["key"] == key:
+            step["status"] = status
+            step["detail"] = detail
+            break
+    flag_modified(job, "steps")  # JSON in-place mutation isn't auto-detected
+    db.commit()
+
+
+def _onboard_profile(db, job: OnboardingJob, client: Client) -> None:
+    _set_step(db, job, "profile", "running", "Crawling website…")
+    pages = crawl_site(client.website_url, _crawl_config(db))
+    draft = extract_client_profile(db, pages)
+    client.industry = draft["industry"]
+    client.description = draft["description"]
+    client.products_services = draft["products_services"]
+    client.target_audience = draft["target_audience"]
+    client.value_proposition = draft["value_proposition"]
+    client.business_objectives = draft["business_objectives"]
+    client.communication_tone = draft["communication_tone"]
+    client.social_media_urls = draft["social_media_urls"]
+    # The user typed the company name at creation, so keep it.
+    client.last_extraction_at = datetime.now(timezone.utc)
+    db.commit()
+    _set_step(db, job, "profile", "ok", f"Profile extracted from {len(pages)} pages")
+
+
+def _onboard_branding(db, job: OnboardingJob, client: Client) -> None:
+    _set_step(db, job, "branding", "running", "Looking for logo & site icon…")
+    _apply_site_branding(db, client)
+    db.refresh(client)
+    found = [name for name, key in (("logo", client.logo_object_key), ("photo", client.avatar_object_key)) if key]
+    _set_step(db, job, "branding", "ok", "Recovered " + (" + ".join(found) if found else "nothing (left default)"))
+
+
+def _onboard_brand(db, job: OnboardingJob, client: Client) -> None:
+    # Respect Brand Memory a user edited by hand. The AI tags its own snapshots
+    # as "onboarding", so an AI-generated version is still refreshed on re-run.
+    latest = db.scalar(
+        select(BrandMemoryVersion)
+        .where(BrandMemoryVersion.client_id == client.id)
+        .order_by(BrandMemoryVersion.created_at.desc())
+        .limit(1)
+    )
+    if latest is not None and latest.created_by not in ("onboarding", ""):
+        _set_step(db, job, "brand_memory", "skipped", "Kept manually-edited brand memory")
+        return
+
+    _set_step(db, job, "brand_memory", "running", "Inferring tone, words & colors…")
+    profile_text = "\n".join(
+        f"{label}: {value}"
+        for label, value in (
+            ("Company", client.company_name),
+            ("Industry", client.industry),
+            ("Description", client.description),
+            ("Products & services", client.products_services),
+            ("Target audience", client.target_audience),
+            ("Value proposition", client.value_proposition),
+            ("Communication tone", client.communication_tone),
+        )
+        if value
+    )
+    bm = generate_brand_memory(db, profile_text)
+
+    # Colors come from the logo (fallback to the avatar) rather than the LLM.
+    colors: list[str] = []
+    key = client.logo_object_key or client.avatar_object_key
+    if key:
+        try:
+            data, _ = storage.get_object(key)
+            colors = extract_brand_colors(data)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Could not read %s for colors: %s", key, exc)
+
+    client.brand_tone = bm["brand_tone"]
+    client.brand_words_required = bm["brand_words_required"]
+    client.brand_words_forbidden = bm["brand_words_forbidden"]
+    client.brand_visual_style = bm["brand_visual_style"]
+    client.brand_copy_examples = bm["brand_copy_examples"]
+    client.brand_legal_disclaimer = bm["brand_legal_disclaimer"]
+    if colors:
+        client.brand_colors = colors
+    snapshot = {**bm, "brand_colors": client.brand_colors}
+    db.add(BrandMemoryVersion(client_id=client.id, snapshot=snapshot, created_by="onboarding"))
+    db.commit()
+    _set_step(db, job, "brand_memory", "ok", f"Tone, words set · {len(client.brand_colors)} colors")
+
+
+def _onboard_competitors(db, job: OnboardingJob, client: Client) -> None:
+    count = int(_setting(db, "default_competitor_count", "5"))
+    ctype = _setting(db, "onboarding_competitor_type", "direct")
+    scope = _setting(db, "onboarding_competitor_scope", "national")
+    depth = _setting(db, "onboarding_competitor_depth", "analyze")
+    _set_step(db, job, "competitors", "running", "Identifying competitors…")
+
+    identified = identify_competitors(db, client, count, ctype, scope)
+    existing_urls = {
+        c.website_url.rstrip("/").lower()
+        for c in db.scalars(select(Competitor).where(Competitor.client_id == client.id)).all()
+    }
+    new_ids: list[str] = []
+    for item in identified:
+        if item["website_url"].rstrip("/").lower() in existing_urls:
+            continue
+        competitor = Competitor(
+            client_id=client.id,
+            company_name=item["company_name"],
+            website_url=item["website_url"],
+            source=CompetitorSource.auto,
+            identification_reason=item["reason"],
+        )
+        db.add(competitor)
+        db.flush()
+        new_ids.append(competitor.id)
+    db.commit()
+
+    if depth != "analyze":
+        _set_step(db, job, "competitors", "ok", f"{len(new_ids)} found (analysis pending)")
+        return
+
+    for i, cid in enumerate(new_ids, start=1):
+        _set_step(db, job, "competitors", "running", f"Analyzing competitor {i} of {len(new_ids)}…")
+        run_competitor_analysis(cid)  # self-contained; sets its own status on failure
+    _set_step(db, job, "competitors", "ok", f"{len(new_ids)} identified and analyzed")
+
+
+def _onboard_articles(db, job: OnboardingJob, client: Client) -> None:
+    limit = int(_setting(db, "default_article_count", "30"))
+    _set_step(db, job, "articles", "running", "Looking for articles…")
+    before = db.scalar(select(func.count()).select_from(Article).where(Article.client_id == client.id)) or 0
+
+    api_base = discover_wp_api(db, client.website_url)
+    if api_base:
+        import_client_articles(client.id, api_base, limit)
+    else:
+        # Fallback: crawl the site for article URLs and extract each (PRD §7 path).
+        candidates = discover_article_urls(db, client.website_url, limit)
+        imported = 0
+        for url in candidates:
+            if imported >= limit:
+                break
+            if db.scalar(select(Article).where(Article.source_url == url.rstrip("/"))):
+                continue
+            try:
+                page = fetch_clean_page(db, url)
+                data = extract_article(db, page)
+            except ExtractionError:
+                continue
+            if not data["is_article"]:
+                continue
+            db.add(
+                Article(
+                    title=data["title"],
+                    author=data["author"],
+                    publication_date=data["publication_date"],
+                    source_url=url.rstrip("/"),
+                    summary=data["summary"],
+                    body=data["body"],
+                    tags=data["tags"],
+                    entry_type=ArticleEntryType.auto,
+                    status=ArticleStatus.active,
+                    needs_review=False,
+                    client_id=client.id,
+                )
+            )
+            db.commit()
+            imported += 1
+
+    after = db.scalar(select(func.count()).select_from(Article).where(Article.client_id == client.id)) or 0
+    source = "WordPress API" if api_base else "site crawl"
+    _set_step(db, job, "articles", "ok", f"{after - before} imported via {source}")
+
+
+# Stage registry — drives both the full pipeline and single-step retries.
+ONBOARD_STAGES = {
+    "profile": _onboard_profile,
+    "branding": _onboard_branding,
+    "brand_memory": _onboard_brand,
+    "competitors": _onboard_competitors,
+    "articles": _onboard_articles,
+}
+
+
+def _run_stage(db, job: OnboardingJob, client: Client, key: str) -> bool:
+    """Run one stage in isolation; returns True on success, False on error."""
+    try:
+        ONBOARD_STAGES[key](db, job, client)
+        return True
+    except Exception as exc:  # noqa: BLE001 — one stage must not abort the rest
+        logger.exception("Onboarding %s: step %s failed", job.id, key)
+        db.rollback()
+        _set_step(db, job, key, "error", str(exc)[:500])
+        return False
+
+
+def _finalize_status(db, job: OnboardingJob) -> None:
+    statuses = {s["status"] for s in job.steps}
+    if "error" in statuses:
+        job.status = OnboardingStatus.completed_with_errors
+    elif statuses <= {"ok", "skipped"}:
+        job.status = OnboardingStatus.completed
+    else:
+        job.status = OnboardingStatus.completed_with_errors
+    db.commit()
+
+
+@celery_app.task(name="client.onboard", time_limit=60 * 60, soft_time_limit=60 * 55)
+def run_onboarding(job_id: str) -> None:
+    """Full client onboarding: profile + branding + brand memory + competitors + articles.
+
+    Each stage is isolated — a failure marks only that step and the pipeline
+    continues — so the client is populated as far as possible.
+    """
+    db = SessionLocal()
+    try:
+        job = db.get(OnboardingJob, job_id)
+        if job is None:
+            logger.error("Onboarding job %s not found", job_id)
+            return
+        client = db.get(Client, job.client_id)
+        if client is None:
+            job.status = OnboardingStatus.failed
+            db.commit()
+            return
+
+        for key in ONBOARD_STAGES:
+            _run_stage(db, job, client, key)
+        _finalize_status(db, job)
+        logger.info("Onboarding job %s finished (%s)", job_id, job.status.value)
+    except Exception:  # noqa: BLE001 — always leave the job in a terminal state
+        logger.exception("Onboarding job %s crashed", job_id)
+        db.rollback()
+        job = db.get(OnboardingJob, job_id)
+        if job is not None:
+            job.status = OnboardingStatus.failed
+            db.commit()
+    finally:
+        db.close()
+
+
+@celery_app.task(name="client.onboard_step", time_limit=60 * 40, soft_time_limit=60 * 38)
+def run_onboarding_step(job_id: str, step_key: str) -> None:
+    """Re-run a single onboarding stage (e.g. retry just the failed articles step)."""
+    db = SessionLocal()
+    try:
+        job = db.get(OnboardingJob, job_id)
+        if job is None or step_key not in ONBOARD_STAGES:
+            logger.error("Onboarding step %s/%s not found", job_id, step_key)
+            return
+        client = db.get(Client, job.client_id)
+        if client is None:
+            return
+        job.status = OnboardingStatus.running
+        _set_step(db, job, step_key, "running", "Retrying…")
+        _run_stage(db, job, client, step_key)
+        _finalize_status(db, job)
+        logger.info("Onboarding step %s/%s finished (%s)", job_id, step_key, job.status.value)
+    except Exception:  # noqa: BLE001
+        logger.exception("Onboarding step %s/%s crashed", job_id, step_key)
+        db.rollback()
+    finally:
+        db.close()
 
 
 @celery_app.task(
@@ -997,6 +1305,78 @@ def derive_video_ratios(source_video_id: str) -> None:
         db.close()
 
 
+def _wp_summary(db, wp: dict) -> str:
+    """LLM summary for a WordPress post, falling back to its excerpt on failure."""
+    try:
+        summary = summarize_article(db, wp["title"], wp["body"])
+        if summary:
+            return summary
+    except anthropic.RateLimitError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — never block import on summary failure
+        logger.warning("WP summary failed for %s: %s", wp.get("url"), exc)
+    return wp.get("excerpt", "")
+
+
+@celery_app.task(
+    name="article.import_client",
+    autoretry_for=(anthropic.RateLimitError,),
+    retry_backoff=70,
+    retry_backoff_max=300,
+    max_retries=3,
+)
+def import_client_articles(client_id: str, api_base: str, limit: int) -> None:
+    """Import a client's articles via the WordPress REST API (PRD §7).
+
+    Idempotent: existing articles (by URL) are skipped, so a retry after a rate
+    limit safely resumes. Metadata comes structured from the API; the LLM is used
+    only for the 200-400 word summary.
+    """
+    db = SessionLocal()
+    try:
+        client = db.get(Client, client_id)
+        if client is None:
+            logger.error("Client %s not found for article import", client_id)
+            return
+        posts = fetch_wp_posts(db, api_base, limit)
+        imported = 0
+        skipped = 0
+        for post in posts:
+            url = post["url"]
+            if not url or db.scalar(select(Article).where(Article.source_url == url.rstrip("/"))):
+                skipped += 1
+                continue
+            db.add(
+                Article(
+                    title=post["title"],
+                    author=post["author"],
+                    publication_date=post["publication_date"],
+                    source_url=url.rstrip("/"),
+                    summary=_wp_summary(db, post),
+                    body=post["body"],
+                    tags=post["tags"],
+                    entry_type=ArticleEntryType.auto,
+                    status=ArticleStatus.active,
+                    needs_review=False,
+                    client_id=client.id,
+                )
+            )
+            db.commit()
+            imported += 1
+        logger.info(
+            "Client %s WordPress import done: imported %d, skipped %d of %d",
+            client_id, imported, skipped, len(posts),
+        )
+    except anthropic.RateLimitError:
+        db.rollback()
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("Client %s WordPress import crashed", client_id)
+        db.rollback()
+    finally:
+        db.close()
+
+
 @celery_app.task(name="article.import_url")
 def import_article_from_url(article_id: str) -> None:
     """Fetch + extract a manually added article (added as a placeholder row first)."""
@@ -1005,14 +1385,25 @@ def import_article_from_url(article_id: str) -> None:
         article = db.get(Article, article_id)
         if article is None:
             return
-        page = fetch_clean_page(db, article.source_url)
-        data = extract_article(db, page)
-        article.title = data["title"] or article.title
-        article.author = data["author"]
-        article.publication_date = data["publication_date"]
-        article.summary = data["summary"]
-        article.body = data["body"]
-        article.tags = data["tags"]
+        # Prefer the WordPress REST API (structured data, LLM only for the summary);
+        # fall back to crawl + LLM extraction for non-WordPress pages.
+        wp = fetch_wp_post_by_url(db, article.source_url)
+        if wp is not None:
+            article.title = wp["title"] or article.title
+            article.author = wp["author"]
+            article.publication_date = wp["publication_date"]
+            article.body = wp["body"]
+            article.tags = wp["tags"]
+            article.summary = _wp_summary(db, wp)
+        else:
+            page = fetch_clean_page(db, article.source_url)
+            data = extract_article(db, page)
+            article.title = data["title"] or article.title
+            article.author = data["author"]
+            article.publication_date = data["publication_date"]
+            article.summary = data["summary"]
+            article.body = data["body"]
+            article.tags = data["tags"]
         article.status = ArticleStatus.active
         db.commit()
         logger.info("Imported manual article %s from %s", article_id, article.source_url)

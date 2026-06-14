@@ -59,6 +59,13 @@ DEFAULT_SYSTEM_PROMPTS = {
         "client's brand, audience, and content strategy, with a short justification. "
         "You always return valid JSON exactly as instructed."
     ),
+    LLMFunction.brand_memory: (
+        "You are a brand strategist. From a company's profile you infer its Brand "
+        "Memory: tone of voice, words/phrases to always or never use, visual style, "
+        "a few on-brand example copy lines, and any recurring legal disclaimer. Be "
+        "factual and only infer what the profile supports. Respond in English and "
+        "always return valid JSON exactly as instructed."
+    ),
 }
 
 DEFAULT_SETTINGS = [
@@ -73,6 +80,12 @@ DEFAULT_SETTINGS = [
     ("crawler_user_agent", "AIMarketingPlatformBot/1.0", "User-Agent header sent by the crawler"),
     ("competitor_crawl_max_depth", "3", "Max link depth when crawling competitor sites"),
     ("competitor_crawl_max_pages", "12", "Max pages when crawling competitor sites (keeps analysis fast)"),
+    # Client onboarding pipeline defaults (auto-run on client creation)
+    ("default_article_count", "30", "Default number of articles to import during client onboarding"),
+    ("onboarding_competitor_depth", "analyze", "Competitor depth during onboarding: 'analyze' (identify + full analysis) or 'identify' (list only)"),
+    ("onboarding_competitor_type", "direct", "Competitor type sought during onboarding: 'direct' or 'indirect'"),
+    ("onboarding_competitor_scope", "national", "Competitor geographic scope during onboarding: 'local', 'national' or 'international'"),
+    ("onboarding_auto_run", "true", "Automatically run the full onboarding pipeline when a client is created"),
 ]
 
 DEFAULT_IMAGE_MODELS = [

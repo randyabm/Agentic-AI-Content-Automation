@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, HttpUrl, field_validator
 
 from app.models.client import JobStatus
+from app.models.onboarding import OnboardingStatus
 
 
 class ClientCreate(BaseModel):
@@ -92,6 +93,24 @@ class ExtractionJobOut(BaseModel):
     pages_total_estimate: int
     error: str
     draft: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+class OnboardingStepOut(BaseModel):
+    key: str
+    label: str
+    status: str
+    detail: str = ""
+
+
+class OnboardingJobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    client_id: str
+    status: OnboardingStatus
+    steps: list[OnboardingStepOut]
     created_at: datetime
     updated_at: datetime
 

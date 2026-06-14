@@ -137,6 +137,47 @@ def parse_json_value(text: str, opener: str = "{", closer: str = "}"):
         raise ExtractionError(f"Could not parse the LLM response as JSON: {exc}") from exc
 
 
+BRAND_MEMORY_INSTRUCTIONS = """\
+From the company profile below, infer the brand's Brand Memory. Answer ONLY with a
+single JSON object using exactly these keys:
+
+{
+  "brand_tone": string (tone & voice guidelines, 2-4 sentences),
+  "brand_words_required": [string, ...] (words/phrases the brand should always use),
+  "brand_words_forbidden": [string, ...] (words/phrases the brand should avoid),
+  "brand_visual_style": string (e.g. minimalist, vibrant, corporate — short phrase),
+  "brand_copy_examples": [string, ...] (2-4 short on-brand example copy lines),
+  "brand_legal_disclaimer": string (recurring legal/disclaimer text, empty if none)
+}
+
+All values in English. Only infer what the profile supports; use empty string/list
+when unknown — never invent legal text.
+"""
+
+
+def generate_brand_memory(db: Session, profile_text: str) -> dict:
+    """Infer Brand Memory fields from a client's profile text (PRD §5.3.3).
+
+    Colors are derived separately from the logo, not by the LLM.
+    """
+    cfg = get_llm_config(db, LLMFunction.brand_memory)
+    raw = complete_text(cfg, cfg.system_prompt, f"{BRAND_MEMORY_INSTRUCTIONS}\n\nCOMPANY PROFILE:\n\n{profile_text}")
+    data = parse_json_value(raw)
+    expected = {
+        "brand_tone": "", "brand_words_required": [], "brand_words_forbidden": [],
+        "brand_visual_style": "", "brand_copy_examples": [], "brand_legal_disclaimer": "",
+    }
+    normalized = {}
+    for key, default in expected.items():
+        value = data.get(key, default)
+        if isinstance(default, list) and not isinstance(value, list):
+            value = [value] if value else []
+        if isinstance(default, str) and not isinstance(value, str):
+            value = str(value)
+        normalized[key] = value
+    return normalized
+
+
 def extract_client_profile(
     db: Session, pages: list[CrawledPage], function: LLMFunction = LLMFunction.client_extraction
 ) -> dict:

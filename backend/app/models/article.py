@@ -47,6 +47,10 @@ class Article(Base):
     source_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("article_sources.id", ondelete="SET NULL"), nullable=True
     )
+    # Set when the article was imported from a specific client's website.
+    client_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     last_used_in_campaign: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
