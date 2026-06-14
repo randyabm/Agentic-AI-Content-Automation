@@ -53,6 +53,34 @@ a { color: var(--primary); text-decoration: none; }
 .small { font-size: 0.85rem; }
 .mono { font-family: Consolas, monospace; font-size: 0.85rem; }
 
+/* Grouped settings sections (System Settings → Global) — each group is its own
+   boxed panel with a coloured accent so they're easy to tell apart. */
+.settings-group {
+  --group-accent: var(--primary);
+  margin-top: 1.5rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--group-accent);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.settings-group:first-of-type { margin-top: 1rem; }
+.settings-group-head {
+  padding: 0.75rem 1rem;
+  /* tint the header with the group's accent at low opacity */
+  background: color-mix(in srgb, var(--group-accent) 8%, var(--surface));
+  border-bottom: 1px solid var(--border);
+}
+.settings-group-head h3 {
+  margin: 0;
+  color: var(--group-accent);
+}
+.settings-group-head .muted { margin-top: 0.15rem; }
+.settings-group .table { margin: 0; }
+.settings-group .table td { padding: 0.75rem 1rem; }
+.settings-group .mono { color: var(--muted); opacity: 0.8; margin: 0.1rem 0; }
+
 /* Layout */
 .layout { display: flex; min-height: 100vh; }
 .sidebar {
@@ -233,6 +261,15 @@ input:focus, select:focus, textarea:focus {
 .btn-ghost.danger:hover { background: var(--error-bg); }
 .file-btn { display: inline-flex; flex-direction: row; cursor: pointer; margin-top: 0.5rem; }
 .file-btn.disabled { opacity: 0.55; pointer-events: none; }
+
+/* Shown on the profile card while onboarding is generating the profile */
+.profile-locked-hint {
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: color-mix(in srgb, var(--secondary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--secondary) 25%, var(--border));
+  border-radius: var(--radius-sm);
+}
 
 /* Alerts & tags */
 .alert { padding: 0.7rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem; border-left: 3px solid transparent; }

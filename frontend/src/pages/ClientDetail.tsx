@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
 import { Competitors } from "../components/Competitors";
-import type { Client, ExtractionDraft, ExtractionJob, OnboardingJob } from "../types";
+import type { Client, ExtractionDraft, ExtractionJob, OnboardingJob, OnboardingStatus } from "../types";
 
 const RUNNING = ["pending", "crawling", "extracting"];
 
@@ -23,6 +23,7 @@ export default function ClientDetail() {
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [importing, setImporting] = useState(false);
   const [importLimit, setImportLimit] = useState(50);
   const pollRef = useRef<number | null>(null);
@@ -182,6 +183,21 @@ export default function ClientDetail() {
 
   const running = job && RUNNING.includes(job.status);
 
+  // While the website is being analyzed / the profile is being generated, the
+  // profile + photo + logo are read-only: the onboarding pipeline will populate
+  // them, so manual edits here would conflict / be overwritten. We lock during an
+  // active extraction, while a review draft is pending, and while the onboarding
+  // pipeline is running (profile still empty). Clients that never ran onboarding
+  // (no job) stay editable, so nothing is permanently locked.
+  const profileEmpty =
+    !client.industry &&
+    !client.description &&
+    !client.products_services &&
+    !client.target_audience &&
+    !client.value_proposition &&
+    (client.business_objectives?.length ?? 0) === 0;
+  const profileLocked = !!running || !!draft || (onboardingStatus === "running" && profileEmpty);
+
   return (
     <div>
       {pendingAvatar && (
@@ -258,7 +274,7 @@ export default function ClientDetail() {
       {notice && <div className="alert alert-success">{notice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
-      <OnboardingProgress clientId={clientId!} canEdit={canEdit} />
+      <OnboardingProgress clientId={clientId!} canEdit={canEdit} onStatus={setOnboardingStatus} />
 
 
       {running && (
@@ -317,11 +333,23 @@ export default function ClientDetail() {
           <div className="card-header-row">
             <h2>Profile</h2>
             {canEdit && !editing && (
-              <button className="btn btn-ghost" onClick={startEditing}>
+              <button
+                className="btn btn-ghost"
+                onClick={startEditing}
+                disabled={profileLocked}
+                title={profileLocked ? "Available once the website analysis finishes" : undefined}
+              >
                 Edit profile
               </button>
             )}
           </div>
+
+          {profileLocked && (
+            <div className="profile-locked-hint muted small">
+              ⏳ Generating this profile from the website analysis — editing will be
+              available once it finishes.
+            </div>
+          )}
 
           {editing && profileForm ? (
             <>
@@ -367,12 +395,16 @@ export default function ClientDetail() {
               <ClientAvatar client={client} large />
             </div>
             {canEdit && (
-              <label className="btn btn-ghost file-btn">
+              <label
+                className={`btn btn-ghost file-btn ${profileLocked ? "disabled" : ""}`}
+                title={profileLocked ? "Available once the website analysis finishes" : undefined}
+              >
                 {client.avatar_object_key ? "Change photo" : "Upload photo"}
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   hidden
+                  disabled={profileLocked}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) setPendingAvatar(f);
@@ -392,12 +424,16 @@ export default function ClientDetail() {
               )}
             </div>
             {canEdit && (
-              <label className="btn btn-ghost file-btn">
+              <label
+                className={`btn btn-ghost file-btn ${profileLocked ? "disabled" : ""}`}
+                title={profileLocked ? "Available once the website analysis finishes" : undefined}
+              >
                 Upload logo
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/svg+xml,image/webp"
                   hidden
+                  disabled={profileLocked}
                   onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])}
                 />
               </label>
@@ -425,7 +461,15 @@ const STEP_ICON: Record<string, string> = {
   skipped: "–",
 };
 
-function OnboardingProgress({ clientId, canEdit }: { clientId: string; canEdit: boolean }) {
+function OnboardingProgress({
+  clientId,
+  canEdit,
+  onStatus,
+}: {
+  clientId: string;
+  canEdit: boolean;
+  onStatus?: (status: OnboardingStatus | null) => void;
+}) {
   const [job, setJob] = useState<OnboardingJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -435,12 +479,14 @@ function OnboardingProgress({ clientId, canEdit }: { clientId: string; canEdit: 
     try {
       const j = await api<OnboardingJob>(`/clients/${clientId}/onboarding`);
       setJob(j);
+      onStatus?.(j.status);
       return j;
     } catch {
       setJob(null); // 404 = client was never onboarded (e.g. created before this feature)
+      onStatus?.(null);
       return null;
     }
-  }, [clientId]);
+  }, [clientId, onStatus]);
 
   useEffect(() => {
     load();

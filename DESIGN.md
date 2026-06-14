@@ -69,3 +69,40 @@ Social platforms are shown with their **real brand logos**, never plain text, vi
   instead of a stale image; the campaign list shows a "Generating visuals…" chip
   when a `ready` campaign is still rendering media.
 - **Login / sidebar**: indigo gradient (sidebar nav uses gradient active pills).
+
+## Form inputs — pick, don't type
+
+Match the control to the data. **Never use a free-text input for a value that
+comes from a fixed set of choices** — typed values invite typos and drift.
+
+- **Fixed set of options** → `<select>` dropdown (e.g. competitor type
+  direct/indirect, scope local/national/international, language). Show friendly
+  labels, store the canonical value.
+- **On/off boolean** → checkbox (or toggle), not a `true`/`false` text field.
+- **Numbers** → `<input type="number">` with sensible `min`/`max`.
+- **Free text** (names, URLs, user-agent strings, regex paths) → plain text input.
+
+Applied in System Settings → Global (`pages/SystemSettings.tsx`); follow the same
+rule for any new settings or forms going forward.
+
+## Grouping related items — boxed accent panels
+
+When a screen lists many related items (settings, config rows, grouped fields),
+**don't render them as one flat list** — group them by topic into distinct boxed
+panels so each section is easy to tell apart at a glance:
+
+- Each group is its own **boxed panel**: `1px` border, `--radius-sm`, soft
+  `--shadow-sm`, `--surface` background.
+- Give each group an **accent colour** via a `--group-accent` CSS variable, drawn
+  from the palette (indigo `--primary`, amber `--secondary`, teal `--tertiary`,
+  info blue `#2563EB`, neutral `--muted` for an "Other"/fallback group). Apply it
+  as a **4px left border** plus a **low-opacity header tint**
+  (`color-mix(in srgb, var(--group-accent) 8%, var(--surface))`) with the group
+  title in the accent colour.
+- Each group gets a short **header**: title + one-line description of what the
+  group covers.
+- Anything that doesn't fit a defined group falls into a neutral **"Other"** panel
+  so nothing is hidden.
+
+Reference implementation: the `.settings-group` / `.settings-group-head` styles in
+`styles.css` and `SETTING_GROUPS` in `pages/SystemSettings.tsx`.
