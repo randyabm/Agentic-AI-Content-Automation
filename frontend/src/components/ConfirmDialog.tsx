@@ -29,6 +29,7 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   const [typed, setTyped] = useState("");
+  const [invalid, setInvalid] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const matches = !confirmWord || typed.trim().toLowerCase() === confirmWord.toLowerCase();
@@ -54,17 +55,22 @@ export function ConfirmDialog({
 
         {confirmWord && (
           <label className="confirm-type">
-            Type <strong>{confirmWord}</strong> to confirm
+            Type <strong className="confirm-word">{confirmWord}</strong> to confirm
             <input
               ref={inputRef}
               value={typed}
-              onChange={(e) => setTyped(e.target.value)}
+              onChange={(e) => { setTyped(e.target.value); setInvalid(false); }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && canConfirm) onConfirm();
+                if (e.key === "Enter") {
+                  if (canConfirm) onConfirm();
+                  else if (typed.trim()) setInvalid(true);
+                }
               }}
               placeholder={confirmWord}
               autoComplete="off"
+              className={invalid ? "input-invalid" : ""}
             />
+            {invalid && <span className="confirm-invalid">That's not correct — type <strong>{confirmWord}</strong> to confirm.</span>}
           </label>
         )}
 

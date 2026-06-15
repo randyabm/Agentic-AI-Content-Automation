@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ArticleContentForm } from "../components/ArticleContentForm";
+import { TextareaZoom } from "../components/TextareaZoom";
 import { ArticlePickerModal } from "../components/ArticlePickerModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -477,7 +478,7 @@ function CreateCampaign({
       </div>
       <label>
         Central theme / concept (optional)
-        <textarea rows={2} value={theme} onChange={(e) => setTheme(e.target.value)} />
+        <TextareaZoom label="Central theme / concept" rows={2} value={theme} onChange={setTheme} />
       </label>
 
       <div className="form-grid">

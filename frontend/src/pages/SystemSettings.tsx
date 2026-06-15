@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ArticleSources } from "../components/ArticleSources";
+import { TextareaZoom } from "../components/TextareaZoom";
 import type {
   ImageModel,
   LLMConfig,
@@ -381,10 +382,11 @@ function LLMConfigSection() {
           </div>
           <label>
             Base system prompt
-            <textarea
+            <TextareaZoom
+              label="Base system prompt"
               rows={4}
               value={editing.system_prompt}
-              onChange={(e) => setEditing({ ...editing, system_prompt: e.target.value })}
+              onChange={(v) => setEditing({ ...editing, system_prompt: v })}
             />
           </label>
           <div className="form-actions">

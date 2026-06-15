@@ -1,14 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { BrandMemory as BrandMemoryT, Client } from "../types";
+import { TextareaZoom } from "./TextareaZoom";
 
 export function BrandMemory({ client, canEdit }: { client: Client; canEdit: boolean }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<BrandMemoryT>(fromClient(client));
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const colorRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [pendingColorFocus, setPendingColorFocus] = useState<number | null>(null);
 
   useEffect(() => { setForm(fromClient(client)); }, [client]);
+
+  useEffect(() => {
+    if (pendingColorFocus !== null && colorRefs.current[pendingColorFocus]) {
+      colorRefs.current[pendingColorFocus]?.click();
+      setPendingColorFocus(null);
+    }
+  }, [pendingColorFocus]);
 
   async function save() {
     setError("");
@@ -29,6 +39,12 @@ export function BrandMemory({ client, canEdit }: { client: Client; canEdit: bool
     const next = [...form.brand_colors];
     next[i] = value.toUpperCase();
     setForm({ ...form, brand_colors: next });
+  }
+
+  function addColor() {
+    const newIndex = form.brand_colors.length;
+    setForm({ ...form, brand_colors: [...form.brand_colors, "#3E47C2"] });
+    setPendingColorFocus(newIndex);
   }
 
   const isEmpty =
@@ -118,88 +134,94 @@ export function BrandMemory({ client, canEdit }: { client: Client; canEdit: bool
             <div className="brand-memory-modal-body">
               <label>
                 Brand tone &amp; voice
-                <textarea
+                <TextareaZoom
+                  label="Brand tone & voice"
                   rows={2}
                   value={form.brand_tone}
-                  onChange={(e) => setForm({ ...form, brand_tone: e.target.value })}
+                  onChange={(v) => setForm({ ...form, brand_tone: v })}
                   placeholder="e.g. professional, approachable, innovative"
                 />
               </label>
               <label>
                 Preferred visual style
-                <input
+                <TextareaZoom
+                  label="Preferred visual style"
+                  rows={1}
                   value={form.brand_visual_style}
-                  onChange={(e) => setForm({ ...form, brand_visual_style: e.target.value })}
+                  onChange={(v) => setForm({ ...form, brand_visual_style: v })}
                   placeholder="e.g. minimalist, vibrant, corporate, lifestyle"
                 />
               </label>
               <div className="form-grid">
                 <label>
                   Words/phrases to always use (one per line)
-                  <textarea
+                  <TextareaZoom
+                    label="Words/phrases to always use"
                     rows={4}
                     value={lines(form.brand_words_required)}
-                    onChange={(e) => setForm({ ...form, brand_words_required: toLines(e.target.value) })}
+                    onChange={(v) => setForm({ ...form, brand_words_required: toLines(v) })}
                   />
                 </label>
                 <label>
                   Words/phrases to never use (one per line)
-                  <textarea
+                  <TextareaZoom
+                    label="Words/phrases to never use"
                     rows={4}
                     value={lines(form.brand_words_forbidden)}
-                    onChange={(e) => setForm({ ...form, brand_words_forbidden: toLines(e.target.value) })}
+                    onChange={(v) => setForm({ ...form, brand_words_forbidden: toLines(v) })}
                   />
                 </label>
               </div>
 
               <div className="field-label">Corporate colors</div>
-              <div className="color-picker-list">
-                {form.brand_colors.map((c, i) => (
-                  <div key={i} className="color-picker-row">
-                    <input
-                      type="color"
-                      value={/^#[0-9a-fA-F]{6}$/.test(c) ? c : "#000000"}
-                      onChange={(e) => setColor(i, e.target.value)}
-                    />
-                    <input
-                      className="color-hex-input"
-                      value={c}
-                      placeholder="#1A2B3C"
-                      onChange={(e) => setColor(i, e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-ghost color-remove"
-                      title="Remove color"
-                      onClick={() => setForm({ ...form, brand_colors: form.brand_colors.filter((_, j) => j !== i) })}
-                    >
-                      &times;
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setForm({ ...form, brand_colors: [...form.brand_colors, "#1A2B3C"] })}
-                >
+              <div className="color-picker-box">
+                <div className="color-picker-grid">
+                  {form.brand_colors.map((c, i) => (
+                    <div key={i} className="color-picker-row">
+                      <input
+                        type="color"
+                        ref={(el) => { colorRefs.current[i] = el; }}
+                        value={/^#[0-9a-fA-F]{6}$/.test(c) ? c : "#000000"}
+                        onChange={(e) => setColor(i, e.target.value)}
+                      />
+                      <input
+                        className="color-hex-input"
+                        value={c}
+                        placeholder="#1A2B3C"
+                        onChange={(e) => setColor(i, e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-ghost color-remove"
+                        title="Remove color"
+                        onClick={() => setForm({ ...form, brand_colors: form.brand_colors.filter((_, j) => j !== i) })}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="btn btn-ghost color-add-btn" onClick={addColor}>
                   + Add color
                 </button>
               </div>
 
               <label>
                 Approved copy examples (one per line)
-                <textarea
+                <TextareaZoom
+                  label="Approved copy examples"
                   rows={4}
                   value={lines(form.brand_copy_examples)}
-                  onChange={(e) => setForm({ ...form, brand_copy_examples: toLines(e.target.value) })}
+                  onChange={(v) => setForm({ ...form, brand_copy_examples: toLines(v) })}
                 />
               </label>
               <label>
                 Legal / recurring disclaimer text
-                <textarea
+                <TextareaZoom
+                  label="Legal / recurring disclaimer text"
                   rows={2}
                   value={form.brand_legal_disclaimer}
-                  onChange={(e) => setForm({ ...form, brand_legal_disclaimer: e.target.value })}
+                  onChange={(v) => setForm({ ...form, brand_legal_disclaimer: v })}
                   placeholder="e.g. Terms and conditions apply."
                 />
               </label>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { TextareaZoom } from "../components/TextareaZoom";
 import { useAuth } from "../auth";
 import { ArticleModal } from "../components/ArticleModal";
 import type { Article, ArticleListItem, Client } from "../types";
@@ -339,7 +340,7 @@ function AddFromText({ onDone, onError }: { onDone: () => void; onError: (m: str
         <label>Source URL<input type="url" value={form.source_url} onChange={(e) => setForm({ ...form, source_url: e.target.value })} /></label>
         <label>Tags (comma-separated)<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} /></label>
       </div>
-      <label>Body<textarea rows={8} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} required /></label>
+      <label>Body<TextareaZoom label="Body" rows={8} value={form.body} onChange={(v) => setForm({ ...form, body: v })} /></label>
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save article"}</button>
       </div>

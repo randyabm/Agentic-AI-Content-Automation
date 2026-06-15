@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { TextareaZoom } from "./TextareaZoom";
 import type { ArticleListItem, Client, PlatformSpec } from "../types";
 
 type Source = "library" | "url" | "paste";
@@ -193,7 +194,7 @@ export function ArticleContentForm({
       {source === "paste" && (
         <label>
           Article text
-          <textarea rows={6} value={articleText} onChange={(e) => setArticleText(e.target.value)} />
+          <TextareaZoom label="Article text" rows={6} value={articleText} onChange={setArticleText} />
         </label>
       )}
 

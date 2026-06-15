@@ -6,6 +6,7 @@ import { useAuth } from "../auth";
 import { ArticleModal } from "../components/ArticleModal";
 import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
+import { TextareaZoom } from "../components/TextareaZoom";
 import { ClientAvatar, useProtectedImage } from "../components/ClientAvatar";
 import { Competitors } from "../components/Competitors";
 import { PlatformIcon, platformFromUrl } from "../components/PlatformIcon";
@@ -949,7 +950,7 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
   return (
     <label>
       {label}
-      <input value={value} onChange={(e) => onChange(e.target.value)} />
+      <TextareaZoom label={label} rows={1} value={value} onChange={onChange} />
     </label>
   );
 }
@@ -968,7 +969,7 @@ function Area({
   return (
     <label>
       {label}
-      <textarea rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />
+      <TextareaZoom label={label} rows={rows} value={value} onChange={onChange} />
     </label>
   );
 }

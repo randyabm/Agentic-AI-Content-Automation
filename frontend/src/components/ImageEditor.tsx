@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiBlob, downloadFile } from "../api";
+import { TextareaZoom } from "./TextareaZoom";
 import type { CanvasState, Client, LayerGeom, PostAsset, PostImage, TextLayerState } from "../types";
 
 const STAGE_W = 460;
@@ -656,10 +657,11 @@ export function ImageEditor({
                 <strong className="small">Text layer</strong>
                 <label className="small">
                   Text
-                  <textarea
+                  <TextareaZoom
+                    label="Text"
                     rows={2}
                     value={selText.text}
-                    onChange={(e) => patchText(selText.id, { text: e.target.value })}
+                    onChange={(v) => patchText(selText.id, { text: v })}
                   />
                 </label>
                 <div className="row" style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
+import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
 import { PostPreviewModal } from "../components/PostPreview";
 import { RATIO_PRIORITY } from "../ratios";
@@ -257,6 +258,8 @@ function ElementCard({
           <ElementThumb campaignId={campaignId} image={cover} />
         ) : coverVideo ? (
           <ElementVideoThumb campaignId={campaignId} video={coverVideo} />
+        ) : element.element_type === "text" ? (
+          <div className="image-empty muted">Text only</div>
         ) : (
           <div className="image-empty">{videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}</div>
         )}
@@ -527,7 +530,7 @@ function CopyForm({
         <span className={copy.length > limit ? "char-over" : "muted"}>
           {copy.length}/{limit}
         </span>
-        <textarea rows={6} value={copy} onChange={(e) => mark(setCopy)(e.target.value)} readOnly={!canEdit} />
+        <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
       </label>
       <label className="small">
         Call to action
@@ -865,11 +868,11 @@ function ImageSlot({
         <div className="prompt-editor">
           <label className="small">
             Image prompt
-            <textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <TextareaZoom label="Image prompt" rows={4} value={prompt} onChange={setPrompt} />
           </label>
           <label className="small">
             Negative prompt
-            <textarea rows={2} value={negative} onChange={(e) => setNegative(e.target.value)} />
+            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
           </label>
           <label className="small">
             Additional guidance (appended)
@@ -1173,11 +1176,11 @@ function VideoSlot({
         <div className="prompt-editor">
           <label className="small">
             Video prompt
-            <textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <TextareaZoom label="Video prompt" rows={4} value={prompt} onChange={setPrompt} />
           </label>
           <label className="small">
             Negative prompt
-            <textarea rows={2} value={negative} onChange={(e) => setNegative(e.target.value)} />
+            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
           </label>
           <div className="form-actions">
             <button className="btn btn-ghost small" onClick={savePrompt}>
