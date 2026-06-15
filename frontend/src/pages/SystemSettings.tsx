@@ -31,12 +31,14 @@ const LLM_PROVIDERS = [
 const IMAGE_PROVIDERS = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "openai", label: "OpenAI" },
+  { value: "magnific", label: "Magnific" },
 ];
 const VIDEO_PROVIDERS = [
   { value: "google_veo", label: "Google Veo (Gemini API)" },
   { value: "openai_sora", label: "OpenAI Sora" },
   { value: "fal", label: "fal.ai" },
   { value: "replicate", label: "Replicate" },
+  { value: "magnific", label: "Magnific" },
 ];
 
 export default function SystemSettings() {
@@ -181,6 +183,19 @@ function ProvidersSection() {
     }
   }
 
+  async function removeKey(provider: string, label: string) {
+    if (!window.confirm(`Remove the API key for ${label}? Models using this provider will stop working.`)) return;
+    setError("");
+    setNotice("");
+    try {
+      await api(`/provider-credentials/${provider}`, { method: "DELETE" });
+      setCreds((prev) => prev.map((c) => c.provider === provider ? { ...c, has_key: false, api_key_hint: "" } : c));
+      setNotice(`${label} key removed.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Remove failed");
+    }
+  }
+
   return (
     <div className="card">
       <h2>Providers &amp; keys</h2>
@@ -224,6 +239,15 @@ function ProvidersSection() {
                 Save
               </button>
             </div>
+            {c.has_key && (
+              <button
+                className="btn btn-ghost small"
+                style={{ color: "var(--danger, #dc2626)", marginTop: "0.25rem" }}
+                onClick={() => removeKey(c.provider, c.label)}
+              >
+                Remove key
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -650,8 +674,8 @@ function VideoModelSection() {
         </button>
       </div>
       <p className="muted">
-        Admin-curated list. Each provider (Google Veo / OpenAI Sora / fal.ai / Replicate) uses its key
-        from <strong>Providers &amp; Keys</strong>. fal.ai and Replicate need the model ID entered manually.
+        Admin-curated list. Each provider (Google Veo / OpenAI Sora / fal.ai / Replicate / Magnific) uses its key
+        from <strong>Providers &amp; Keys</strong>. Magnific offers a model dropdown. fal.ai and Replicate need the model ID entered manually.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -801,7 +825,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   ],
 };
 
-const BOOLEAN_SETTINGS = new Set(["onboarding_auto_run"]);
+const BOOLEAN_SETTINGS = new Set(["onboarding_auto_run", "show_onboarding_panel", "dev_mode", "show_article_library"]);
 
 const NUMBER_SETTINGS = new Set([
   "default_competitor_count",
@@ -828,6 +852,18 @@ const SETTING_META: Record<string, { label: string; help: string }> = {
   onboarding_auto_run: {
     label: "Auto-run onboarding",
     help: "When ON, creating a client immediately kicks off the full pipeline (crawl site, import articles, research competitors). When OFF, you start each step manually.",
+  },
+  show_onboarding_panel: {
+    label: "Show onboarding panel",
+    help: "When ON, the Onboarding card is visible on every client detail page. Keep OFF in production — it's mainly useful during testing and debugging.",
+  },
+  dev_mode: {
+    label: "Developer mode",
+    help: "When ON, shows admin action buttons (Analyze Website, Import Articles) on the client detail page. Keep OFF for end-user-facing environments.",
+  },
+  show_article_library: {
+    label: "Show Article Library",
+    help: "When ON, the Article Library link appears in the left sidebar. Turn OFF to hide the global library and direct article access through individual client pages.",
   },
   default_article_count: {
     label: "Articles to import",
@@ -891,6 +927,12 @@ const SETTING_GROUPS: { title: string; description: string; accent: string; keys
     description: "Default languages for the interface and the content the AI produces.",
     accent: "#2563EB", // info blue
     keys: ["default_ui_language", "default_content_language"],
+  },
+  {
+    title: "Interface & developer tools",
+    description: "Controls which sections of the UI are visible and which developer tools are exposed.",
+    accent: "#7C3AED", // violet
+    keys: ["show_article_library", "dev_mode", "show_onboarding_panel"],
   },
   {
     title: "Client onboarding",

@@ -1,6 +1,7 @@
 import {
   SiFacebook,
   SiInstagram,
+  SiPinterest,
   SiTiktok,
   SiX,
   SiYoutube,
@@ -26,10 +27,24 @@ const PLATFORMS: Record<string, { Icon: IconCmp; color: string; label: string }>
   x: { Icon: SiX as IconCmp, color: "#1c1917", label: "X" },
   tiktok: { Icon: SiTiktok as IconCmp, color: "#1c1917", label: "TikTok" },
   youtube: { Icon: SiYoutube as IconCmp, color: "#FF0000", label: "YouTube" },
+  pinterest: { Icon: SiPinterest as IconCmp, color: "#BD081C", label: "Pinterest" },
 };
 
 export function platformLabel(platform: string): string {
   return PLATFORMS[platform]?.label ?? platform;
+}
+
+/** Best-effort detection of the social platform from a profile URL. */
+export function platformFromUrl(url: string): string | null {
+  const u = url.toLowerCase();
+  if (u.includes("linkedin.")) return "linkedin";
+  if (u.includes("facebook.") || u.includes("fb.com")) return "facebook";
+  if (u.includes("instagram.")) return "instagram";
+  if (u.includes("tiktok.")) return "tiktok";
+  if (u.includes("youtube.") || u.includes("youtu.be")) return "youtube";
+  if (u.includes("pinterest.")) return "pinterest";
+  if (u.includes("twitter.") || u.includes("x.com")) return "x";
+  return null;
 }
 
 export function PlatformIcon({

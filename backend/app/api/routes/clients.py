@@ -1,13 +1,16 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import get_current_user, require_editor
 from app.db.session import get_db
+from app.models.article import Article
+from app.models.campaign import Campaign
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
+from app.models.competitor import Competitor
 from app.models.onboarding import OnboardingJob, OnboardingStatus, initial_steps
 from app.models.setting import Setting
 from app.models.user import User
@@ -106,6 +109,20 @@ def update_client(
     db.commit()
     audit.record(db, actor, "client.update", "client", client.id, {"fields": list(changes.keys())})
     return client
+
+
+@router.get("/{client_id}/deletion-summary")
+def deletion_summary(
+    client_id: str, db: Session = Depends(get_db), _: User = Depends(require_editor)
+):
+    """Counts of the related records that deleting this client will cascade-delete,
+    so the UI can warn the user with concrete numbers before confirming."""
+    client = _get_client_or_404(db, client_id)
+    return {
+        "campaigns": db.scalar(select(func.count()).select_from(Campaign).where(Campaign.client_id == client.id)),
+        "competitors": db.scalar(select(func.count()).select_from(Competitor).where(Competitor.client_id == client.id)),
+        "articles": db.scalar(select(func.count()).select_from(Article).where(Article.client_id == client.id)),
+    }
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -86,6 +86,9 @@ DEFAULT_SETTINGS = [
     ("onboarding_competitor_type", "direct", "Competitor type sought during onboarding: 'direct' or 'indirect'"),
     ("onboarding_competitor_scope", "national", "Competitor geographic scope during onboarding: 'local', 'national' or 'international'"),
     ("onboarding_auto_run", "true", "Automatically run the full onboarding pipeline when a client is created"),
+    ("show_onboarding_panel", "false", "Show the Onboarding panel on the client detail page. Keep OFF in production; enable for testing/debugging the pipeline."),
+    ("dev_mode", "false", "Developer/testing mode: shows admin action buttons (Analyze Website, Import Articles) on the client detail page."),
+    ("show_article_library", "true", "Show the Article Library link in the left navigation sidebar. Disable to hide the global library and keep article access per-client."),
 ]
 
 DEFAULT_IMAGE_MODELS = [
@@ -113,13 +116,16 @@ def seed(db: Session) -> None:
     for cfg in existing_configs.values():
         if not cfg.system_prompt and (default := DEFAULT_SYSTEM_PROMPTS.get(cfg.function)):
             cfg.system_prompt = default
+    # competitor_analysis uses Haiku: 3-5× faster, 20× cheaper, good enough for
+    # comparative analysis. All other functions default to Sonnet.
+    _HAIKU_FUNCTIONS = {LLMFunction.competitor_analysis}
     for function in LLMFunction:
         if function not in existing_configs:
             db.add(
                 LLMConfig(
                     function=function,
                     provider="anthropic",
-                    model_name="claude-sonnet-4-6",
+                    model_name="claude-haiku-4-5-20251001" if function in _HAIKU_FUNCTIONS else "claude-sonnet-4-6",
                     api_key_encrypted=anthropic_key,
                     temperature=0.3 if "extraction" in function.value or "analysis" in function.value else 0.7,
                     max_tokens=4096,

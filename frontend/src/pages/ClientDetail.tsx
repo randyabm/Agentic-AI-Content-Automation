@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { BookOpen, ExternalLink, FileText, Search, Users } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { ArticleModal } from "../components/ArticleModal";
 import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
+import { ClientAvatar, useProtectedImage } from "../components/ClientAvatar";
 import { Competitors } from "../components/Competitors";
-import type { Client, ExtractionDraft, ExtractionJob, OnboardingJob, OnboardingStatus } from "../types";
+import { PlatformIcon, platformFromUrl } from "../components/PlatformIcon";
+import type { Article, ArticleListItem, Client, ExtractionDraft, ExtractionJob, OnboardingJob, OnboardingStatus } from "../types";
 
 const RUNNING = ["pending", "crawling", "extracting"];
 
@@ -19,14 +23,20 @@ export default function ClientDetail() {
   const [draft, setDraft] = useState<ExtractionDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<"profile" | "competitors" | "brand">("profile");
+  const [tab, setTab] = useState<"profile" | "articles" | "competitors">("profile");
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
+  const [showOnboardingPanel, setShowOnboardingPanel] = useState(false);
+  const [devMode, setDevMode] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importLimit, setImportLimit] = useState(50);
   const pollRef = useRef<number | null>(null);
+
+  const handleOnboardingProgress = useCallback(() => {
+    api<Client>(`/clients/${clientId}`).then(setClient).catch(() => {});
+  }, [clientId]);
 
   const loadJobs = useCallback(async () => {
     const jobs = await api<ExtractionJob[]>(`/clients/${clientId}/jobs`);
@@ -51,6 +61,13 @@ export default function ClientDetail() {
   useEffect(() => {
     api<Client>(`/clients/${clientId}`).then(setClient).catch((e) => setError(e.message));
     loadJobs().catch(() => {});
+    api<{ key: string; value: string }[]>("/settings")
+      .then((settings) => {
+        const byKey = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+        setShowOnboardingPanel(byKey["show_onboarding_panel"] === "true");
+        setDevMode(byKey["dev_mode"] === "true");
+      })
+      .catch(() => {});
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
@@ -207,74 +224,75 @@ export default function ClientDetail() {
           onConfirm={uploadAvatar}
         />
       )}
-      <div className="page-header">
-        <div className="client-head">
-          <ClientAvatar client={client} />
-          <div>
-            <h1>{client.company_name}</h1>
-            <a href={client.website_url} target="_blank" rel="noreferrer" className="muted">
-              {client.website_url}
-            </a>
-          </div>
+
+      {/* Clean header — no action buttons */}
+      <div className="client-detail-header">
+        <ClientAvatar client={client} />
+        <div className="client-detail-header-info">
+          <h1>{client.company_name}</h1>
+          <a href={client.website_url} target="_blank" rel="noreferrer" className="client-detail-url">
+            {client.website_url} <ExternalLink size={12} />
+          </a>
         </div>
-        <div className="competitor-actions">
-          <Link className="btn btn-ghost" to={`/campaigns?client_id=${client.id}`}>
-            Campaigns
+        <div className="client-detail-header-links">
+          <Link className="client-detail-nav-link" to={`/campaigns?client_id=${client.id}`}>
+            Campaigns →
           </Link>
-          <Link className="btn btn-ghost" to={`/articles?client_id=${client.id}`}>
-            Articles
-          </Link>
-          {canEdit && tab === "profile" && (
-            <div className="import-articles-control">
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={importLimit}
-                onChange={(e) =>
-                  setImportLimit(Math.max(1, Math.min(200, Number(e.target.value) || 1)))
-                }
-                disabled={importing}
-                title="Number of articles to import (1–200)"
-                aria-label="Number of articles to import"
-              />
-              <button className="btn btn-ghost" onClick={importArticles} disabled={importing}>
-                {importing ? "Importing…" : "Import articles from website"}
-              </button>
-            </div>
-          )}
-          {canEdit && tab === "profile" && (
-            <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
-              {running ? "Analyzing…" : "Analyze Website"}
-            </button>
-          )}
         </div>
       </div>
 
-      <div className="tabs">
-        <button className={`tab ${tab === "profile" ? "tab-active" : ""}`} onClick={() => setTab("profile")}>
-          Profile
+      {/* Redesigned tabs */}
+      <div className="client-tabs">
+        <button
+          className={`client-tab${tab === "profile" ? " client-tab-active" : ""}`}
+          onClick={() => setTab("profile")}
+        >
+          <FileText size={15} /> Profile &amp; Brand
         </button>
         <button
-          className={`tab ${tab === "competitors" ? "tab-active" : ""}`}
+          className={`client-tab${tab === "articles" ? " client-tab-active" : ""}`}
+          onClick={() => setTab("articles")}
+        >
+          <BookOpen size={15} /> Articles
+        </button>
+        <button
+          className={`client-tab${tab === "competitors" ? " client-tab-active" : ""}`}
           onClick={() => setTab("competitors")}
         >
-          Competitors
-        </button>
-        <button className={`tab ${tab === "brand" ? "tab-active" : ""}`} onClick={() => setTab("brand")}>
-          Brand Memory
+          <Users size={15} /> Competitors
         </button>
       </div>
 
-      {tab === "competitors" && <Competitors client={client} />}
-      {tab === "brand" && <BrandMemory client={client} canEdit={canEdit} />}
+      {tab === "competitors" && <Competitors client={client} onboardingRunning={onboardingStatus === "running"} />}
+
+      {tab === "articles" && (
+        <ClientArticles
+          clientId={client.id}
+          canEdit={canEdit}
+          isAdmin={user?.role === "admin"}
+          showImportControls={canEdit && devMode}
+          importing={importing}
+          importLimit={importLimit}
+          onImportLimitChange={setImportLimit}
+          onImport={importArticles}
+          notice={notice}
+          error={error}
+        />
+      )}
 
       {tab === "profile" && (
       <>
       {notice && <div className="alert alert-success">{notice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
-      <OnboardingProgress clientId={clientId!} canEdit={canEdit} onStatus={setOnboardingStatus} />
+      <OnboardingProgress
+        clientId={clientId!}
+        clientName={client.company_name}
+        canEdit={canEdit}
+        compact={!showOnboardingPanel}
+        onStatus={setOnboardingStatus}
+        onProgress={handleOnboardingProgress}
+      />
 
 
       {running && (
@@ -382,8 +400,7 @@ export default function ClientDetail() {
               <ProfileSection label="Target audience" value={client.target_audience} />
               <ProfileSection label="Value proposition" value={client.value_proposition} />
               <ProfileSection label="Business objectives" list={client.business_objectives} />
-              <ProfileSection label="Social media" links={client.social_media_urls} />
-              <ProfileSection label="Notes" value={client.notes} />
+              {client.notes && <ProfileSection label="Notes" value={client.notes} />}
             </>
           )}
         </div>
@@ -439,15 +456,202 @@ export default function ClientDetail() {
               </label>
             )}
           </div>
+          <BrandMemory client={client} canEdit={canEdit} />
+          {client.social_media_urls?.length > 0 && (
+            <div className="card">
+              <h2>Social profiles</h2>
+              <div className="social-profiles-list">
+                {client.social_media_urls.map((url, i) => {
+                  const platform = platformFromUrl(url);
+                  const handle = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "").split("/").filter(Boolean).pop() ?? url;
+                  return (
+                    <a key={i} href={url} target="_blank" rel="noreferrer" className="social-profile-row">
+                      <span className="social-profile-icon">
+                        {platform
+                          ? <PlatformIcon platform={platform} size={18} />
+                          : <ExternalLink size={16} />}
+                      </span>
+                      <span className="social-profile-handle">@{handle}</span>
+                      <ExternalLink size={11} className="social-profile-ext" />
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {client.last_extraction_at && (
             <div className="card">
               <h2>Last analysis</h2>
               <p className="muted">{new Date(client.last_extraction_at).toLocaleString()}</p>
             </div>
           )}
+          {canEdit && devMode && (
+            <div className="card">
+              <h2>Developer tools</h2>
+              <p className="muted small" style={{ marginBottom: "0.75rem" }}>
+                These actions are hidden in production. Enable Dev Mode in System Settings.
+              </p>
+              {running && (
+                <p className="muted small" style={{ marginBottom: "0.5rem" }}>
+                  ⏳ Analysis running…
+                </p>
+              )}
+              <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
+                {running ? "Analyzing…" : "Analyze Website"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
       </>
+      )}
+    </div>
+  );
+}
+
+
+function ClientArticles({
+  clientId,
+  canEdit,
+  isAdmin,
+  showImportControls,
+  importing,
+  importLimit,
+  onImportLimitChange,
+  onImport,
+  notice,
+  error,
+}: {
+  clientId: string;
+  canEdit: boolean;
+  isAdmin: boolean;
+  showImportControls: boolean;
+  importing: boolean;
+  importLimit: number;
+  onImportLimitChange: (n: number) => void;
+  onImport: () => void;
+  notice: string;
+  error: string;
+}) {
+  const [articles, setArticles] = useState<ArticleListItem[]>([]);
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Article | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    api<ArticleListItem[]>(`/articles?client_id=${clientId}&article_status=active`)
+      .then(setArticles)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [clientId]);
+
+  const visible = useMemo(() => {
+    const lq = q.trim().toLowerCase();
+    const filtered = lq
+      ? articles.filter((a) => a.title.toLowerCase().includes(lq) || a.summary?.toLowerCase().includes(lq))
+      : articles;
+    return [...filtered].sort((a, b) => {
+      const da = Date.parse(a.publication_date ?? a.created_at) || 0;
+      const db = Date.parse(b.publication_date ?? b.created_at) || 0;
+      return db - da;
+    });
+  }, [articles, q]);
+
+  async function openArticle(id: string) {
+    try {
+      setSelected(await api<Article>(`/articles/${id}`));
+    } catch {
+      // silently ignore
+    }
+  }
+
+  async function articleAction(id: string, path: string, method = "POST") {
+    try {
+      await api(`/articles/${id}${path}`, { method });
+      setSelected(null);
+      const list = await api<ArticleListItem[]>(`/articles?client_id=${clientId}&article_status=active`);
+      setArticles(list);
+    } catch {
+      // silently ignore
+    }
+  }
+
+  return (
+    <div>
+      {notice && <div className="alert alert-success">{notice}</div>}
+      {error && <div className="alert alert-error">{error}</div>}
+
+      <div className="client-articles-bar">
+        <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+          <Search size={14} style={{ position: "absolute", left: "0.6rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", pointerEvents: "none" }} />
+          <input
+            placeholder="Search articles…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ margin: 0, paddingLeft: "2rem", width: "100%" }}
+          />
+        </div>
+        <span className="muted small">{visible.length} article{visible.length !== 1 ? "s" : ""}</span>
+        {showImportControls && (
+          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginLeft: "auto" }}>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={importLimit}
+              onChange={(e) => onImportLimitChange(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
+              disabled={importing}
+              style={{ width: 64, margin: 0 }}
+              title="Max articles to import"
+            />
+            <button className="btn btn-ghost" onClick={onImport} disabled={importing}>
+              {importing ? "Importing…" : "Import from website"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="muted">Loading articles…</p>
+      ) : visible.length === 0 ? (
+        <p className="muted">
+          {articles.length === 0 ? "No articles yet." : "No articles match your search."}
+        </p>
+      ) : (
+        <div className="client-articles-list">
+          {visible.map((a) => (
+            <div key={a.id} className="client-article-row" onClick={() => openArticle(a.id)} style={{ cursor: "pointer" }}>
+              <div className="client-article-main">
+                <span className="client-article-title">{a.title}</span>
+                {a.summary && (
+                  <p className="client-article-summary muted small">{a.summary}</p>
+                )}
+              </div>
+              <div className="client-article-meta">
+                {a.publication_date && (
+                  <span className="muted small">
+                    {new Date(a.publication_date).toLocaleDateString()}
+                  </span>
+                )}
+                {a.tags?.slice(0, 2).map((t) => (
+                  <span key={t} className="tag" style={{ fontSize: "0.72rem" }}>{t}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <ArticleModal
+          article={selected}
+          canEdit={canEdit}
+          isAdmin={isAdmin}
+          onClose={() => setSelected(null)}
+          onAction={articleAction}
+        />
       )}
     </div>
   );
@@ -463,30 +667,45 @@ const STEP_ICON: Record<string, string> = {
 
 function OnboardingProgress({
   clientId,
+  clientName,
   canEdit,
+  compact = false,
   onStatus,
+  onProgress,
 }: {
   clientId: string;
+  clientName?: string;
   canEdit: boolean;
+  compact?: boolean;
   onStatus?: (status: OnboardingStatus | null) => void;
+  onProgress?: () => void;
 }) {
   const [job, setJob] = useState<OnboardingJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const pollRef = useRef<number | null>(null);
+  const doneCountRef = useRef(0);
 
   const load = useCallback(async () => {
     try {
       const j = await api<OnboardingJob>(`/clients/${clientId}/onboarding`);
       setJob(j);
       onStatus?.(j.status);
+      // Refresh client data whenever a new step completes or onboarding finishes.
+      const newDone = j.steps.filter((s) => s.status === "ok" || s.status === "skipped").length;
+      if (newDone > doneCountRef.current || (j.status !== "running" && doneCountRef.current > 0)) {
+        doneCountRef.current = newDone;
+        onProgress?.();
+      } else {
+        doneCountRef.current = newDone;
+      }
       return j;
     } catch {
       setJob(null); // 404 = client was never onboarded (e.g. created before this feature)
       onStatus?.(null);
       return null;
     }
-  }, [clientId, onStatus]);
+  }, [clientId, onStatus, onProgress]);
 
   useEffect(() => {
     load();
@@ -535,6 +754,77 @@ function OnboardingProgress({
     }
   }
 
+  const running = job?.status === "running";
+  const total = job?.steps.length ?? 0;
+  const done = job?.steps.filter((s) => s.status === "ok" || s.status === "skipped").length ?? 0;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const currentStep = job?.steps.find((s) => s.status === "running");
+
+  // Compact mode: show a running banner or a failure banner; hide on success.
+  if (compact) {
+    if (!job) return null;
+
+    if (running) {
+      return (
+        <div className="card onboarding-setup-banner">
+          <div className="onboarding-setup-icon">
+            <span className="spinner-inline" style={{ width: 22, height: 22, borderWidth: 3 }} />
+          </div>
+          <div className="onboarding-setup-body">
+            <strong className="onboarding-setup-title">
+              Setting up {clientName ?? "this client"}…
+            </strong>
+            <p className="onboarding-setup-sub muted small">
+              {currentStep
+                ? currentStep.label
+                : "Analyzing website, importing articles and researching competitors."}
+              {" "}This usually takes a few minutes.
+            </p>
+            <div className="onboarding-setup-progress">
+              <div className="progress-bar" style={{ flex: 1 }}>
+                <div className="progress-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="muted small" style={{ whiteSpace: "nowrap" }}>{done} / {total} steps</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const failedSteps = job.steps.filter((s) => s.status === "error" || s.status === "pending");
+    if (failedSteps.length === 0) return null;
+
+    return (
+      <div className="card onboarding-setup-banner onboarding-setup-banner--failed">
+        <div className="onboarding-setup-icon">⚠</div>
+        <div className="onboarding-setup-body">
+          <strong className="onboarding-setup-title">Setup incomplete</strong>
+          <p className="onboarding-setup-sub muted small">
+            {failedSteps.length === 1
+              ? `"${failedSteps[0].label}" didn't finish.`
+              : `${failedSteps.length} steps didn't finish: ${failedSteps.map((s) => s.label).join(", ")}.`}
+          </p>
+          {err && <div className="alert alert-error" style={{ marginTop: "0.5rem" }}>{err}</div>}
+          {canEdit && (
+            <div className="onboarding-setup-actions">
+              {failedSteps.map((s) => (
+                <button
+                  key={s.key}
+                  className="btn btn-secondary small"
+                  disabled={busy}
+                  onClick={() => retryStep(s.key)}
+                >
+                  {busy ? "Retrying…" : `Retry: ${s.label}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Full panel mode (show_onboarding_panel = true in settings).
   if (!job) {
     return canEdit ? (
       <div className="card onboarding-card">
@@ -549,10 +839,6 @@ function OnboardingProgress({
     ) : null;
   }
 
-  const running = job.status === "running";
-  const total = job.steps.length;
-  const done = job.steps.filter((s) => s.status === "ok" || s.status === "skipped").length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
   const title =
     running ? "Setting up this client…"
     : job.status === "completed" ? "Onboarding complete"
@@ -642,11 +928,15 @@ function ProfileSection({
         </ul>
       ) : links ? (
         <div className="profile-links">
-          {links.map((url, i) => (
-            <a key={i} href={url} target="_blank" rel="noreferrer">
-              {url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
-            </a>
-          ))}
+          {links.map((url, i) => {
+            const platform = platformFromUrl(url);
+            return (
+              <a key={i} href={url} target="_blank" rel="noreferrer">
+                {platform && <PlatformIcon platform={platform} size={15} />}
+                {url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+              </a>
+            );
+          })}
         </div>
       ) : (
         <div className="profile-section-text">{value}</div>
@@ -683,43 +973,8 @@ function Area({
   );
 }
 
-/** Fetch a protected image endpoint as an object URL (auth header, revoked on cleanup). */
-function useProtectedImage(path: string, enabled: boolean) {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    if (!enabled) {
-      setSrc(null);
-      return;
-    }
-    let revoked: string | null = null;
-    const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-    fetch(`${apiUrl}${path}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
-    })
-      .then((r) => (r.ok ? r.blob() : null))
-      .then((blob) => {
-        if (blob) {
-          revoked = URL.createObjectURL(blob);
-          setSrc(revoked);
-        }
-      });
-    return () => {
-      if (revoked) URL.revokeObjectURL(revoked);
-    };
-  }, [path, enabled]);
-  return src;
-}
-
 function LogoPreview({ clientId }: { clientId: string }) {
   const src = useProtectedImage(`/clients/${clientId}/logo`, true);
   if (!src) return <p className="muted">Loading logo…</p>;
   return <img src={src} alt="Client logo" className="logo-preview" />;
-}
-
-/** Round brand avatar — the client's profile photo, falling back to its initial. */
-function ClientAvatar({ client, large }: { client: Client; large?: boolean }) {
-  const src = useProtectedImage(`/clients/${client.id}/avatar`, !!client.avatar_object_key);
-  const cls = `client-avatar ${large ? "lg" : ""}`;
-  if (src) return <img src={src} alt="" className={cls} />;
-  return <div className={`${cls} placeholder`}>{(client.company_name[0] ?? "?").toUpperCase()}</div>;
 }

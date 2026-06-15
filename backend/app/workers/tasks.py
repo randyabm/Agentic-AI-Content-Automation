@@ -1,6 +1,7 @@
 """Background jobs: website crawl + LLM extraction (PRD §3.3), competitive
 intelligence (PRD §4), and article library auto-sync (PRD §7)."""
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import anthropic
@@ -232,13 +233,33 @@ def _setting(db, key: str, default: str) -> str:
 
 
 def _set_step(db, job: OnboardingJob, key: str, status: str, detail: str = "") -> None:
+    # Atomic JSONB UPDATE — no SELECT FOR UPDATE needed. Each call modifies only
+    # the target key inside the array, so concurrent threads don't overwrite each other.
+    from sqlalchemy import text
+    db.execute(
+        text("""
+            UPDATE onboarding_jobs
+            SET steps = (
+                SELECT jsonb_agg(
+                    CASE WHEN elem->>'key' = :key
+                    THEN elem || jsonb_build_object('status', :status, 'detail', :detail)
+                    ELSE elem
+                    END
+                )::json
+                FROM jsonb_array_elements(steps::jsonb) elem
+            ),
+            updated_at = NOW()
+            WHERE id = :job_id
+        """),
+        {"key": key, "status": status, "detail": detail, "job_id": str(job.id)},
+    )
+    db.commit()
+    # Keep the caller's in-memory object in sync.
     for step in job.steps:
         if step["key"] == key:
             step["status"] = status
             step["detail"] = detail
             break
-    flag_modified(job, "steps")  # JSON in-place mutation isn't auto-detected
-    db.commit()
 
 
 def _onboard_profile(db, job: OnboardingJob, client: Client) -> None:
@@ -352,9 +373,22 @@ def _onboard_competitors(db, job: OnboardingJob, client: Client) -> None:
         _set_step(db, job, "competitors", "ok", f"{len(new_ids)} found (analysis pending)")
         return
 
-    for i, cid in enumerate(new_ids, start=1):
-        _set_step(db, job, "competitors", "running", f"Analyzing competitor {i} of {len(new_ids)}…")
-        run_competitor_analysis(cid)  # self-contained; sets its own status on failure
+    # Analyze all competitors in parallel (up to 5 concurrent). Haiku is the
+    # default model for competitor_analysis — at ~2k tokens/competitor the burst
+    # stays well within the 30k token/min rate limit; 429s auto-retry anyway.
+    _set_step(db, job, "competitors", "running", f"Analyzing {len(new_ids)} competitors in parallel…")
+
+    def _analyze_one(cid: str) -> None:
+        run_competitor_analysis(cid)
+
+    with ThreadPoolExecutor(max_workers=min(5, len(new_ids))) as executor:
+        futures = {executor.submit(_analyze_one, cid): cid for cid in new_ids}
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception:  # noqa: BLE001
+                logger.exception("Competitor analysis %s crashed", futures[future])
+
     _set_step(db, job, "competitors", "ok", f"{len(new_ids)} identified and analyzed")
 
 
@@ -365,44 +399,113 @@ def _onboard_articles(db, job: OnboardingJob, client: Client) -> None:
 
     api_base = discover_wp_api(db, client.website_url)
     if api_base:
-        import_client_articles(client.id, api_base, limit)
+        _import_articles_wp_parallel(client.id, api_base, limit)
     else:
-        # Fallback: crawl the site for article URLs and extract each (PRD §7 path).
-        candidates = discover_article_urls(db, client.website_url, limit)
-        imported = 0
-        for url in candidates:
-            if imported >= limit:
-                break
-            if db.scalar(select(Article).where(Article.source_url == url.rstrip("/"))):
-                continue
-            try:
-                page = fetch_clean_page(db, url)
-                data = extract_article(db, page)
-            except ExtractionError:
-                continue
-            if not data["is_article"]:
-                continue
-            db.add(
-                Article(
-                    title=data["title"],
-                    author=data["author"],
-                    publication_date=data["publication_date"],
-                    source_url=url.rstrip("/"),
-                    summary=data["summary"],
-                    body=data["body"],
-                    tags=data["tags"],
-                    entry_type=ArticleEntryType.auto,
-                    status=ArticleStatus.active,
-                    needs_review=False,
-                    client_id=client.id,
-                )
-            )
-            db.commit()
-            imported += 1
+        _import_articles_crawl_parallel(db, client.id, client.website_url, limit)
 
     after = db.scalar(select(func.count()).select_from(Article).where(Article.client_id == client.id)) or 0
     source = "WordPress API" if api_base else "site crawl"
     _set_step(db, job, "articles", "ok", f"{after - before} imported via {source}")
+
+
+def _import_articles_wp_parallel(client_id: str, api_base: str, limit: int) -> None:
+    """Fetch WP post list once, then generate summaries in parallel (max 5 threads).
+
+    Each thread uses its own DB session. Duplicate-safe: URL already checked before
+    scheduling, with a second check inside each thread as a race guard.
+    """
+    db = SessionLocal()
+    try:
+        posts = fetch_wp_posts(db, api_base, limit)
+        new_posts = [
+            p for p in posts
+            if (p.get("url") or "").rstrip("/")
+            and not db.scalar(select(Article).where(
+                Article.source_url == p["url"].rstrip("/"),
+                Article.client_id == client_id,
+            ))
+        ]
+    finally:
+        db.close()
+
+    def _save_post(post: dict) -> None:
+        thread_db = SessionLocal()
+        try:
+            url = post["url"].rstrip("/")
+            if thread_db.scalar(select(Article).where(Article.source_url == url, Article.client_id == client_id)):
+                return
+            thread_db.add(Article(
+                title=post["title"],
+                author=post["author"],
+                publication_date=post["publication_date"],
+                source_url=url,
+                summary=_wp_summary(thread_db, post),
+                body=post["body"],
+                tags=post["tags"],
+                entry_type=ArticleEntryType.auto,
+                status=ArticleStatus.active,
+                needs_review=False,
+                client_id=client_id,
+            ))
+            thread_db.commit()
+        except Exception:  # noqa: BLE001
+            thread_db.rollback()
+            logger.exception("WP article import failed for %s", post.get("url"))
+        finally:
+            thread_db.close()
+
+    if not new_posts:
+        return
+    with ThreadPoolExecutor(max_workers=min(5, len(new_posts))) as executor:
+        list(executor.map(_save_post, new_posts))
+
+
+def _import_articles_crawl_parallel(db, client_id: str, website_url: str, limit: int) -> None:
+    """Discover article URLs then fetch + extract in parallel (max 5 threads).
+
+    HTTP fetch and LLM extraction are both I/O-bound, so threading gives a big
+    speed-up. Each thread gets its own DB session.
+    """
+    candidates = discover_article_urls(db, website_url, limit)
+    new_urls = [
+        url for url in candidates
+        if not db.scalar(select(Article).where(
+            Article.source_url == url.rstrip("/"),
+            Article.client_id == client_id,
+        ))
+    ][:limit]
+
+    def _process_url(url: str) -> None:
+        thread_db = SessionLocal()
+        try:
+            page = fetch_clean_page(thread_db, url)
+            data = extract_article(thread_db, page)
+            if not data["is_article"]:
+                return
+            thread_db.add(Article(
+                title=data["title"],
+                author=data["author"],
+                publication_date=data["publication_date"],
+                source_url=url.rstrip("/"),
+                summary=data["summary"],
+                body=data["body"],
+                tags=data["tags"],
+                entry_type=ArticleEntryType.auto,
+                status=ArticleStatus.active,
+                needs_review=False,
+                client_id=client_id,
+            ))
+            thread_db.commit()
+        except Exception:  # noqa: BLE001
+            thread_db.rollback()
+            logger.warning("Article crawl import failed for %s", url)
+        finally:
+            thread_db.close()
+
+    if not new_urls:
+        return
+    with ThreadPoolExecutor(max_workers=min(5, len(new_urls))) as executor:
+        list(executor.map(_process_url, new_urls))
 
 
 # Stage registry — drives both the full pipeline and single-step retries.
@@ -442,6 +545,12 @@ def _finalize_status(db, job: OnboardingJob) -> None:
 def run_onboarding(job_id: str) -> None:
     """Full client onboarding: profile + branding + brand memory + competitors + articles.
 
+    Execution is split into two phases:
+    - Phase 1 (sequential): profile → branding → brand_memory
+      (competitors and brand_memory both need the extracted profile data)
+    - Phase 2 (parallel): competitors + articles run concurrently in threads,
+      each with its own DB session, cutting total time to max(t_competitors, t_articles).
+
     Each stage is isolated — a failure marks only that step and the pipeline
     continues — so the client is populated as far as possible.
     """
@@ -457,8 +566,30 @@ def run_onboarding(job_id: str) -> None:
             db.commit()
             return
 
-        for key in ONBOARD_STAGES:
+        # Phase 1: sequential — each step feeds the next.
+        for key in ["profile", "branding", "brand_memory"]:
             _run_stage(db, job, client, key)
+
+        # Phase 2: competitors and articles are independent — run in parallel.
+        def _run_in_thread(key: str) -> None:
+            thread_db = SessionLocal()
+            try:
+                thread_job = thread_db.get(OnboardingJob, job_id)
+                thread_client = thread_db.get(Client, job.client_id)
+                if thread_job and thread_client:
+                    _run_stage(thread_db, thread_job, thread_client, key)
+            finally:
+                thread_db.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {executor.submit(_run_in_thread, key): key for key in ["competitors", "articles"]}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:  # noqa: BLE001
+                    logger.exception("Onboarding %s: parallel stage %s crashed", job_id, futures[future])
+
+        db.refresh(job)
         _finalize_status(db, job)
         logger.info("Onboarding job %s finished (%s)", job_id, job.status.value)
     except Exception:  # noqa: BLE001 — always leave the job in a terminal state
@@ -822,6 +953,20 @@ def generate_campaign(campaign_id: str) -> None:
             "Campaign %s generated: %d element(s) on %d platform(s)",
             campaign_id, len(elements), len(platforms_used),
         )
+
+        # Auto-dispatch image and video generation for every media record created above.
+        all_images = db.scalars(
+            select(PostImage).join(CampaignElement).where(CampaignElement.campaign_id == campaign_id)
+        ).all()
+        for img in all_images:
+            run_image_generation.delay(img.id)
+
+        all_videos = db.scalars(
+            select(PostVideo).join(CampaignElement).where(CampaignElement.campaign_id == campaign_id)
+        ).all()
+        for vid in all_videos:
+            run_video_generation.delay(vid.id)
+
     except anthropic.RateLimitError:
         db.rollback()
         raise
@@ -1418,5 +1563,155 @@ def import_article_from_url(article_id: str) -> None:
         if article:
             article.summary = f"[Extraction error: {exc}]"
             db.commit()
+    finally:
+        db.close()
+
+
+# --- Watchdog (stalled-job cleanup) ---
+
+# Conservative timeouts — well above task hard limits so we only catch truly
+# abandoned jobs (worker crashed, OOM-killed, container restart mid-task).
+_WATCHDOG_TIMEOUTS = {
+    "onboarding":        timedelta(minutes=75),   # task hard limit: 60 min
+    "extraction":        timedelta(minutes=45),   # no explicit limit; crawl ≤ 30 min
+    "competitor_search": timedelta(minutes=25),   # identification + web search
+    "competitor":        timedelta(minutes=25),   # per-competitor crawl + LLM
+    "campaign":          timedelta(minutes=35),   # editorial + visual agents
+    "post_image":        timedelta(minutes=20),   # image generation
+    "post_video":        timedelta(minutes=50),   # video generation (longest)
+}
+
+_WATCHDOG_MSG = "Timed out — watchdog expired after {} min with no progress"
+
+
+@celery_app.task(name="watchdog.sweep")
+def watchdog_sweep() -> None:
+    """Scan for jobs stuck in an in-progress state and mark them failed.
+
+    Runs every 10 minutes via Celery beat. Uses updated_at as the staleness
+    clock: every ORM write refreshes it automatically, so only truly abandoned
+    records (worker crashed, OOM-killed, network loss) cross the threshold.
+
+    Does NOT requeue — stuck tasks may have crashed for good reason. Users
+    can retry manually via the UI retry buttons.
+    """
+    from app.models.campaign import PostImage, PostVideo, VideoStatus
+
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    fixed = 0
+
+    try:
+        # OnboardingJob: running too long → failed; mark any "running" steps as error.
+        cutoff = now - _WATCHDOG_TIMEOUTS["onboarding"]
+        for job in db.scalars(
+            select(OnboardingJob).where(
+                OnboardingJob.status == OnboardingStatus.running,
+                OnboardingJob.updated_at < cutoff,
+            )
+        ).all():
+            for step in job.steps:
+                if step["status"] == "running":
+                    step["status"] = "error"
+                    step["detail"] = _WATCHDOG_MSG.format(75)
+            flag_modified(job, "steps")
+            job.status = OnboardingStatus.failed
+            fixed += 1
+            logger.warning("Watchdog: OnboardingJob %s stuck >75 min — failed", job.id)
+
+        # ExtractionJob: crawling or extracting too long.
+        cutoff = now - _WATCHDOG_TIMEOUTS["extraction"]
+        for job in db.scalars(
+            select(ExtractionJob).where(
+                ExtractionJob.status.in_([JobStatus.crawling, JobStatus.extracting]),
+                ExtractionJob.updated_at < cutoff,
+            )
+        ).all():
+            job.status = JobStatus.failed
+            job.error = _WATCHDOG_MSG.format(45)
+            fixed += 1
+            logger.warning("Watchdog: ExtractionJob %s stuck >45 min — failed", job.id)
+
+        # CompetitorSearchJob: stuck identifying.
+        cutoff = now - _WATCHDOG_TIMEOUTS["competitor_search"]
+        for job in db.scalars(
+            select(CompetitorSearchJob).where(
+                CompetitorSearchJob.status == SearchJobStatus.identifying,
+                CompetitorSearchJob.updated_at < cutoff,
+            )
+        ).all():
+            job.status = SearchJobStatus.failed
+            job.error = _WATCHDOG_MSG.format(25)
+            fixed += 1
+            logger.warning("Watchdog: CompetitorSearchJob %s stuck >25 min — failed", job.id)
+
+        # Competitor: stuck in any active analysis state.
+        cutoff = now - _WATCHDOG_TIMEOUTS["competitor"]
+        for comp in db.scalars(
+            select(Competitor).where(
+                Competitor.analysis_status.in_([
+                    AnalysisStatus.crawling,
+                    AnalysisStatus.extracting,
+                    AnalysisStatus.comparing,
+                ]),
+                Competitor.updated_at < cutoff,
+            )
+        ).all():
+            comp.analysis_status = AnalysisStatus.failed
+            comp.analysis_error = _WATCHDOG_MSG.format(25)
+            fixed += 1
+            logger.warning(
+                "Watchdog: Competitor %s (%s) stuck >25 min — failed",
+                comp.id, comp.company_name,
+            )
+
+        # Campaign: stuck generating.
+        cutoff = now - _WATCHDOG_TIMEOUTS["campaign"]
+        for camp in db.scalars(
+            select(Campaign).where(
+                Campaign.status == CampaignStatus.generating,
+                Campaign.updated_at < cutoff,
+            )
+        ).all():
+            camp.status = CampaignStatus.failed
+            camp.error = _WATCHDOG_MSG.format(35)
+            fixed += 1
+            logger.warning("Watchdog: Campaign %s stuck >35 min — failed", camp.id)
+
+        # PostImage: stuck generating.
+        cutoff = now - _WATCHDOG_TIMEOUTS["post_image"]
+        for img in db.scalars(
+            select(PostImage).where(
+                PostImage.status == VideoStatus.generating,
+                PostImage.updated_at < cutoff,
+            )
+        ).all():
+            img.status = VideoStatus.failed
+            img.error = _WATCHDOG_MSG.format(20)
+            fixed += 1
+            logger.warning("Watchdog: PostImage %s stuck >20 min — failed", img.id)
+
+        # PostVideo: stuck generating.
+        cutoff = now - _WATCHDOG_TIMEOUTS["post_video"]
+        for vid in db.scalars(
+            select(PostVideo).where(
+                PostVideo.status == VideoStatus.generating,
+                PostVideo.updated_at < cutoff,
+            )
+        ).all():
+            vid.status = VideoStatus.failed
+            vid.error = _WATCHDOG_MSG.format(50)
+            fixed += 1
+            logger.warning("Watchdog: PostVideo %s stuck >50 min — failed", vid.id)
+
+        if fixed:
+            db.commit()
+            logger.info("Watchdog: resolved %d stalled job(s)", fixed)
+        else:
+            logger.debug("Watchdog: sweep clean — no stalled jobs")
+
+    except Exception:  # noqa: BLE001
+        logger.exception("Watchdog sweep crashed")
+        db.rollback()
     finally:
         db.close()

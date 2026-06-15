@@ -48,6 +48,22 @@ def list_provider_credentials(db: Session = Depends(get_db), _: User = Depends(r
     return out
 
 
+@router.delete("/provider-credentials/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+def clear_provider_credential(
+    provider: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    info = next((p for p in providers.CANONICAL_PROVIDERS if p.key == provider), None)
+    if info is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown provider '{provider}'")
+    cred = db.scalar(select(ProviderCredential).where(ProviderCredential.provider == provider))
+    if cred:
+        cred.api_key_encrypted = encrypt_secret("")
+        db.commit()
+        audit.record(db, actor, "provider_credential.clear", "provider_credential", cred.id, {"provider": provider})
+
+
 @router.put("/provider-credentials/{provider}", response_model=ProviderCredentialOut)
 def upsert_provider_credential(
     provider: str,

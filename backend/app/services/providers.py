@@ -34,6 +34,7 @@ CANONICAL_PROVIDERS: tuple[ProviderInfo, ...] = (
     ProviderInfo("openai", "OpenAI", ("text", "image", "video")),
     ProviderInfo("openrouter", "OpenRouter", ("text", "image")),
     ProviderInfo("google", "Google (Gemini / Veo)", ("text", "video")),
+    ProviderInfo("magnific", "Magnific", ("image", "video")),
     ProviderInfo("fal", "fal.ai", ("video",)),
     ProviderInfo("replicate", "Replicate", ("video",)),
 )
@@ -48,6 +49,7 @@ _ENTITY_TO_CREDENTIAL = {
     "openrouter": "openrouter",
     "google": "google",
     "google_veo": "google",
+    "magnific": "magnific",
     "fal": "fal",
     "replicate": "replicate",
 }
@@ -176,6 +178,37 @@ def _fetch_google(kind: str, api_key: str) -> list[dict]:
     return out
 
 
+def _fetch_magnific(kind: str, api_key: str) -> list[dict]:
+    # No "list models" endpoint — return curated static lists.
+    if kind == "image":
+        # Magnific routes image generation through /v1/ai/mystic; the `model`
+        # param selects the style variant.
+        return [
+            {"id": "realism", "name": "Mystic — Realism"},
+            {"id": "fluid", "name": "Mystic — Fluid"},
+            {"id": "zen", "name": "Mystic — Zen"},
+            {"id": "flexible", "name": "Mystic — Flexible"},
+            {"id": "super_real", "name": "Mystic — Super Real"},
+            {"id": "editorial_portraits", "name": "Mystic — Editorial Portraits"},
+        ]
+    if kind == "video":
+        # model_name stores the endpoint path fragment used in POST/GET URLs:
+        #   POST https://api.magnific.com/v1/ai/{model_name}
+        #   GET  https://api.magnific.com/v1/ai/{model_name}/{task_id}
+        return [
+            {"id": "text-to-video/wan-2-5-t2v-1080p", "name": "WAN 2.5 — 1080p"},
+            {"id": "text-to-video/wan-2-5-t2v-720p",  "name": "WAN 2.5 — 720p"},
+            {"id": "text-to-video/wan-2-5-t2v-480p",  "name": "WAN 2.5 — 480p"},
+            {"id": "video/kling-v3-pro",               "name": "Kling 3 Pro"},
+            {"id": "video/kling-v3-std",               "name": "Kling 3 Standard"},
+            {"id": "video/kling-v2-6-pro",             "name": "Kling 2.6 Pro"},
+            {"id": "video/kling-v2-5-pro",             "name": "Kling 2.5 Pro"},
+            {"id": "video/minimax-hailuo-02-1080p",    "name": "MiniMax Hailuo 02 — 1080p"},
+            {"id": "video/minimax-hailuo-2-3",         "name": "MiniMax Hailuo 2.3"},
+        ]
+    return []
+
+
 # fal.ai and Replicate have no clean "list models I can run" endpoint, so the UI
 # falls back to manual model-ID entry for these.
 _FETCHERS = {
@@ -183,6 +216,7 @@ _FETCHERS = {
     "openai": _fetch_openai,
     "openrouter": _fetch_openrouter,
     "google": _fetch_google,
+    "magnific": _fetch_magnific,
 }
 
 

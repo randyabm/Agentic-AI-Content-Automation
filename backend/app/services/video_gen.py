@@ -73,6 +73,8 @@ def generate_video(
         return _generate_replicate(model, api_key, prompt, negative_prompt, aspect_ratio, duration)
     if model.provider == "openai_sora":
         return _generate_openai_sora(model, api_key, prompt, negative_prompt, aspect_ratio, duration)
+    if model.provider == "magnific":
+        return _generate_magnific_video(model, api_key, prompt, negative_prompt, aspect_ratio, duration)
     raise ExtractionError(f"Unsupported video provider: {model.provider}")
 
 
@@ -232,6 +234,70 @@ def _generate_openai_sora(
                 err = (data.get("error") or {}).get("message", "unknown error")
                 raise ExtractionError(f"Sora generation failed: {err}")
     raise ExtractionError("Sora generation timed out.")
+
+
+# --- Magnific (async task API, same pattern as Mystic image) ---
+
+# Magnific video models that accept a `duration` parameter as a string ("5"/"10").
+# Kling v3 accepts integer 3–15; WAN accepts "5" or "10".
+_MAGNIFIC_KLING_PATHS = {"video/kling-v3-pro", "video/kling-v3-std"}
+
+
+def _generate_magnific_video(
+    model: VideoModel, api_key: str, prompt: str, negative: str, aspect: str, duration: int
+) -> tuple[bytes, str]:
+    endpoint_path = model.model_name  # e.g. "text-to-video/wan-2-5-t2v-1080p"
+    post_url = f"https://api.magnific.com/v1/ai/{endpoint_path}"
+    poll_base = post_url
+
+    # Magnific video accepts 16:9, 9:16, 1:1 directly.
+    ratio = aspect if aspect in ("16:9", "9:16", "1:1") else "16:9"
+
+    body: dict = {
+        "prompt": prompt,
+        "aspect_ratio": ratio,
+    }
+    if negative.strip():
+        body["negative_prompt"] = negative.strip()
+
+    # Duration: Kling v3 takes integer (3-15), WAN takes string "5" or "10".
+    if endpoint_path in _MAGNIFIC_KLING_PATHS:
+        body["duration"] = max(3, min(15, duration))
+    else:
+        body["duration"] = str(10 if duration > 7 else 5)
+
+    with httpx.Client(timeout=60) as client:
+        start = client.post(post_url, headers={"x-magnific-api-key": api_key}, json=body)
+        if start.status_code >= 400:
+            raise ExtractionError(f"Magnific video request failed ({start.status_code}): {start.text[:300]}")
+        data = start.json().get("data", {})
+        task_id = data.get("task_id")
+        if not task_id:
+            raise ExtractionError(f"Magnific video returned no task_id: {start.text[:200]}")
+
+        deadline = time.monotonic() + MAX_WAIT_S
+        while time.monotonic() < deadline:
+            time.sleep(POLL_INTERVAL_S)
+            poll = client.get(
+                f"{poll_base}/{task_id}",
+                headers={"x-magnific-api-key": api_key},
+                timeout=30,
+            )
+            if poll.status_code >= 400:
+                raise ExtractionError(f"Magnific video poll failed ({poll.status_code}): {poll.text[:300]}")
+            pdata = poll.json().get("data", {})
+            status = pdata.get("status", "")
+            if status == "COMPLETED":
+                urls = pdata.get("generated") or []
+                if not urls:
+                    raise ExtractionError("Magnific video completed but returned no URLs.")
+                video = client.get(urls[0], follow_redirects=True, timeout=300)
+                if video.status_code >= 400:
+                    raise ExtractionError(f"Could not download Magnific video ({video.status_code})")
+                return video.content, video.headers.get("content-type", "video/mp4")
+            if status == "FAILED":
+                raise ExtractionError(f"Magnific video generation failed: {pdata}")
+    raise ExtractionError("Magnific video generation timed out.")
 
 
 # --- Replicate (predictions API) ---

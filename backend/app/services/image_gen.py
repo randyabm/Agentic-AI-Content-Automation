@@ -54,6 +54,95 @@ _SAFE_MARGINS = (
 )
 
 
+# --- Magnific (Mystic endpoint) ---------------------------------------------
+
+_MAGNIFIC_RATIO_MAP: dict[str, str] = {
+    "1:1": "square_1_1",
+    "4:3": "classic_4_3",
+    "3:4": "traditional_3_4",
+    "16:9": "widescreen_16_9",
+    "9:16": "social_story_9_16",
+    "20:9": "smartphone_horizontal_20_9",
+    "9:20": "smartphone_vertical_9_20",
+    "3:2": "standard_3_2",
+    "2:3": "portrait_2_3",
+    "2:1": "horizontal_2_1",
+    "1:2": "vertical_1_2",
+    "5:4": "social_5_4",
+    "4:5": "social_post_4_5",
+}
+
+_MAGNIFIC_MODELS = {"realism", "fluid", "zen", "flexible", "super_real", "editorial_portraits"}
+
+
+def _magnific_ratio(aspect_ratio: str) -> str:
+    return _MAGNIFIC_RATIO_MAP.get(aspect_ratio, "square_1_1")
+
+
+def _magnific_poll(task_id: str, api_key: str, timeout: int = 300) -> str:
+    """Poll the Magnific task until COMPLETED. Returns the first generated image URL."""
+    poll_url = f"https://api.magnific.com/v1/ai/mystic/{task_id}"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = httpx.get(poll_url, headers={"x-magnific-api-key": api_key}, timeout=30)
+        if r.status_code >= 400:
+            raise ExtractionError(f"Magnific poll failed ({r.status_code}): {r.text[:300]}")
+        data = r.json().get("data", {})
+        status = data.get("status", "")
+        if status == "COMPLETED":
+            urls = data.get("generated") or []
+            if not urls:
+                raise ExtractionError("Magnific task completed but returned no images.")
+            return urls[0]
+        if status == "FAILED":
+            raise ExtractionError(f"Magnific generation failed: {data}")
+        time.sleep(3)
+    raise ExtractionError(f"Magnific task {task_id} timed out after {timeout}s.")
+
+
+def _generate_magnific(
+    model: ImageModel,
+    api_key: str,
+    prompt: str,
+    aspect_ratio: str,
+    structure_bytes: bytes | None = None,
+    style_bytes: bytes | None = None,
+) -> tuple[bytes, str]:
+    magnific_model = model.model_name if model.model_name in _MAGNIFIC_MODELS else "realism"
+    body: dict = {
+        "prompt": prompt,
+        "aspect_ratio": _magnific_ratio(aspect_ratio),
+        "model": magnific_model,
+    }
+    if structure_bytes:
+        body["structure_reference"] = base64.b64encode(structure_bytes).decode()
+        body["structure_strength"] = 50
+    if style_bytes:
+        body["style_reference"] = base64.b64encode(style_bytes).decode()
+
+    r = httpx.post(
+        "https://api.magnific.com/v1/ai/mystic",
+        headers={"x-magnific-api-key": api_key},
+        json=body,
+        timeout=60,
+    )
+    if r.status_code >= 400:
+        raise ExtractionError(f"Magnific generation failed ({r.status_code}): {r.text[:300]}")
+    data = r.json().get("data", {})
+    task_id = data.get("task_id")
+    if not task_id:
+        raise ExtractionError(f"Magnific returned no task_id: {r.text[:200]}")
+
+    # The task may already be done in the POST response.
+    urls = data.get("generated") or []
+    image_url = urls[0] if data.get("status") == "COMPLETED" and urls else _magnific_poll(task_id, api_key)
+
+    dl = httpx.get(image_url, timeout=120, follow_redirects=True)
+    if dl.status_code >= 400:
+        raise ExtractionError(f"Could not download Magnific image ({dl.status_code})")
+    return dl.content, dl.headers.get("content-type", "image/jpeg")
+
+
 def generate_image(
     db: Session,
     model: ImageModel,
@@ -111,12 +200,19 @@ def generate_image(
             return _generate_openrouter(model, api_key, ref_prompt, inputs)
         if model.provider == "openai":
             return _generate_openai_with_refs(model, api_key, ref_prompt, aspect_ratio, inputs)
+        if model.provider == "magnific":
+            # structure_reference = first product ref; style_reference = logo if no product ref
+            structure = refs[0] if refs else None
+            style = logo_bytes if not refs and logo_bytes else None
+            return _generate_magnific(model, api_key, ref_prompt, aspect_ratio, structure, style)
         raise ExtractionError(f"Unsupported image provider: {model.provider}")
 
     if model.provider == "openrouter":
         return _generate_openrouter(model, api_key, f"{full_prompt}\n\nUse a {aspect_ratio} aspect ratio.")
     if model.provider == "openai":
         return _generate_openai(model, api_key, full_prompt, aspect_ratio)
+    if model.provider == "magnific":
+        return _generate_magnific(model, api_key, full_prompt, aspect_ratio)
     raise ExtractionError(f"Unsupported image provider: {model.provider}")
 
 
@@ -187,6 +283,8 @@ def generate_image_from(
         return _reframe_openrouter(model, api_key, source_bytes, instruction)
     if model.provider == "openai":
         return _reframe_openai(model, api_key, source_bytes, instruction, aspect_ratio)
+    if model.provider == "magnific":
+        return _generate_magnific(model, api_key, instruction, aspect_ratio, structure_bytes=source_bytes)
     raise ExtractionError(f"Provider '{model.provider}' does not support image reframing.")
 
 
