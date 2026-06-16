@@ -31,8 +31,6 @@ export default function ClientDetail() {
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [showOnboardingPanel, setShowOnboardingPanel] = useState(false);
   const [devMode, setDevMode] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importLimit, setImportLimit] = useState(50);
   const pollRef = useRef<number | null>(null);
 
   const handleOnboardingProgress = useCallback(() => {
@@ -95,23 +93,6 @@ export default function ClientDetail() {
       await loadJobs();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start analysis");
-    }
-  }
-
-  async function importArticles() {
-    setError("");
-    setNotice("");
-    setImporting(true);
-    try {
-      const res = await api<{ detail: string; limit: number }>(
-        `/clients/${clientId}/import-articles`,
-        { method: "POST", body: { limit: importLimit } },
-      );
-      setNotice(`${res.detail} Check the Article Library shortly.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not import articles");
-    } finally {
-      setImporting(false);
     }
   }
 
@@ -271,13 +252,6 @@ export default function ClientDetail() {
           clientId={client.id}
           canEdit={canEdit}
           isAdmin={user?.role === "admin"}
-          showImportControls={canEdit && devMode}
-          importing={importing}
-          importLimit={importLimit}
-          onImportLimitChange={setImportLimit}
-          onImport={importArticles}
-          notice={notice}
-          error={error}
         />
       )}
 
@@ -512,33 +486,39 @@ export default function ClientDetail() {
 }
 
 
+type ImportMode = "date" | "url";
+
 function ClientArticles({
   clientId,
   canEdit,
   isAdmin,
-  showImportControls,
-  importing,
-  importLimit,
-  onImportLimitChange,
-  onImport,
-  notice,
-  error,
 }: {
   clientId: string;
   canEdit: boolean;
   isAdmin: boolean;
-  showImportControls: boolean;
-  importing: boolean;
-  importLimit: number;
-  onImportLimitChange: (n: number) => void;
-  onImport: () => void;
-  notice: string;
-  error: string;
 }) {
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Article | null>(null);
+
+  // Import panel state
+  const [showImport, setShowImport] = useState(false);
+  const [importMode, setImportMode] = useState<ImportMode>("date");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [importLimit, setImportLimit] = useState(50);
+  const [importUrl, setImportUrl] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importNotice, setImportNotice] = useState("");
+  const [importError, setImportError] = useState("");
+  const importPollRef = useRef<number | null>(null);
+
+  const reloadArticles = useCallback(() => {
+    api<ArticleListItem[]>(`/articles?client_id=${clientId}&article_status=active`)
+      .then(setArticles)
+      .catch(() => {});
+  }, [clientId]);
 
   useEffect(() => {
     setLoading(true);
@@ -547,6 +527,12 @@ function ClientArticles({
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [clientId]);
+
+  useEffect(() => {
+    return () => {
+      if (importPollRef.current) window.clearInterval(importPollRef.current);
+    };
+  }, []);
 
   const visible = useMemo(() => {
     const lq = q.trim().toLowerCase();
@@ -572,18 +558,82 @@ function ClientArticles({
     try {
       await api(`/articles/${id}${path}`, { method });
       setSelected(null);
-      const list = await api<ArticleListItem[]>(`/articles?client_id=${clientId}&article_status=active`);
-      setArticles(list);
+      reloadArticles();
     } catch {
       // silently ignore
     }
   }
 
+  async function handleImportByDate() {
+    setImportError("");
+    setImportNotice("");
+    setImportBusy(true);
+    try {
+      const body: Record<string, unknown> = { limit: importLimit };
+      if (fromDate) body.from_date = fromDate;
+      if (toDate) body.to_date = toDate;
+      await api<{ detail: string }>(`/clients/${clientId}/import-articles`, { method: "POST", body });
+      setImportNotice("Import started — new articles will appear in the list in a few moments.");
+      // Refresh list after a short delay to catch fast imports
+      setTimeout(reloadArticles, 5000);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function handleImportByUrl() {
+    const url = importUrl.trim();
+    if (!url) return;
+    setImportError("");
+    setImportNotice("");
+    setImportBusy(true);
+    try {
+      const res = await api<{ status: string; detail: string; article_id: string | null }>(
+        `/clients/${clientId}/import-article-url`,
+        { method: "POST", body: { url } },
+      );
+      if (res.status === "already_exists") {
+        setImportNotice("This article is already in the library.");
+        setImportBusy(false);
+        return;
+      }
+      // Poll until extraction finishes
+      if (res.article_id) {
+        const articleId = res.article_id;
+        importPollRef.current = window.setInterval(async () => {
+          try {
+            const a = await api<Article>(`/articles/${articleId}`);
+            if (!a.summary.startsWith("[Fetching")) {
+              if (importPollRef.current) window.clearInterval(importPollRef.current);
+              importPollRef.current = null;
+              setImportBusy(false);
+              if (a.summary.startsWith("[Extraction")) {
+                setImportError(`Could not extract article: ${a.summary}`);
+              } else {
+                setImportNotice(`Imported: "${a.title}"`);
+                setImportUrl("");
+                reloadArticles();
+              }
+            }
+          } catch {
+            if (importPollRef.current) window.clearInterval(importPollRef.current);
+            importPollRef.current = null;
+            setImportBusy(false);
+          }
+        }, 3000);
+      } else {
+        setImportBusy(false);
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed");
+      setImportBusy(false);
+    }
+  }
+
   return (
     <div>
-      {notice && <div className="alert alert-success">{notice}</div>}
-      {error && <div className="alert alert-error">{error}</div>}
-
       <div className="client-articles-bar">
         <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
           <Search size={14} style={{ position: "absolute", left: "0.6rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", pointerEvents: "none" }} />
@@ -595,24 +645,108 @@ function ClientArticles({
           />
         </div>
         <span className="muted small">{visible.length} article{visible.length !== 1 ? "s" : ""}</span>
-        {showImportControls && (
-          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginLeft: "auto" }}>
-            <input
-              type="number"
-              min={1}
-              max={200}
-              value={importLimit}
-              onChange={(e) => onImportLimitChange(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
-              disabled={importing}
-              style={{ width: 64, margin: 0 }}
-              title="Max articles to import"
-            />
-            <button className="btn btn-ghost" onClick={onImport} disabled={importing}>
-              {importing ? "Importing…" : "Import from website"}
-            </button>
-          </div>
+        {canEdit && (
+          <button
+            className={`btn btn-ghost small${showImport ? " btn-active" : ""}`}
+            onClick={() => { setShowImport((v) => !v); setImportNotice(""); setImportError(""); }}
+            style={{ marginLeft: "auto" }}
+          >
+            + Import articles
+          </button>
         )}
       </div>
+
+      {showImport && canEdit && (
+        <div className="import-panel">
+          <div className="import-panel-tabs">
+            <button
+              className={`import-tab${importMode === "date" ? " import-tab-active" : ""}`}
+              onClick={() => { setImportMode("date"); setImportNotice(""); setImportError(""); }}
+            >
+              From website (by date)
+            </button>
+            <button
+              className={`import-tab${importMode === "url" ? " import-tab-active" : ""}`}
+              onClick={() => { setImportMode("url"); setImportNotice(""); setImportError(""); }}
+            >
+              From URL
+            </button>
+          </div>
+
+          {importMode === "date" && (
+            <div className="import-panel-body">
+              <div className="import-row">
+                <label className="import-label">
+                  From
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                    disabled={importBusy}
+                    style={{ margin: 0 }}
+                  />
+                </label>
+                <label className="import-label">
+                  To
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                    disabled={importBusy}
+                    style={{ margin: 0 }}
+                  />
+                </label>
+                <label className="import-label" title="Maximum articles to import">
+                  Limit
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={importLimit}
+                    onChange={(e) => setImportLimit(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+                    disabled={importBusy}
+                    style={{ margin: 0, width: 72 }}
+                  />
+                </label>
+                <button className="btn btn-primary small" onClick={handleImportByDate} disabled={importBusy}>
+                  {importBusy ? "Importing…" : "Import"}
+                </button>
+              </div>
+              <p className="muted small" style={{ marginTop: "0.4rem" }}>
+                Leave dates empty to import the most recent articles. Already-imported articles are skipped automatically.
+              </p>
+            </div>
+          )}
+
+          {importMode === "url" && (
+            <div className="import-panel-body">
+              <div className="import-row">
+                <input
+                  type="url"
+                  placeholder="https://example.com/blog/article-title"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  disabled={importBusy}
+                  style={{ margin: 0, flex: 1 }}
+                />
+                <button
+                  className="btn btn-primary small"
+                  onClick={handleImportByUrl}
+                  disabled={importBusy || !importUrl.trim()}
+                >
+                  {importBusy ? "Importing…" : "Import"}
+                </button>
+              </div>
+              <p className="muted small" style={{ marginTop: "0.4rem" }}>
+                If the URL is already in the library, it won't be imported again.
+              </p>
+            </div>
+          )}
+
+          {importNotice && <div className="alert alert-success" style={{ margin: "0.5rem 0 0" }}>{importNotice}</div>}
+          {importError && <div className="alert alert-error" style={{ margin: "0.5rem 0 0" }}>{importError}</div>}
+        </div>
+      )}
 
       {loading ? (
         <p className="muted">Loading articles…</p>

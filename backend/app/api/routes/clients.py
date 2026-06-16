@@ -24,7 +24,13 @@ from app.schemas.client import (
     ExtractionJobOut,
     OnboardingJobOut,
 )
-from app.schemas.article import WordPressImportRequest, WordPressImportResponse
+from app.models.article import ArticleEntryType, ArticleStatus
+from app.schemas.article import (
+    ClientUrlImportRequest,
+    ClientUrlImportResponse,
+    WordPressImportRequest,
+    WordPressImportResponse,
+)
 from app.services import audit, storage
 from app.services.wordpress import discover_wp_api
 from app.workers.tasks import (
@@ -265,10 +271,58 @@ def import_articles_from_website(
             status.HTTP_400_BAD_REQUEST,
             f"WordPress REST API not available at {client.website_url}",
         )
-    import_client_articles.delay(client.id, api_base, body.limit)
-    audit.record(db, actor, "client.import_articles", "client", client.id, {"limit": body.limit})
+    from_date = body.from_date.isoformat() if body.from_date else None
+    to_date = body.to_date.isoformat() if body.to_date else None
+    import_client_articles.delay(client.id, api_base, body.limit, from_date, to_date)
+    audit.record(db, actor, "client.import_articles", "client", client.id, {"limit": body.limit, "from_date": from_date, "to_date": to_date})
     return WordPressImportResponse(
         detail="Importing articles in the background.", api_base=api_base, limit=body.limit
+    )
+
+
+@router.post(
+    "/{client_id}/import-article-url",
+    response_model=ClientUrlImportResponse,
+)
+def import_article_by_url(
+    client_id: str,
+    body: ClientUrlImportRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Import a single article by URL for a client.
+
+    Checks the DB first — if the URL already exists, returns immediately without
+    running the LLM. Otherwise creates a placeholder Article (with client_id) and
+    fires the background extraction task.
+    """
+    from app.workers.tasks import import_article_from_url
+
+    client = _get_client_or_404(db, client_id)
+    url = body.url.rstrip("/")
+    existing = db.scalar(select(Article).where(Article.source_url == url))
+    if existing:
+        return ClientUrlImportResponse(
+            status="already_exists",
+            detail="This article is already in the library.",
+            article_id=existing.id,
+        )
+    article = Article(
+        title=url,
+        source_url=url,
+        entry_type=ArticleEntryType.manual,
+        status=ArticleStatus.active,
+        summary="[Fetching and extracting…]",
+        client_id=client.id,
+    )
+    db.add(article)
+    db.commit()
+    import_article_from_url.delay(article.id)
+    audit.record(db, actor, "client.import_article_url", "article", article.id, {"url": url})
+    return ClientUrlImportResponse(
+        status="queued",
+        detail="Article queued for import.",
+        article_id=article.id,
     )
 
 

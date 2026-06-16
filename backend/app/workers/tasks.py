@@ -1470,20 +1470,31 @@ def _wp_summary(db, wp: dict) -> str:
     retry_backoff_max=300,
     max_retries=3,
 )
-def import_client_articles(client_id: str, api_base: str, limit: int) -> None:
+def import_client_articles(
+    client_id: str,
+    api_base: str,
+    limit: int,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> None:
     """Import a client's articles via the WordPress REST API (PRD §7).
 
-    Idempotent: existing articles (by URL) are skipped, so a retry after a rate
-    limit safely resumes. Metadata comes structured from the API; the LLM is used
-    only for the 200-400 word summary.
+    Idempotent: existing articles (by URL) are skipped without calling the LLM, so
+    re-running after a rate limit or re-importing the same date range is always safe.
+    `from_date`/`to_date` are ISO date strings (YYYY-MM-DD); when supplied the WP
+    REST API filters by publication date server-side.
     """
+    from datetime import date as _date
+
     db = SessionLocal()
     try:
         client = db.get(Client, client_id)
         if client is None:
             logger.error("Client %s not found for article import", client_id)
             return
-        posts = fetch_wp_posts(db, api_base, limit)
+        after = _date.fromisoformat(from_date) if from_date else None
+        before = _date.fromisoformat(to_date) if to_date else None
+        posts = fetch_wp_posts(db, api_base, limit, after_date=after, before_date=before)
         imported = 0
         skipped = 0
         for post in posts:

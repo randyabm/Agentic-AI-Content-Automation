@@ -113,24 +113,37 @@ def _map_post(post: dict) -> dict:
     }
 
 
-def fetch_wp_posts(db: Session, api_base: str, limit: int) -> list[dict]:
-    """Page through published posts (newest first) and map them to article dicts."""
+def fetch_wp_posts(
+    db: Session,
+    api_base: str,
+    limit: int,
+    *,
+    after_date: date | None = None,
+    before_date: date | None = None,
+) -> list[dict]:
+    """Page through published posts (newest first) and map them to article dicts.
+
+    Optional `after_date`/`before_date` are passed to the WP REST API `after`/`before`
+    params (ISO8601), so the server does the date filtering before we receive results.
+    """
     headers = {"User-Agent": _user_agent(db), "Accept": "application/json"}
     per_page = min(100, max(1, limit))
     posts: list[dict] = []
     page = 1
     with httpx.Client(timeout=30, headers=headers, follow_redirects=True) as client:
         while len(posts) < limit:
-            response = client.get(
-                f"{api_base}/wp/v2/posts",
-                params={
-                    "_embed": "1",
-                    "per_page": per_page,
-                    "page": page,
-                    "orderby": "date",
-                    "order": "desc",
-                },
-            )
+            params: dict = {
+                "_embed": "1",
+                "per_page": per_page,
+                "page": page,
+                "orderby": "date",
+                "order": "desc",
+            }
+            if after_date:
+                params["after"] = after_date.isoformat() + "T00:00:00"
+            if before_date:
+                params["before"] = before_date.isoformat() + "T23:59:59"
+            response = client.get(f"{api_base}/wp/v2/posts", params=params)
             if response.status_code != 200:
                 break
             batch = response.json()

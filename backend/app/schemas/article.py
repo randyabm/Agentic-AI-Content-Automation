@@ -76,13 +76,25 @@ class ArticleListItem(BaseModel):
 class WordPressImportRequest(BaseModel):
     """Import a client's articles via the WordPress REST API."""
 
-    limit: int = Field(default=50, ge=1, le=200)
+    limit: int = Field(default=50, ge=1, le=500)
+    from_date: date | None = None
+    to_date: date | None = None
 
 
 class WordPressImportResponse(BaseModel):
     detail: str
     api_base: str
     limit: int
+
+
+class ClientUrlImportRequest(BaseModel):
+    url: str
+
+
+class ClientUrlImportResponse(BaseModel):
+    status: str  # "queued" | "already_exists"
+    detail: str
+    article_id: str | None = None
 
 
 class ArticleSourceCreate(BaseModel):
