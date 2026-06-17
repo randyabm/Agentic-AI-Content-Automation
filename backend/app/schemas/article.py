@@ -48,6 +48,7 @@ class ArticleOut(BaseModel):
     status: ArticleStatus
     needs_review: bool
     source_id: str | None
+    client_id: str | None
     last_used_in_campaign: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -68,7 +69,32 @@ class ArticleListItem(BaseModel):
     entry_type: ArticleEntryType
     status: ArticleStatus
     needs_review: bool
+    client_id: str | None
     created_at: datetime
+
+
+class WordPressImportRequest(BaseModel):
+    """Import a client's articles via the WordPress REST API."""
+
+    limit: int = Field(default=50, ge=1, le=500)
+    from_date: date | None = None
+    to_date: date | None = None
+
+
+class WordPressImportResponse(BaseModel):
+    detail: str
+    api_base: str
+    limit: int
+
+
+class ClientUrlImportRequest(BaseModel):
+    url: str
+
+
+class ClientUrlImportResponse(BaseModel):
+    status: str  # "queued" | "already_exists"
+    detail: str
+    article_id: str | None = None
 
 
 class ArticleSourceCreate(BaseModel):

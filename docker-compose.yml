@@ -66,7 +66,7 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=6
     env_file: .env
     volumes:
       - ./backend:/code

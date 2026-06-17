@@ -24,5 +24,11 @@ celery_app.conf.update(
             "task": "article_sync.check_due",
             "schedule": 30 * 60.0,
         },
+        # Watchdog: scan for jobs stuck in an in-progress state and mark them
+        # failed so the UI never shows an eternal spinner.
+        "watchdog-sweep": {
+            "task": "watchdog.sweep",
+            "schedule": 10 * 60.0,  # every 10 minutes
+        },
     },
 )

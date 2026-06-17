@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ArticleSources } from "../components/ArticleSources";
+import { TextareaZoom } from "../components/TextareaZoom";
 import type {
   ImageModel,
   LLMConfig,
@@ -31,12 +32,14 @@ const LLM_PROVIDERS = [
 const IMAGE_PROVIDERS = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "openai", label: "OpenAI" },
+  { value: "magnific", label: "Magnific" },
 ];
 const VIDEO_PROVIDERS = [
   { value: "google_veo", label: "Google Veo (Gemini API)" },
   { value: "openai_sora", label: "OpenAI Sora" },
   { value: "fal", label: "fal.ai" },
   { value: "replicate", label: "Replicate" },
+  { value: "magnific", label: "Magnific" },
 ];
 
 export default function SystemSettings() {
@@ -181,6 +184,19 @@ function ProvidersSection() {
     }
   }
 
+  async function removeKey(provider: string, label: string) {
+    if (!window.confirm(`Remove the API key for ${label}? Models using this provider will stop working.`)) return;
+    setError("");
+    setNotice("");
+    try {
+      await api(`/provider-credentials/${provider}`, { method: "DELETE" });
+      setCreds((prev) => prev.map((c) => c.provider === provider ? { ...c, has_key: false, api_key_hint: "" } : c));
+      setNotice(`${label} key removed.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Remove failed");
+    }
+  }
+
   return (
     <div className="card">
       <h2>Providers &amp; keys</h2>
@@ -224,6 +240,15 @@ function ProvidersSection() {
                 Save
               </button>
             </div>
+            {c.has_key && (
+              <button
+                className="btn btn-ghost small"
+                style={{ color: "var(--danger, #dc2626)", marginTop: "0.25rem" }}
+                onClick={() => removeKey(c.provider, c.label)}
+              >
+                Remove key
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -357,10 +382,11 @@ function LLMConfigSection() {
           </div>
           <label>
             Base system prompt
-            <textarea
+            <TextareaZoom
+              label="Base system prompt"
               rows={4}
               value={editing.system_prompt}
-              onChange={(e) => setEditing({ ...editing, system_prompt: e.target.value })}
+              onChange={(v) => setEditing({ ...editing, system_prompt: v })}
             />
           </label>
           <div className="form-actions">
@@ -650,8 +676,8 @@ function VideoModelSection() {
         </button>
       </div>
       <p className="muted">
-        Admin-curated list. Each provider (Google Veo / OpenAI Sora / fal.ai / Replicate) uses its key
-        from <strong>Providers &amp; Keys</strong>. fal.ai and Replicate need the model ID entered manually.
+        Admin-curated list. Each provider (Google Veo / OpenAI Sora / fal.ai / Replicate / Magnific) uses its key
+        from <strong>Providers &amp; Keys</strong>. Magnific offers a model dropdown. fal.ai and Replicate need the model ID entered manually.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -775,6 +801,175 @@ function VideoModelSection() {
   );
 }
 
+// Controls for settings whose values are constrained to a fixed set of
+// options or a type — avoids free-text typing for things that should be picked.
+const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  default_ui_language: [
+    { value: "en", label: "English" },
+    { value: "es", label: "Spanish" },
+  ],
+  default_content_language: [
+    { value: "en", label: "English" },
+    { value: "es", label: "Spanish" },
+  ],
+  onboarding_competitor_depth: [
+    { value: "analyze", label: "Analyze (identify + full analysis)" },
+    { value: "identify", label: "Identify (list only)" },
+  ],
+  onboarding_competitor_type: [
+    { value: "direct", label: "Direct" },
+    { value: "indirect", label: "Indirect" },
+  ],
+  onboarding_competitor_scope: [
+    { value: "local", label: "Local" },
+    { value: "national", label: "National" },
+    { value: "international", label: "International" },
+  ],
+};
+
+const BOOLEAN_SETTINGS = new Set(["onboarding_auto_run", "show_onboarding_panel", "dev_mode", "show_article_library"]);
+
+const NUMBER_SETTINGS = new Set([
+  "default_competitor_count",
+  "default_article_count",
+  "crawler_max_depth",
+  "crawler_max_pages",
+  "crawler_timeout_seconds",
+  "crawler_concurrency",
+  "competitor_crawl_max_depth",
+  "competitor_crawl_max_pages",
+]);
+
+// Friendly label + plain-language help for each setting. The label is shown as
+// the row title; the raw key is kept as a small mono hint for reference.
+const SETTING_META: Record<string, { label: string; help: string }> = {
+  default_ui_language: {
+    label: "Interface language",
+    help: "Language used for the platform's own menus, labels and buttons.",
+  },
+  default_content_language: {
+    label: "Content language",
+    help: "Default language the AI writes campaigns, posts and articles in. Can be overridden per client.",
+  },
+  onboarding_auto_run: {
+    label: "Auto-run onboarding",
+    help: "When ON, creating a client immediately kicks off the full pipeline (crawl site, import articles, research competitors). When OFF, you start each step manually.",
+  },
+  show_onboarding_panel: {
+    label: "Show onboarding panel",
+    help: "When ON, the Onboarding card is visible on every client detail page. Keep OFF in production — it's mainly useful during testing and debugging.",
+  },
+  dev_mode: {
+    label: "Developer mode",
+    help: "When ON, shows admin action buttons (Analyze Website, Import Articles) on the client detail page. Keep OFF for end-user-facing environments.",
+  },
+  show_article_library: {
+    label: "Show Article Library",
+    help: "When ON, the Article Library link appears in the left sidebar. Turn OFF to hide the global library and direct article access through individual client pages.",
+  },
+  default_article_count: {
+    label: "Articles to import",
+    help: "How many articles onboarding pulls in from the client's site as a baseline content library.",
+  },
+  default_competitor_count: {
+    label: "Competitors to research",
+    help: "How many competitors the AI tries to identify and analyze for a new client.",
+  },
+  onboarding_competitor_depth: {
+    label: "Competitor depth",
+    help: "“Analyze” identifies competitors and runs a full crawl + analysis of each (slower, richer). “Identify” only produces the list.",
+  },
+  onboarding_competitor_type: {
+    label: "Competitor type",
+    help: "“Direct” = rivals offering the same product/service. “Indirect” = different offering competing for the same audience or need.",
+  },
+  onboarding_competitor_scope: {
+    label: "Competitor scope",
+    help: "Geographic reach when searching for competitors: same city/region (local), country-wide (national), or worldwide (international).",
+  },
+  crawler_max_depth: {
+    label: "Max crawl depth",
+    help: "How many link levels deep to follow from the homepage. Higher = more coverage but slower.",
+  },
+  crawler_max_pages: {
+    label: "Max pages per site",
+    help: "Hard cap on the number of pages fetched from a single site, so a large site can't run forever.",
+  },
+  crawler_concurrency: {
+    label: "Parallel requests",
+    help: "How many pages are fetched at the same time per depth level. Higher = faster, but more load on the target site.",
+  },
+  crawler_timeout_seconds: {
+    label: "Page timeout (seconds)",
+    help: "How long to wait for a single page to respond before giving up and moving on.",
+  },
+  crawler_excluded_paths: {
+    label: "Excluded URL paths",
+    help: "Comma-separated regex patterns; any URL path matching one is skipped (e.g. /cart, /login, \\?.*).",
+  },
+  crawler_user_agent: {
+    label: "Crawler User-Agent",
+    help: "The User-Agent header the crawler sends. Identifies our bot to the sites it visits.",
+  },
+  competitor_crawl_max_depth: {
+    label: "Competitor crawl depth",
+    help: "Link depth used specifically when crawling competitor sites — kept shallow so analysis stays fast.",
+  },
+  competitor_crawl_max_pages: {
+    label: "Competitor max pages",
+    help: "Page cap when crawling a competitor site. Intentionally small to keep competitor analysis quick.",
+  },
+};
+
+// Ordered, sensible groupings shown as distinct boxed sub-sections on the
+// Global tab. Each group carries an accent colour so they're easy to tell apart.
+const SETTING_GROUPS: { title: string; description: string; accent: string; keys: string[] }[] = [
+  {
+    title: "Language & localization",
+    description: "Default languages for the interface and the content the AI produces.",
+    accent: "#2563EB", // info blue
+    keys: ["default_ui_language", "default_content_language"],
+  },
+  {
+    title: "Interface & developer tools",
+    description: "Controls which sections of the UI are visible and which developer tools are exposed.",
+    accent: "#7C3AED", // violet
+    keys: ["show_article_library", "dev_mode", "show_onboarding_panel"],
+  },
+  {
+    title: "Client onboarding",
+    description: "What happens automatically when a new client is created.",
+    accent: "#4338CA", // primary indigo
+    keys: [
+      "onboarding_auto_run",
+      "default_article_count",
+      "default_competitor_count",
+      "onboarding_competitor_depth",
+      "onboarding_competitor_type",
+      "onboarding_competitor_scope",
+    ],
+  },
+  {
+    title: "Site crawler",
+    description: "How the crawler explores a client's own website.",
+    accent: "#0F766E", // tertiary teal
+    keys: [
+      "crawler_max_depth",
+      "crawler_max_pages",
+      "crawler_concurrency",
+      "crawler_timeout_seconds",
+      "crawler_excluded_paths",
+      "crawler_user_agent",
+    ],
+  },
+  {
+    title: "Competitor crawler",
+    description: "A lighter crawl used when analyzing competitor sites — kept small to stay fast.",
+    accent: "#D97706", // secondary amber
+    keys: ["competitor_crawl_max_depth", "competitor_crawl_max_pages"],
+  },
+];
+
 function GlobalSettingsSection() {
   const [settings, setSettings] = useState<Setting[]>([]);
   const [edited, setEdited] = useState<Record<string, string>>({});
@@ -798,29 +993,101 @@ function GlobalSettingsSection() {
     }
   }
 
+  const byKey = new Map(settings.map((s) => [s.key, s]));
+  const grouped = new Set(SETTING_GROUPS.flatMap((g) => g.keys));
+  const ungrouped = settings.filter((s) => !grouped.has(s.key));
+
+  function renderControl(s: Setting) {
+    const val = edited[s.key] ?? s.value;
+    if (SELECT_OPTIONS[s.key]) {
+      return (
+        <select value={val} onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })}>
+          {SELECT_OPTIONS[s.key].map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (BOOLEAN_SETTINGS.has(s.key)) {
+      return (
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={val === "true"}
+            onChange={(e) => setEdited({ ...edited, [s.key]: e.target.checked ? "true" : "false" })}
+          />
+          <span className="muted small">{val === "true" ? "Enabled" : "Disabled"}</span>
+        </label>
+      );
+    }
+    if (NUMBER_SETTINGS.has(s.key)) {
+      return (
+        <input
+          type="number"
+          min={0}
+          value={val}
+          onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })}
+        />
+      );
+    }
+    return <input value={val} onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })} />;
+  }
+
+  function renderRows(items: Setting[]) {
+    return items.map((s) => {
+      const meta = SETTING_META[s.key];
+      return (
+        <tr key={s.key}>
+          <td>
+            <strong>{meta?.label ?? s.key}</strong>
+            <div className="muted small mono">{s.key}</div>
+            <div className="muted small">{meta?.help ?? s.description}</div>
+          </td>
+          <td>{renderControl(s)}</td>
+        </tr>
+      );
+    });
+  }
+
   return (
     <div className="card">
       <h2>Global settings</h2>
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-success">{notice}</div>}
-      <table className="table">
-        <tbody>
-          {settings.map((s) => (
-            <tr key={s.key}>
-              <td>
-                <strong>{s.key}</strong>
-                <div className="muted small">{s.description}</div>
-              </td>
-              <td>
-                <input
-                  value={edited[s.key] ?? s.value}
-                  onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })}
-                />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {SETTING_GROUPS.map((g) => {
+        const items = g.keys.map((k) => byKey.get(k)).filter((s): s is Setting => !!s);
+        if (items.length === 0) return null;
+        return (
+          <div
+            key={g.title}
+            className="settings-group"
+            style={{ ["--group-accent" as string]: g.accent }}
+          >
+            <div className="settings-group-head">
+              <h3>{g.title}</h3>
+              <div className="muted small">{g.description}</div>
+            </div>
+            <table className="table">
+              <tbody>{renderRows(items)}</tbody>
+            </table>
+          </div>
+        );
+      })}
+
+      {ungrouped.length > 0 && (
+        <div className="settings-group" style={{ ["--group-accent" as string]: "#78716C" }}>
+          <div className="settings-group-head">
+            <h3>Other</h3>
+          </div>
+          <table className="table">
+            <tbody>{renderRows(ungrouped)}</tbody>
+          </table>
+        </div>
+      )}
+
       <div className="form-actions">
         <button className="btn btn-primary" onClick={save} disabled={Object.keys(edited).length === 0}>
           Save changes

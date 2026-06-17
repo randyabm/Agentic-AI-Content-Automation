@@ -1,8 +1,21 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { api } from "../api";
 import { useAuth } from "../auth";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
+  const [showArticleLibrary, setShowArticleLibrary] = useState(true);
+
+  useEffect(() => {
+    api<{ key: string; value: string }[]>("/settings")
+      .then((settings) => {
+        const byKey = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+        if (byKey["show_article_library"] === "false") setShowArticleLibrary(false);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -12,7 +25,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <nav>
           <NavLink to="/clients">Clients</NavLink>
           <NavLink to="/campaigns">Campaigns</NavLink>
-          <NavLink to="/articles">Article Library</NavLink>
+          {showArticleLibrary && <NavLink to="/articles">Article Library</NavLink>}
           {user?.role === "admin" && <NavLink to="/users">Users</NavLink>}
           {user?.role === "admin" && <NavLink to="/settings">System Settings</NavLink>}
         </nav>

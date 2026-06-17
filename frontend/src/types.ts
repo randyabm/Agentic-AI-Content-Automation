@@ -22,6 +22,7 @@ export interface Client {
   communication_tone: string;
   social_media_urls: string[];
   logo_object_key: string;
+  avatar_object_key: string;
   notes: string;
   brand_tone: string;
   brand_words_required: string[];
@@ -73,6 +74,25 @@ export interface ExtractionJob {
   pages_total_estimate: number;
   error: string;
   draft: Partial<ExtractionDraft>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type OnboardingStatus = "running" | "completed" | "completed_with_errors" | "failed";
+export type OnboardingStepStatus = "pending" | "running" | "ok" | "error" | "skipped";
+
+export interface OnboardingStep {
+  key: string;
+  label: string;
+  status: OnboardingStepStatus;
+  detail: string;
+}
+
+export interface OnboardingJob {
+  id: string;
+  client_id: string;
+  status: OnboardingStatus;
+  steps: OnboardingStep[];
   created_at: string;
   updated_at: string;
 }
@@ -140,6 +160,7 @@ export interface Article {
   status: ArticleStatus;
   needs_review: boolean;
   source_id: string | null;
+  client_id: string | null;
   last_used_in_campaign: string | null;
   created_at: string;
   updated_at: string;
@@ -156,6 +177,7 @@ export interface ArticleListItem {
   entry_type: ArticleEntryType;
   status: ArticleStatus;
   needs_review: boolean;
+  client_id: string | null;
   created_at: string;
 }
 

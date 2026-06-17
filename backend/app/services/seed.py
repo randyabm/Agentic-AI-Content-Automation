@@ -59,6 +59,13 @@ DEFAULT_SYSTEM_PROMPTS = {
         "client's brand, audience, and content strategy, with a short justification. "
         "You always return valid JSON exactly as instructed."
     ),
+    LLMFunction.brand_memory: (
+        "You are a brand strategist. From a company's profile you infer its Brand "
+        "Memory: tone of voice, words/phrases to always or never use, visual style, "
+        "a few on-brand example copy lines, and any recurring legal disclaimer. Be "
+        "factual and only infer what the profile supports. Respond in English and "
+        "always return valid JSON exactly as instructed."
+    ),
 }
 
 DEFAULT_SETTINGS = [
@@ -68,10 +75,20 @@ DEFAULT_SETTINGS = [
     ("crawler_max_depth", "5", "Max link levels to follow from the homepage"),
     ("crawler_max_pages", "200", "Max pages to crawl per site"),
     ("crawler_timeout_seconds", "10", "Max wait time per page response (seconds)"),
+    ("crawler_concurrency", "8", "How many pages the crawler fetches in parallel per depth level"),
     ("crawler_excluded_paths", "", "Comma-separated regex patterns of URL paths to skip"),
     ("crawler_user_agent", "AIMarketingPlatformBot/1.0", "User-Agent header sent by the crawler"),
     ("competitor_crawl_max_depth", "3", "Max link depth when crawling competitor sites"),
-    ("competitor_crawl_max_pages", "30", "Max pages when crawling competitor sites (keeps analysis fast)"),
+    ("competitor_crawl_max_pages", "12", "Max pages when crawling competitor sites (keeps analysis fast)"),
+    # Client onboarding pipeline defaults (auto-run on client creation)
+    ("default_article_count", "30", "Default number of articles to import during client onboarding"),
+    ("onboarding_competitor_depth", "analyze", "Competitor depth during onboarding: 'analyze' (identify + full analysis) or 'identify' (list only)"),
+    ("onboarding_competitor_type", "direct", "Competitor type sought during onboarding: 'direct' or 'indirect'"),
+    ("onboarding_competitor_scope", "national", "Competitor geographic scope during onboarding: 'local', 'national' or 'international'"),
+    ("onboarding_auto_run", "true", "Automatically run the full onboarding pipeline when a client is created"),
+    ("show_onboarding_panel", "false", "Show the Onboarding panel on the client detail page. Keep OFF in production; enable for testing/debugging the pipeline."),
+    ("dev_mode", "false", "Developer/testing mode: shows admin action buttons (Analyze Website, Import Articles) on the client detail page."),
+    ("show_article_library", "true", "Show the Article Library link in the left navigation sidebar. Disable to hide the global library and keep article access per-client."),
 ]
 
 DEFAULT_IMAGE_MODELS = [
@@ -99,13 +116,16 @@ def seed(db: Session) -> None:
     for cfg in existing_configs.values():
         if not cfg.system_prompt and (default := DEFAULT_SYSTEM_PROMPTS.get(cfg.function)):
             cfg.system_prompt = default
+    # competitor_analysis uses Haiku: 3-5× faster, 20× cheaper, good enough for
+    # comparative analysis. All other functions default to Sonnet.
+    _HAIKU_FUNCTIONS = {LLMFunction.competitor_analysis}
     for function in LLMFunction:
         if function not in existing_configs:
             db.add(
                 LLMConfig(
                     function=function,
                     provider="anthropic",
-                    model_name="claude-sonnet-4-6",
+                    model_name="claude-haiku-4-5-20251001" if function in _HAIKU_FUNCTIONS else "claude-sonnet-4-6",
                     api_key_encrypted=anthropic_key,
                     temperature=0.3 if "extraction" in function.value or "analysis" in function.value else 0.7,
                     max_tokens=4096,

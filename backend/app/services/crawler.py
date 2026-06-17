@@ -2,10 +2,15 @@
 
 Uses httpx + BeautifulSoup. The fetch step is isolated behind `fetch_page` so a
 Playwright-based fetcher can be swapped in later for JavaScript-heavy sites.
+
+Crawling is level-synchronous BFS: each depth level is fetched concurrently with a
+thread pool, and newly discovered links are ordered so high-signal pages (about,
+products, services, pricing…) are visited first. This keeps wall-clock time low and
+makes the `max_pages` budget land on the most useful pages.
 """
 import logging
 import re
-from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -20,12 +25,23 @@ SKIP_EXTENSIONS = (
     ".xml", ".json", ".woff", ".woff2", ".ttf",
 )
 
+# High-signal URL path fragments for profile extraction; matching pages are crawled
+# first so a tight max_pages budget captures the most useful content.
+PRIORITY_PATTERNS = (
+    "about", "about-us", "company", "who-we-are", "our-story", "team",
+    "product", "products", "service", "services", "solution", "solutions",
+    "pricing", "plans", "features", "what-we-do",
+    # Spanish-language equivalents (clients/competitors are often LATAM/ES sites)
+    "nosotros", "quienes-somos", "empresa", "productos", "servicios", "soluciones", "precios",
+)
+
 
 @dataclass
 class CrawlConfig:
     max_depth: int = 5
     max_pages: int = 200
     timeout_seconds: int = 10
+    concurrency: int = 8
     excluded_patterns: list[str] = field(default_factory=list)
     user_agent: str = "AIMarketingPlatformBot/1.0"
 
@@ -66,48 +82,64 @@ def _is_excluded(url: str, patterns: list[str]) -> bool:
     return False
 
 
+def _priority(url: str) -> int:
+    """Lower sorts first. Shorter paths and high-signal pages are preferred."""
+    path = urlparse(url).path.lower()
+    has_signal = any(fragment in path for fragment in PRIORITY_PATTERNS)
+    return (0 if has_signal else 1, path.count("/"), len(path))
+
+
 def crawl_site(
     start_url: str,
     config: CrawlConfig,
     on_progress=None,
 ) -> list[CrawledPage]:
-    """BFS crawl limited to the start URL's domain. Calls on_progress(pages_crawled, queued)."""
+    """BFS crawl limited to the start URL's domain, fetching each depth level
+    concurrently. Calls on_progress(pages_crawled, queued)."""
     start = urldefrag(start_url)[0].rstrip("/")
     domain = urlparse(start).netloc
-    visited: set[str] = set()
+    visited: set[str] = {start}
     pages: list[CrawledPage] = []
-    queue: deque[tuple[str, int]] = deque([(start, 0)])
+    current_level: list[str] = [start]
 
     headers = {"User-Agent": config.user_agent, "Accept-Language": "en;q=0.9,*;q=0.5"}
     with httpx.Client(timeout=config.timeout_seconds, headers=headers) as client:
-        while queue and len(pages) < config.max_pages:
-            url, depth = queue.popleft()
-            if url in visited:
-                continue
-            visited.add(url)
+        depth = 0
+        while current_level and len(pages) < config.max_pages:
+            # Only fetch as many as the remaining page budget allows; current_level is
+            # already priority-ordered, so this keeps the most useful pages.
+            batch = current_level[: config.max_pages - len(pages)]
+            workers = max(1, min(config.concurrency, len(batch)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                responses = list(pool.map(lambda u: (u, fetch_page(client, u)), batch))
 
-            response = fetch_page(client, url)
-            if response is None:
-                continue
+            next_links: list[str] = []
+            for url, response in responses:
+                if response is None:
+                    continue
+                soup = BeautifulSoup(response.text, "lxml")
+                title = soup.title.get_text(strip=True) if soup.title else ""
+                pages.append(CrawledPage(url=url, title=title, text=_extract_text(soup)))
+                if on_progress:
+                    # Queued estimate: links discovered for the next level so far.
+                    on_progress(len(pages), len(next_links))
 
-            soup = BeautifulSoup(response.text, "lxml")
-            title = soup.title.get_text(strip=True) if soup.title else ""
-            pages.append(CrawledPage(url=url, title=title, text=_extract_text(soup)))
-            if on_progress:
-                on_progress(len(pages), len(queue))
+                if depth >= config.max_depth:
+                    continue
+                for anchor in soup.find_all("a", href=True):
+                    link = urldefrag(urljoin(str(response.url), anchor["href"]))[0].rstrip("/")
+                    parsed = urlparse(link)
+                    if (
+                        parsed.scheme in ("http", "https")
+                        and parsed.netloc == domain
+                        and link not in visited
+                        and not link.lower().endswith(SKIP_EXTENSIONS)
+                        and not _is_excluded(link, config.excluded_patterns)
+                    ):
+                        visited.add(link)
+                        next_links.append(link)
 
-            if depth >= config.max_depth:
-                continue
-            for anchor in soup.find_all("a", href=True):
-                link = urldefrag(urljoin(str(response.url), anchor["href"]))[0].rstrip("/")
-                parsed = urlparse(link)
-                if (
-                    parsed.scheme in ("http", "https")
-                    and parsed.netloc == domain
-                    and link not in visited
-                    and not link.lower().endswith(SKIP_EXTENSIONS)
-                    and not _is_excluded(link, config.excluded_patterns)
-                ):
-                    queue.append((link, depth + 1))
+            current_level = sorted(next_links, key=_priority)
+            depth += 1
 
     return pages

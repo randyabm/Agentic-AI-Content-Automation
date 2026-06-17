@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
+import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
 import { PostPreviewModal } from "../components/PostPreview";
 import { RATIO_PRIORITY } from "../ratios";
@@ -15,7 +16,6 @@ import type {
   Post,
   PostImage,
   PostVideo,
-  ReferenceImage,
   VideoModel,
 } from "../types";
 
@@ -150,7 +150,6 @@ export default function CampaignDetail() {
         </div>
       )}
 
-      <ReferencesPanel campaignId={campaign.id} canEdit={canEdit} />
 
       {/* Hide the element cards while the campaign is still generating — they'd
           just show empty "No image yet" placeholders, which looks unfinished. */}
@@ -259,6 +258,8 @@ function ElementCard({
           <ElementThumb campaignId={campaignId} image={cover} />
         ) : coverVideo ? (
           <ElementVideoThumb campaignId={campaignId} video={coverVideo} />
+        ) : element.element_type === "text" ? (
+          <div className="image-empty muted">Text only</div>
         ) : (
           <div className="image-empty">{videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}</div>
         )}
@@ -305,100 +306,6 @@ function ElementVideoThumb({ campaignId, video }: { campaignId: string; video: P
     <video src={url} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
   ) : (
     <div className="image-empty">🎬</div>
-  );
-}
-
-function ReferenceThumb({ campaignId, refImg }: { campaignId: string; refImg: ReferenceImage }) {
-  const [url, setUrl] = useState("");
-  useEffect(() => {
-    let active = true;
-    let objectUrl = "";
-    apiBlob(`/campaigns/${campaignId}/references/${refImg.id}/file`)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [campaignId, refImg.id]);
-  return url ? <img src={url} alt={refImg.filename} /> : <div className="image-empty small">…</div>;
-}
-
-function ReferencesPanel({ campaignId, canEdit }: { campaignId: string; canEdit: boolean }) {
-  const [refs, setRefs] = useState<ReferenceImage[]>([]);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api<ReferenceImage[]>(`/campaigns/${campaignId}/references`).then(setRefs).catch(() => {});
-  }, [campaignId]);
-
-  async function upload(file: File) {
-    setBusy("Uploading…");
-    setError("");
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const created = await api<ReferenceImage>(`/campaigns/${campaignId}/references`, { method: "POST", formData: fd });
-      setRefs((prev) => [...prev, created]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function remove(id: string) {
-    if (!window.confirm("Remove this reference image?")) return;
-    try {
-      await api(`/campaigns/${campaignId}/references/${id}`, { method: "DELETE" });
-      setRefs((prev) => prev.filter((r) => r.id !== id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
-    }
-  }
-
-  if (!canEdit && refs.length === 0) return null;
-  return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Reference images</h2>
-        {canEdit && (
-          <label className="file-btn btn btn-ghost small">
-            <UploadIcon size={14} /> Add reference
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              hidden
-              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-            />
-          </label>
-        )}
-      </div>
-      <p className="muted small">
-        Uploaded images (e.g. product photos) are used as visual reference so generated images match the
-        real subject. Applied the next time you generate an image.
-      </p>
-      {busy && <div className="alert alert-success small">{busy}</div>}
-      {error && <div className="alert alert-error small">{error}</div>}
-      <div className="reference-grid">
-        {refs.map((r) => (
-          <div className="reference-item" key={r.id}>
-            <ReferenceThumb campaignId={campaignId} refImg={r} />
-            {canEdit && (
-              <button className="reference-remove icon-btn" title="Remove" onClick={() => remove(r.id)}>
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        ))}
-        {refs.length === 0 && <p className="muted small">No reference images yet.</p>}
-      </div>
-    </div>
   );
 }
 
@@ -623,7 +530,7 @@ function CopyForm({
         <span className={copy.length > limit ? "char-over" : "muted"}>
           {copy.length}/{limit}
         </span>
-        <textarea rows={6} value={copy} onChange={(e) => mark(setCopy)(e.target.value)} readOnly={!canEdit} />
+        <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
       </label>
       <label className="small">
         Call to action
@@ -961,11 +868,11 @@ function ImageSlot({
         <div className="prompt-editor">
           <label className="small">
             Image prompt
-            <textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <TextareaZoom label="Image prompt" rows={4} value={prompt} onChange={setPrompt} />
           </label>
           <label className="small">
             Negative prompt
-            <textarea rows={2} value={negative} onChange={(e) => setNegative(e.target.value)} />
+            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
           </label>
           <label className="small">
             Additional guidance (appended)
@@ -1269,11 +1176,11 @@ function VideoSlot({
         <div className="prompt-editor">
           <label className="small">
             Video prompt
-            <textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <TextareaZoom label="Video prompt" rows={4} value={prompt} onChange={setPrompt} />
           </label>
           <label className="small">
             Negative prompt
-            <textarea rows={2} value={negative} onChange={(e) => setNegative(e.target.value)} />
+            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
           </label>
           <div className="form-actions">
             <button className="btn btn-ghost small" onClick={savePrompt}>

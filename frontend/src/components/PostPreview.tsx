@@ -154,7 +154,13 @@ export function PostPreviewModal({
   onClose: () => void;
 }) {
   const [platform, setPlatform] = useState(initialPlatform);
-  const logoUrl = useBlobUrl(client.logo_object_key ? `/clients/${client.id}/logo` : "");
+  // Prefer the client's profile photo as the author avatar; fall back to the logo.
+  const avatarPath = client.avatar_object_key
+    ? `/clients/${client.id}/avatar`
+    : client.logo_object_key
+      ? `/clients/${client.id}/logo`
+      : "";
+  const logoUrl = useBlobUrl(avatarPath);
 
   const post = posts.find((p) => p.platform === platform) ?? null;
   const ratio = element.platform_ratios?.[platform] ?? "1:1";

@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_editor
@@ -246,6 +246,31 @@ def update_campaign(
     db.commit()
     db.refresh(campaign)
     return campaign
+
+
+@router.get("/{campaign_id}/deletion-summary")
+def campaign_deletion_summary(
+    campaign_id: str, db: Session = Depends(get_db), _: User = Depends(require_editor)
+):
+    """Counts of records that will be cascade-deleted so the UI can warn the user."""
+    _get_campaign_or_404(db, campaign_id)
+    elements = db.scalar(
+        select(func.count()).select_from(CampaignElement).where(CampaignElement.campaign_id == campaign_id)
+    ) or 0
+    posts = db.scalar(
+        select(func.count()).select_from(Post).where(Post.campaign_id == campaign_id)
+    ) or 0
+    images = db.scalar(
+        select(func.count()).select_from(PostImage)
+        .join(CampaignElement, PostImage.element_id == CampaignElement.id)
+        .where(CampaignElement.campaign_id == campaign_id)
+    ) or 0
+    videos = db.scalar(
+        select(func.count()).select_from(PostVideo)
+        .join(CampaignElement, PostVideo.element_id == CampaignElement.id)
+        .where(CampaignElement.campaign_id == campaign_id)
+    ) or 0
+    return {"elements": elements, "posts": posts, "images": images, "videos": videos}
 
 
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)

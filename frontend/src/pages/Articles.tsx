@@ -1,25 +1,76 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { TextareaZoom } from "../components/TextareaZoom";
 import { useAuth } from "../auth";
-import type { Article, ArticleListItem } from "../types";
+import { ArticleModal } from "../components/ArticleModal";
+import type { Article, ArticleListItem, Client } from "../types";
 
 type AddMode = "url" | "text" | null;
+type SortKey = "title" | "type" | "client" | "author" | "date" | "status";
+type SortDir = "asc" | "desc";
 
 export default function Articles() {
   const { user } = useAuth();
   const canEdit = user?.role === "admin" || user?.role === "editor";
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [items, setItems] = useState<ArticleListItem[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [entryType, setEntryType] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [clientId, setClientId] = useState(searchParams.get("client_id") ?? "");
+  const [tag, setTag] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [addMode, setAddMode] = useState<AddMode>(null);
   const [selected, setSelected] = useState<Article | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const pollRef = useRef<number | null>(null);
+
+  const clientsById = useMemo(
+    () => new Map(clients.map((c) => [c.id, c.company_name])),
+    [clients],
+  );
+
+  const sortValue = useCallback(
+    (a: ArticleListItem, key: SortKey): string => {
+      switch (key) {
+        case "title": return a.title.toLowerCase();
+        case "type": return a.entry_type;
+        case "client": return ((a.client_id && clientsById.get(a.client_id)) || "").toLowerCase();
+        case "author": return a.author.toLowerCase();
+        case "date": return a.publication_date ?? "";
+        case "status": return a.needs_review ? "needs review" : a.status;
+      }
+    },
+    [clientsById],
+  );
+
+  const sortedItems = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...items].sort((a, b) => {
+      const va = sortValue(a, sortKey);
+      const vb = sortValue(b, sortKey);
+      // Empty values (e.g. missing date) always sort to the bottom.
+      if (va === "" && vb !== "") return 1;
+      if (vb === "" && va !== "") return -1;
+      return va < vb ? -dir : va > vb ? dir : 0;
+    });
+  }, [items, sortKey, sortDir, sortValue]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "date" ? "desc" : "asc");
+    }
+  }
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -27,14 +78,40 @@ export default function Articles() {
     if (entryType) params.set("entry_type", entryType);
     if (statusFilter) params.set("article_status", statusFilter);
     if (reviewOnly) params.set("needs_review", "true");
+    if (clientId) params.set("client_id", clientId);
+    if (tag) params.set("tag", tag);
     const list = await api<ArticleListItem[]>(`/articles?${params.toString()}`);
     setItems(list);
     return list;
-  }, [q, entryType, statusFilter, reviewOnly]);
+  }, [q, entryType, statusFilter, reviewOnly, clientId, tag]);
 
   useEffect(() => {
     load().catch((e) => setError(e.message));
   }, [load]);
+
+  // One-time fetch to populate the client and tag filter dropdowns from the
+  // full library (independent of the active filters).
+  useEffect(() => {
+    api<Client[]>("/clients").then(setClients).catch(() => {});
+    api<ArticleListItem[]>("/articles?limit=500")
+      .then((list) => {
+        const tags = new Set<string>();
+        list.forEach((a) => a.tags.forEach((t) => tags.add(t)));
+        setAllTags([...tags].sort((a, b) => a.localeCompare(b)));
+      })
+      .catch(() => {});
+  }, []);
+
+  // Keep the client filter reflected in the URL so it is shareable / persists on reload.
+  useEffect(() => {
+    const current = searchParams.get("client_id") ?? "";
+    if (clientId !== current) {
+      const next = new URLSearchParams(searchParams);
+      if (clientId) next.set("client_id", clientId);
+      else next.delete("client_id");
+      setSearchParams(next, { replace: true });
+    }
+  }, [clientId, searchParams, setSearchParams]);
 
   // Poll while any manual URL import is still extracting.
   useEffect(() => {
@@ -109,6 +186,18 @@ export default function Articles() {
           <option value="active">Active</option>
           <option value="archived">Archived</option>
         </select>
+        <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
+          <option value="">All clients</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>{c.company_name}</option>
+          ))}
+        </select>
+        <select value={tag} onChange={(e) => setTag(e.target.value)}>
+          <option value="">All tags</option>
+          {allTags.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
         <label className="checkbox-label">
           <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
           Needs review only
@@ -121,25 +210,42 @@ export default function Articles() {
       {items.length === 0 ? (
         <p className="muted">No articles match these filters.</p>
       ) : (
-        <div className="card-grid">
-          {items.map((a) => (
-            <div key={a.id} className="card client-card" onClick={() => openArticle(a.id)} style={{ cursor: "pointer" }}>
-              <h3>{a.title}</h3>
-              <div className="article-meta">
-                <span className={`tag ${a.entry_type === "auto" ? "" : "tag-green"}`}>{a.entry_type}</span>
-                {a.needs_review && <span className="tag tag-red">needs review</span>}
-                {a.status === "archived" && <span className="tag">archived</span>}
-              </div>
-              <p className="muted small">
-                {a.author && `${a.author} · `}
-                {a.publication_date ?? "no date"}
-              </p>
-              <p className="muted small clamp-3">{a.summary}</p>
-              <div className="article-meta">
-                {a.tags.slice(0, 4).map((t) => <span key={t} className="tag">{t}</span>)}
-              </div>
-            </div>
-          ))}
+        <div className="card">
+          <table className="table articles-table">
+            <thead>
+              <tr>
+                <SortHeader label="Title" sortKey="title" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Type" sortKey="type" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Client" sortKey="client" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Author" sortKey="author" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortHeader label="Date" sortKey="date" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                <th>Tags</th>
+                <SortHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedItems.map((a) => (
+                <tr key={a.id} onClick={() => openArticle(a.id)} style={{ cursor: "pointer" }}>
+                  <td className="article-title-cell">{a.title}</td>
+                  <td><span className={`tag ${a.entry_type === "auto" ? "" : "tag-green"}`}>{a.entry_type}</span></td>
+                  <td className="muted small">{(a.client_id && clientsById.get(a.client_id)) || "—"}</td>
+                  <td className="muted small">{a.author || "—"}</td>
+                  <td className="muted small">{a.publication_date ?? "—"}</td>
+                  <td>
+                    <div className="article-meta">
+                      {a.tags.slice(0, 3).map((t) => <span key={t} className="tag">{t}</span>)}
+                      {a.tags.length > 3 && <span className="muted small">+{a.tags.length - 3}</span>}
+                    </div>
+                  </td>
+                  <td>
+                    {a.needs_review && <span className="tag tag-red">needs review</span>}
+                    {a.status === "archived" && <span className="tag">archived</span>}
+                    {!a.needs_review && a.status === "active" && <span className="muted small">active</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -153,6 +259,24 @@ export default function Articles() {
         />
       )}
     </div>
+  );
+}
+
+function SortHeader({
+  label, sortKey, current, dir, onSort,
+}: {
+  label: string;
+  sortKey: SortKey;
+  current: SortKey;
+  dir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  const active = current === sortKey;
+  return (
+    <th className="sortable" onClick={() => onSort(sortKey)} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      {label}
+      <span className="sort-indicator">{active ? (dir === "asc" ? " ▲" : " ▼") : ""}</span>
+    </th>
   );
 }
 
@@ -216,7 +340,7 @@ function AddFromText({ onDone, onError }: { onDone: () => void; onError: (m: str
         <label>Source URL<input type="url" value={form.source_url} onChange={(e) => setForm({ ...form, source_url: e.target.value })} /></label>
         <label>Tags (comma-separated)<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} /></label>
       </div>
-      <label>Body<textarea rows={8} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} required /></label>
+      <label>Body<TextareaZoom label="Body" rows={8} value={form.body} onChange={(v) => setForm({ ...form, body: v })} /></label>
       <div className="form-actions">
         <button className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save article"}</button>
       </div>
@@ -224,55 +348,3 @@ function AddFromText({ onDone, onError }: { onDone: () => void; onError: (m: str
   );
 }
 
-function ArticleModal({
-  article, canEdit, isAdmin, onClose, onAction,
-}: {
-  article: Article;
-  canEdit: boolean;
-  isAdmin: boolean;
-  onClose: () => void;
-  onAction: (id: string, path: string, method?: string) => void;
-}) {
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{article.title}</h2>
-          <button className="btn btn-ghost" onClick={onClose}>✕</button>
-        </div>
-        <p className="muted small">
-          {article.author && `${article.author} · `}
-          {article.publication_date ?? "no date"} ·{" "}
-          <span className={`tag ${article.entry_type === "auto" ? "" : "tag-green"}`}>{article.entry_type}</span>
-          {article.needs_review && <span className="tag tag-red"> needs review</span>}
-        </p>
-        {article.source_url && (
-          <a href={article.source_url} target="_blank" rel="noreferrer" className="muted small">{article.source_url}</a>
-        )}
-        <div className="article-meta">{article.tags.map((t) => <span key={t} className="tag">{t}</span>)}</div>
-        <h4>Summary</h4>
-        <p>{article.summary}</p>
-        <h4>Body</h4>
-        <div className="article-body">{article.body}</div>
-        {canEdit && (
-          <div className="form-actions modal-actions">
-            <Link className="btn btn-primary" to={`/campaigns?from_article=${article.id}`}>
-              Create content
-            </Link>
-            {article.needs_review && (
-              <button className="btn btn-ghost" onClick={() => onAction(article.id, "/approve")}>Approve</button>
-            )}
-            {article.status === "active" && (
-              <button className="btn btn-ghost" onClick={() => onAction(article.id, "/archive")}>Archive</button>
-            )}
-            {isAdmin && (
-              <button className="btn btn-ghost danger" onClick={() => {
-                if (window.confirm("Permanently delete this article?")) onAction(article.id, "", "DELETE");
-              }}>Delete</button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}

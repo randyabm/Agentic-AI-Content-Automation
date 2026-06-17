@@ -25,6 +25,7 @@ class Client(Base):
     communication_tone: Mapped[str] = mapped_column(Text, default="")
     social_media_urls: Mapped[list] = mapped_column(JSON, default=list)
     logo_object_key: Mapped[str] = mapped_column(String(500), default="")  # S3/MinIO object key
+    avatar_object_key: Mapped[str] = mapped_column(String(500), default="")  # profile photo (used in post previews)
     notes: Mapped[str] = mapped_column(Text, default="")
 
     # Brand Memory (PRD §5.3.3) — persistent context injected into all campaign prompts.

@@ -13,6 +13,7 @@ from app.models.campaign import (
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob
 from app.models.competitor import Competitor, CompetitorSearchJob
 from app.models.llm import ImageModel, LLMConfig, ProviderCredential, VideoModel
+from app.models.onboarding import OnboardingJob
 from app.models.setting import Setting
 from app.models.user import PasswordResetToken, RefreshToken, User
 
@@ -30,6 +31,7 @@ __all__ = [
     "ExtractionJob",
     "ImageModel",
     "LLMConfig",
+    "OnboardingJob",
     "Post",
     "PostAsset",
     "PostImage",
