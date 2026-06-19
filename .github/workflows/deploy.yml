@@ -1,0 +1,15 @@
+name: Deploy to server
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Deploy
+        run: |
+          cd ~/app
+          bash deploy.sh master
+          docker compose -f docker-compose.prod.yml restart nginx cloudflared
