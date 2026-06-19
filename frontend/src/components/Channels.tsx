@@ -78,7 +78,7 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
         `/clients/${client.id}/channels/connect/${platform}`,
         { method: "POST" },
       );
-      window.open(res.connect_url, "_blank");
+      window.open(res.connect_url, "_blank", "width=560,height=660,popup");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start connection");
     } finally {
