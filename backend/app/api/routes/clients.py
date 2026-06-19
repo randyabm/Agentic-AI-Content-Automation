@@ -174,7 +174,7 @@ def upload_logo(
 
 @router.get("/{client_id}/logo")
 def get_logo(client_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    client = _get_client_or_404(db, client_id, actor)
+    client = _get_client_or_404(db, client_id, user)
     if not client.logo_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no logo")
     data, content_type = storage.get_object(client.logo_object_key)
@@ -202,7 +202,7 @@ def upload_avatar(
 
 @router.get("/{client_id}/avatar")
 def get_avatar(client_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    client = _get_client_or_404(db, client_id, actor)
+    client = _get_client_or_404(db, client_id, user)
     if not client.avatar_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no profile photo")
     data, content_type = storage.get_object(client.avatar_object_key)
