@@ -35,7 +35,8 @@ from app.models.social import ChannelStatus, SocialAccount
 logger = logging.getLogger(__name__)
 
 FACEBOOK_GRAPH = "https://graph.facebook.com/v19.0"
-TWITTER_API = "https://api.twitter.com"
+TWITTER_AUTH = "https://twitter.com"   # OAuth 2.0 authorization page
+TWITTER_API = "https://api.x.com"      # REST API v2 (rebranded domain)
 LINKEDIN_API = "https://api.linkedin.com"
 
 _PLATFORM_PROVIDER: dict[str, str] = {
@@ -214,7 +215,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
-        return f"{TWITTER_API}/i/oauth2/authorize?{urlencode(params)}"
+        return f"{TWITTER_AUTH}/i/oauth2/authorize?{urlencode(params)}"
 
     if p == "linkedin":
         app_id, _ = get_oauth_app(db, "linkedin")
