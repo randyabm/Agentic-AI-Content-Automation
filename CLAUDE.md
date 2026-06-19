@@ -18,7 +18,7 @@ After making and committing any change, deploy with one command from this machin
 
 ```bash
 # SSH credentials are in .env / API KEYS.md (never committed)
-plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cd ~/app && bash deploy.sh && docker compose -f docker-compose.prod.yml restart nginx"
+plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cd ~/app && bash deploy.sh master && docker compose -f docker-compose.prod.yml restart nginx cloudflared"
 ```
 
 `deploy.sh` does: `git pull origin competitor-pipeline-speedup` → `docker compose build api worker beat frontend` → `docker compose up -d`.
