@@ -176,9 +176,10 @@ def verify_state(state: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _redirect_uri(db: Session, platform: str) -> str:
-    # Instagram shares the Facebook callback path
+    # Instagram shares the Facebook callback path.
+    # Must use /api/auth/... so nginx routes the callback to the backend, not the frontend.
     path_platform = "facebook" if platform == "instagram" else platform
-    return f"{get_app_public_url(db)}/auth/{path_platform}/callback"
+    return f"{get_app_public_url(db)}/api/auth/{path_platform}/callback"
 
 
 def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) -> str:
