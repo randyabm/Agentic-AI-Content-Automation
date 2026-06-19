@@ -1,4 +1,5 @@
 export type Role = "admin" | "editor" | "viewer";
+export type OrgRole = "org_admin" | "analyst" | "creative" | "reviewer" | "viewer";
 
 export interface User {
   id: string;
@@ -7,6 +8,114 @@ export interface User {
   role: Role;
   is_active: boolean;
   created_at: string;
+  // Multi-tenancy context (Phase 0).
+  is_platform_admin: boolean;
+  org_id: string | null;
+  org_role: OrgRole | null;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  created_at: string;
+  member_count: number;
+}
+
+export type ChannelStatus = "connected" | "expired" | "revoked" | "error" | "disconnected";
+
+export interface SocialAccount {
+  id: string;
+  client_id: string;
+  platform: string;
+  display_name: string;
+  username: string;
+  avatar_url: string;
+  status: ChannelStatus;
+  token_expires_at: string | null;
+  last_verified_at: string | null;
+  error: string;
+  created_at: string;
+}
+
+export type PublishStatus =
+  | "draft"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "partial"
+  | "failed";
+
+export interface ScheduledPost {
+  id: string;
+  post_id: string;
+  social_account_id: string;
+  post_image_id: string | null;
+  scheduled_at: string | null;
+  timezone: string;
+  status: PublishStatus;
+  zernio_post_id: string;
+  external_post_id: string;
+  published_url: string;
+  error: string;
+  created_at: string;
+}
+
+export interface AutopilotProposal {
+  post_id: string;
+  platform: string;
+  channel_id: string;
+  channel_name: string;
+  headline: string;
+  preview: string;
+  suggested_at: string;
+  local_label: string;
+  rationale: string;
+}
+
+export interface AutopilotSkipped {
+  post_id: string;
+  platform: string;
+  headline: string;
+  reason: string;
+}
+
+export interface AutopilotPreview {
+  proposals: AutopilotProposal[];
+  skipped: AutopilotSkipped[];
+}
+
+export interface ReviewQueueItem {
+  post_id: string;
+  campaign_id: string;
+  campaign_name: string;
+  client_id: string;
+  client_name: string;
+  platform: string;
+  headline: string;
+  preview: string;
+  approval_status: ApprovalStatus;
+  updated_at: string;
+}
+
+export interface CalendarItem {
+  id: string;
+  status: PublishStatus;
+  scheduled_at: string | null;
+  timezone: string;
+  published_url: string;
+  error: string;
+  created_at: string;
+  post_id: string;
+  campaign_id: string;
+  campaign_name: string;
+  platform: string;
+  headline: string;
+  preview: string;
+  channel_id: string;
+  channel_name: string;
+  channel_avatar: string;
 }
 
 export interface Client {
@@ -416,7 +525,13 @@ export interface Post {
   best_time: string;
   rationale: string;
   status: PostStatus;
+  approval_status: ApprovalStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string;
 }
+
+export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
 
 export interface PostAsset {
   id: string;
