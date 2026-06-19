@@ -37,6 +37,7 @@ class ProviderCredential(Base):
     provider: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     label: Mapped[str] = mapped_column(String(100), default="")
     api_key_encrypted: Mapped[str] = mapped_column(Text, default="")
+    api_secret_encrypted: Mapped[str] = mapped_column(Text, default="")  # App Secret / Consumer Secret / Client Secret
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

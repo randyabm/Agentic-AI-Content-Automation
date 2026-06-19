@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.security import hash_password
+from app.models.client import Client
 from app.models.llm import ImageModel, LLMConfig, LLMFunction, ProviderCredential, VideoModel
+from app.models.org import Organization
 from app.models.setting import Setting
-from app.models.user import User, UserRole
+from app.models.user import OrgRole, User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +109,10 @@ def seed(db: Session) -> None:
                 full_name="Administrator",
                 hashed_password=hash_password(settings.admin_password),
                 role=UserRole.admin,
+                is_platform_admin=True,  # the env admin is the platform system admin (us)
             )
         )
-        logger.info("Seeded initial admin user %s", settings.admin_email)
+        logger.info("Seeded initial platform admin %s", settings.admin_email)
 
     anthropic_key = encrypt_secret(settings.anthropic_api_key)
     existing_configs = {c.function: c for c in db.scalars(select(LLMConfig)).all()}
@@ -151,9 +154,125 @@ def seed(db: Session) -> None:
         if key not in existing_keys:
             db.add(Setting(key=key, value=value, description=description))
 
+    # URL and publishing-mode settings — derived from .env defaults on first boot.
+    _extra_settings = [
+        (
+            "social_publishing_mode",
+            "zernio",
+            "Social publishing connector: 'zernio' (Zernio middleman) or 'direct' (platform APIs directly)",
+        ),
+        (
+            "app_public_url",
+            settings.public_base_url,
+            "Backend's publicly reachable URL — used for OAuth callbacks and signed media URLs",
+        ),
+        (
+            "app_frontend_url",
+            settings.public_base_url.replace(":8000", ":5173"),
+            "Frontend URL — used to redirect the browser after OAuth authorization flows",
+        ),
+    ]
+    for key, value, description in _extra_settings:
+        if key not in existing_keys:
+            db.add(Setting(key=key, value=value, description=description))
+
     _seed_provider_credentials(db, settings)
 
+    # Zernio social-publishing key (encrypted, platform-admin managed).
+    if settings.zernio_api_key:
+        existing = db.scalar(
+            select(ProviderCredential).where(ProviderCredential.provider == "zernio")
+        )
+        if existing is None:
+            db.add(
+                ProviderCredential(
+                    provider="zernio",
+                    label="Zernio",
+                    api_key_encrypted=encrypt_secret(settings.zernio_api_key),
+                )
+            )
+        elif not decrypt_secret(existing.api_key_encrypted):
+            existing.api_key_encrypted = encrypt_secret(settings.zernio_api_key)
+
     db.commit()
+
+    _seed_multitenancy(db, settings)
+
+
+# Legacy global role -> tenant-scoped org role, for backfilling existing users.
+_LEGACY_TO_ORG_ROLE = {
+    UserRole.admin: OrgRole.org_admin,
+    UserRole.editor: OrgRole.analyst,
+    UserRole.viewer: OrgRole.viewer,
+}
+
+
+def _ensure_default_org_admin(db: Session, org, settings) -> None:
+    """Guarantee the Default org has an org admin to manage brand/client work,
+    kept separate from the platform super-admin. Derived from the env admin's
+    email (orgadmin@<domain>) with the same ADMIN_PASSWORD; change it after boot."""
+    if db.scalar(
+        select(User).where(User.org_id == org.id, User.org_role == OrgRole.org_admin)
+    ):
+        return  # an org admin already exists (e.g. a backfilled legacy admin)
+    _, _, domain = settings.admin_email.lower().partition("@")
+    email = f"orgadmin@{domain or 'example.com'}"
+    if db.scalar(select(User).where(User.email == email)):
+        return
+    db.add(
+        User(
+            email=email,
+            full_name="Default Org Admin",
+            hashed_password=hash_password(settings.admin_password),
+            role=UserRole.admin,  # legacy field; org_role is authoritative
+            org_id=org.id,
+            org_role=OrgRole.org_admin,
+        )
+    )
+    logger.info("Seeded Default org admin %s (password = ADMIN_PASSWORD — change it)", email)
+
+
+def _seed_multitenancy(db: Session, settings) -> None:
+    """Idempotently establish the multi-tenancy baseline (SOCIAL_PUBLISHING_PLAN.md):
+    a Default organization, the platform system admin, and existing
+    clients/users assigned to the Default org. Guarded so that, if the manual
+    migration (backend/migrations/001_multitenancy.sql) has not yet been applied,
+    we log a clear instruction instead of crashing API startup."""
+    try:
+        org = db.scalar(select(Organization).where(Organization.slug == "default"))
+        if org is None:
+            org = Organization(name="Default Organization", slug="default")
+            db.add(org)
+            db.flush()
+
+        # The env admin is the PURE platform super-admin: system config only, no
+        # org/brand membership. (Org work is done by org admins — see below.)
+        admin = db.scalar(select(User).where(User.email == settings.admin_email.lower()))
+        if admin is not None:
+            admin.is_platform_admin = True
+            admin.org_id = None
+            admin.org_role = None
+
+        # Backfill existing single-tenant data into the Default org.
+        for client in db.scalars(select(Client).where(Client.org_id.is_(None))).all():
+            client.org_id = org.id
+        for user in db.scalars(
+            select(User).where(User.org_id.is_(None), User.is_platform_admin.is_(False))
+        ).all():
+            user.org_id = org.id
+            if user.org_role is None:
+                user.org_role = _LEGACY_TO_ORG_ROLE.get(user.role, OrgRole.viewer)
+        db.flush()
+
+        _ensure_default_org_admin(db, org, settings)
+        db.commit()
+    except Exception:  # noqa: BLE001 — never block boot on the optional backfill
+        db.rollback()
+        logger.warning(
+            "Multi-tenancy backfill skipped — apply backend/migrations/001_multitenancy.sql "
+            "then restart the API. (org_id/org_role columns likely missing.)",
+            exc_info=True,
+        )
 
 
 def _seed_provider_credentials(db: Session, settings) -> None:

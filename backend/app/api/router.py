@@ -1,10 +1,33 @@
 from fastapi import APIRouter
 
-from app.api.routes import articles, auth, campaigns, clients, competitors, llm_configs, settings, users
+from app.api.routes import (
+    articles,
+    auth,
+    campaigns,
+    channels,
+    clients,
+    competitors,
+    integrations,
+    llm_configs,
+    media,
+    oauth_callback,
+    orgs,
+    scheduling,
+    settings,
+    users,
+    webhooks,
+)
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(oauth_callback.router)
 api_router.include_router(users.router)
+api_router.include_router(orgs.router)
+api_router.include_router(integrations.router)
+api_router.include_router(channels.router)
+api_router.include_router(scheduling.router)
+api_router.include_router(media.router)
+api_router.include_router(webhooks.router)
 api_router.include_router(llm_configs.router)
 api_router.include_router(settings.router)
 api_router.include_router(clients.router)

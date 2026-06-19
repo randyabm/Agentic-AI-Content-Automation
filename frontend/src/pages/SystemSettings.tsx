@@ -11,7 +11,7 @@ import type {
   VideoModel,
 } from "../types";
 
-type TabKey = "providers" | "llm" | "image" | "video" | "sources" | "global";
+type TabKey = "providers" | "llm" | "image" | "video" | "sources" | "integrations" | "global";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "providers", label: "Providers & Keys" },
@@ -19,6 +19,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "image", label: "Image Models" },
   { key: "video", label: "Video Models" },
   { key: "sources", label: "Article Sources" },
+  { key: "integrations", label: "Integrations" },
   { key: "global", label: "Global" },
 ];
 
@@ -65,7 +66,316 @@ export default function SystemSettings() {
       {tab === "image" && <ImageModelSection />}
       {tab === "video" && <VideoModelSection />}
       {tab === "sources" && <ArticleSources />}
+      {tab === "integrations" && <IntegrationsSection />}
       {tab === "global" && <GlobalSettingsSection />}
+    </div>
+  );
+}
+
+type SocialAppStatus = {
+  provider: string;
+  label: string;
+  has_app_id: boolean;
+  has_app_secret: boolean;
+  app_id_hint: string;
+};
+
+const SOCIAL_APP_PLATFORMS: { provider: string; label: string; idLabel: string; secretLabel: string }[] = [
+  { provider: "oauth_facebook", label: "Facebook / Instagram (Meta)", idLabel: "App ID", secretLabel: "App Secret" },
+  { provider: "oauth_twitter", label: "Twitter / X", idLabel: "Client ID", secretLabel: "Client Secret" },
+  { provider: "oauth_linkedin", label: "LinkedIn", idLabel: "Client ID", secretLabel: "Client Secret" },
+];
+
+/** Integrations tab: toggle between Zernio middleman and direct platform APIs. */
+function IntegrationsSection() {
+  // Publishing mode (from settings table)
+  const [mode, setMode] = useState<"zernio" | "direct">("zernio");
+  const [modeMsg, setModeMsg] = useState("");
+  const [modeError, setModeError] = useState("");
+  const [allSettings, setAllSettings] = useState<Setting[]>([]);
+
+  // Zernio key
+  const [zernioStatus, setZernioStatus] = useState<{ has_key: boolean; api_key_hint: string } | null>(null);
+  const [zernioKey, setZernioKey] = useState("");
+  const [zernioMsg, setZernioMsg] = useState("");
+  const [zernioError, setZernioError] = useState("");
+  const [zernioBusy, setZernioBusy] = useState("");
+
+  // Direct: OAuth app credentials + URL settings
+  const [socialApps, setSocialApps] = useState<SocialAppStatus[]>([]);
+  const [appCreds, setAppCreds] = useState<Record<string, { app_id: string; app_secret: string }>>({});
+  const [directMsg, setDirectMsg] = useState("");
+  const [directError, setDirectError] = useState("");
+  const [urlSettings, setUrlSettings] = useState({ app_public_url: "", app_frontend_url: "" });
+  const [urlMsg, setUrlMsg] = useState("");
+  const [urlError, setUrlError] = useState("");
+
+  useEffect(() => {
+    api<Setting[]>("/settings").then((s) => {
+      setAllSettings(s);
+      const m = s.find((x) => x.key === "social_publishing_mode");
+      if (m?.value === "direct") setMode("direct");
+      const pub = s.find((x) => x.key === "app_public_url");
+      const fe = s.find((x) => x.key === "app_frontend_url");
+      setUrlSettings({
+        app_public_url: pub?.value ?? "",
+        app_frontend_url: fe?.value ?? "",
+      });
+    }).catch(() => {});
+
+    api<{ has_key: boolean; api_key_hint: string }>("/integrations/zernio").then(setZernioStatus).catch(() => {});
+    api<SocialAppStatus[]>("/integrations/social-apps").then(setSocialApps).catch(() => {});
+  }, []);
+
+  async function saveMode(newMode: "zernio" | "direct") {
+    setModeMsg("");
+    setModeError("");
+    try {
+      const updated = await api<Setting[]>("/settings", {
+        method: "PUT",
+        body: { values: { social_publishing_mode: newMode } },
+      });
+      setAllSettings(updated);
+      setMode(newMode);
+      setModeMsg("Mode saved.");
+    } catch (e) {
+      setModeError(e instanceof Error ? e.message : "Could not save mode");
+    }
+  }
+
+  async function saveZernioKey() {
+    setZernioBusy("save");
+    setZernioError("");
+    setZernioMsg("");
+    try {
+      const res = await api<{ has_key: boolean; api_key_hint: string }>("/integrations/zernio", {
+        method: "PUT",
+        body: { api_key: zernioKey },
+      });
+      setZernioStatus(res);
+      setZernioKey("");
+      setZernioMsg("Saved.");
+    } catch (e) {
+      setZernioError(e instanceof Error ? e.message : "Could not save key");
+    } finally {
+      setZernioBusy("");
+    }
+  }
+
+  async function testZernio() {
+    setZernioBusy("test");
+    setZernioError("");
+    setZernioMsg("");
+    try {
+      const res = await api<{ ok: boolean; profiles: number }>("/integrations/zernio/test", { method: "POST" });
+      setZernioMsg(`Connected — Zernio reachable (${res.profiles} profile${res.profiles === 1 ? "" : "s"}).`);
+    } catch (e) {
+      setZernioError(e instanceof Error ? e.message : "Connectivity test failed");
+    } finally {
+      setZernioBusy("");
+    }
+  }
+
+  async function saveSocialApp(provider: string) {
+    // provider = 'oauth_facebook' | 'oauth_twitter' | 'oauth_linkedin'
+    // extract the platform key: facebook | twitter | linkedin
+    const platform = provider.replace("oauth_", "");
+    const creds = appCreds[provider] ?? { app_id: "", app_secret: "" };
+    setDirectError("");
+    setDirectMsg("");
+    try {
+      const updated = await api<SocialAppStatus[]>(`/integrations/social-apps/${platform}`, {
+        method: "PUT",
+        body: creds,
+      });
+      setSocialApps(updated);
+      setAppCreds((prev) => ({ ...prev, [provider]: { app_id: "", app_secret: "" } }));
+      setDirectMsg(`${platform} credentials saved.`);
+    } catch (e) {
+      setDirectError(e instanceof Error ? e.message : "Could not save credentials");
+    }
+  }
+
+  async function saveUrls() {
+    setUrlMsg("");
+    setUrlError("");
+    try {
+      await api<Setting[]>("/settings", {
+        method: "PUT",
+        body: { values: urlSettings },
+      });
+      setUrlMsg("URLs saved.");
+    } catch (e) {
+      setUrlError(e instanceof Error ? e.message : "Could not save URLs");
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* --- Mode selector --- */}
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>Social Publishing Connector</h2>
+        <p className="muted">
+          Choose how the platform connects client social accounts and publishes content.
+          Zernio is a third-party middleman; Direct uses each platform's API directly.
+        </p>
+        <label>
+          Active connector
+          <select
+            value={mode}
+            onChange={(e) => {
+              const v = e.target.value as "zernio" | "direct";
+              setMode(v);
+              saveMode(v);
+            }}
+          >
+            <option value="zernio">Zernio (social publishing middleman)</option>
+            <option value="direct">Direct Platform APIs</option>
+          </select>
+        </label>
+        {modeError && <div className="alert alert-error">{modeError}</div>}
+        {modeMsg && <div className="alert alert-success">{modeMsg}</div>}
+      </div>
+
+      {/* --- Zernio section (always shown so admin can keep it configured) --- */}
+      <div className="card" style={{ opacity: mode === "zernio" ? 1 : 0.6 }}>
+        <h2 style={{ marginTop: 0 }}>
+          Zernio — Social Publishing
+          {mode !== "zernio" && <span className="tag" style={{ marginLeft: 8 }}>inactive</span>}
+        </h2>
+        <p className="muted">
+          One app-wide key powers connecting client social accounts and publishing across all
+          organizations. Stored encrypted; only ever shown masked.
+        </p>
+        <div className="form-row" style={{ alignItems: "center", gap: 8 }}>
+          <span className="tag">{zernioStatus?.has_key ? `Key set: ${zernioStatus.api_key_hint}` : "No key set"}</span>
+        </div>
+        <label>
+          API key
+          <input
+            type="password"
+            placeholder={zernioStatus?.has_key ? "Enter a new key to replace" : "sk_…"}
+            value={zernioKey}
+            onChange={(e) => setZernioKey(e.target.value)}
+          />
+        </label>
+        {zernioError && <div className="alert alert-error">{zernioError}</div>}
+        {zernioMsg && <div className="alert alert-success">{zernioMsg}</div>}
+        <div className="form-actions">
+          <button className="btn btn-primary" onClick={saveZernioKey} disabled={!zernioKey || !!zernioBusy}>
+            {zernioBusy === "save" ? "Saving…" : "Save key"}
+          </button>
+          <button className="btn btn-ghost" onClick={testZernio} disabled={!zernioStatus?.has_key || !!zernioBusy}>
+            {zernioBusy === "test" ? "Testing…" : "Test connection"}
+          </button>
+        </div>
+      </div>
+
+      {/* --- Direct API section --- */}
+      <div className="card" style={{ opacity: mode === "direct" ? 1 : 0.6 }}>
+        <h2 style={{ marginTop: 0 }}>
+          Direct Platform APIs
+          {mode !== "direct" && <span className="tag" style={{ marginLeft: 8 }}>inactive</span>}
+        </h2>
+        <p className="muted">
+          Create an app in each platform's developer console, paste the credentials below.
+          Users authorize your app directly on each platform — no third-party middleman.
+        </p>
+
+        {/* URL settings */}
+        <div style={{ marginBottom: 20 }}>
+          <h3 style={{ marginTop: 0 }}>Callback URLs</h3>
+          <p className="muted small">
+            Register these as allowed redirect URIs in each platform's developer console:
+          </p>
+          {["facebook", "twitter", "linkedin"].map((p) => (
+            <div key={p} className="mono small" style={{ marginBottom: 4 }}>
+              {urlSettings.app_public_url || "http://localhost:8000"}/auth/{p}/callback
+            </div>
+          ))}
+          <div className="form-grid" style={{ marginTop: 12 }}>
+            <label>
+              Backend public URL
+              <input
+                value={urlSettings.app_public_url}
+                onChange={(e) => setUrlSettings((u) => ({ ...u, app_public_url: e.target.value }))}
+                placeholder="https://yourplatform.com"
+              />
+            </label>
+            <label>
+              Frontend URL
+              <input
+                value={urlSettings.app_frontend_url}
+                onChange={(e) => setUrlSettings((u) => ({ ...u, app_frontend_url: e.target.value }))}
+                placeholder="https://yourplatform.com"
+              />
+            </label>
+          </div>
+          {urlError && <div className="alert alert-error">{urlError}</div>}
+          {urlMsg && <div className="alert alert-success">{urlMsg}</div>}
+          <div className="form-actions">
+            <button className="btn btn-primary" onClick={saveUrls}>Save URLs</button>
+          </div>
+        </div>
+
+        {/* Per-platform OAuth app credentials */}
+        <h3 style={{ marginTop: 0 }}>OAuth App Credentials</h3>
+        {directError && <div className="alert alert-error">{directError}</div>}
+        {directMsg && <div className="alert alert-success">{directMsg}</div>}
+
+        {SOCIAL_APP_PLATFORMS.map(({ provider, label, idLabel, secretLabel }) => {
+          const current = socialApps.find((a) => a.provider === provider);
+          const editing = appCreds[provider] ?? { app_id: "", app_secret: "" };
+          return (
+            <div key={provider} className="provider-card" style={{ marginBottom: 16 }}>
+              <div className="provider-card-head">
+                <strong>{label}</strong>
+                {current?.has_app_id && current?.has_app_secret ? (
+                  <span className="tag tag-green">configured</span>
+                ) : (
+                  <span className="tag tag-red">not set</span>
+                )}
+              </div>
+              {current?.has_app_id && (
+                <div className="mono small muted">{idLabel}: {current.app_id_hint}</div>
+              )}
+              <div className="form-grid" style={{ marginTop: 8 }}>
+                <label>
+                  {idLabel}
+                  <input
+                    type="password"
+                    placeholder={current?.has_app_id ? "Replace…" : "Paste…"}
+                    value={editing.app_id}
+                    onChange={(e) =>
+                      setAppCreds((prev) => ({ ...prev, [provider]: { ...editing, app_id: e.target.value } }))
+                    }
+                  />
+                </label>
+                <label>
+                  {secretLabel}
+                  <input
+                    type="password"
+                    placeholder={current?.has_app_secret ? "Replace…" : "Paste…"}
+                    value={editing.app_secret}
+                    onChange={(e) =>
+                      setAppCreds((prev) => ({ ...prev, [provider]: { ...editing, app_secret: e.target.value } }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="form-actions">
+                <button
+                  className="btn btn-primary small"
+                  disabled={!editing.app_id && !editing.app_secret}
+                  onClick={() => saveSocialApp(provider)}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -804,6 +1114,10 @@ function VideoModelSection() {
 // Controls for settings whose values are constrained to a fixed set of
 // options or a type — avoids free-text typing for things that should be picked.
 const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  social_publishing_mode: [
+    { value: "zernio", label: "Zernio (social publishing middleman)" },
+    { value: "direct", label: "Direct Platform APIs" },
+  ],
   default_ui_language: [
     { value: "en", label: "English" },
     { value: "es", label: "Spanish" },
