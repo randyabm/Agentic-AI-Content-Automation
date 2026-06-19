@@ -351,7 +351,7 @@ def _exchange_twitter(db: Session, code: str, pkce_verifier: str) -> list[dict]:
     user = r.json().get("data", {})
 
     return [{
-        "platform": "twitter",
+        "platform": "x",
         "platform_account_id": user.get("id", ""),
         "display_name": user.get("name", ""),
         "username": user.get("username", ""),

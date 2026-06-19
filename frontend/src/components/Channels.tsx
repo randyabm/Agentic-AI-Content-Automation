@@ -5,7 +5,7 @@ import type { Client, SocialAccount } from "../types";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
 
 const CONNECTABLE_ZERNIO = ["facebook", "instagram", "linkedin", "x", "tiktok", "youtube"];
-const CONNECTABLE_DIRECT = ["facebook", "instagram", "twitter", "linkedin"];
+const CONNECTABLE_DIRECT = ["facebook", "instagram", "x", "linkedin"];
 
 const STATUS_TAG: Record<string, string> = {
   connected: "tag-green",

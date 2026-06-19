@@ -472,11 +472,14 @@ def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialA
     platform must have a connected channel. Returns the channel to publish to."""
     if post.approval_status != ApprovalStatus.approved:
         raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
+    platform_val = post.platform.value
+    # "x" and "twitter" are the same network; accept either stored value
+    platform_aliases = ["twitter", "x"] if platform_val == "x" else [platform_val]
     channel = db.scalar(
         select(SocialAccount)
         .where(
             SocialAccount.client_id == campaign.client_id,
-            SocialAccount.platform == post.platform.value,
+            SocialAccount.platform.in_(platform_aliases),
             SocialAccount.status == ChannelStatus.connected,
         )
         .order_by(SocialAccount.created_at)
