@@ -35,7 +35,7 @@ from app.models.social import ChannelStatus, SocialAccount
 logger = logging.getLogger(__name__)
 
 FACEBOOK_GRAPH = "https://graph.facebook.com/v19.0"
-TWITTER_AUTH = "https://twitter.com"   # OAuth 2.0 authorization page
+TWITTER_AUTH = "https://x.com"         # OAuth 2.0 authorization page (x.com = active session domain)
 TWITTER_API = "https://api.x.com"      # REST API v2 (rebranded domain)
 LINKEDIN_API = "https://api.linkedin.com"
 
