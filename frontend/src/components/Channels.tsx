@@ -136,7 +136,7 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
           <strong className="small">Connect a new account</strong>
           <p className="muted small">
             {mode === "direct"
-              ? "Opens the platform's authorization page in a new tab. After you approve, this list refreshes automatically."
+              ? "Opens the platform's authorization page in a popup. After you approve, this list refreshes automatically."
               : "Opens Zernio's secure login in a new tab. After you authorize, come back and click Sync."}
           </p>
           <div className="platform-chips" style={{ gap: 8, flexWrap: "wrap" }}>
