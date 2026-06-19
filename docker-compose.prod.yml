@@ -89,6 +89,16 @@ services:
       - api
       - frontend
 
+  webhook:
+    build: ./webhook
+    restart: always
+    environment:
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      WEBHOOK_PORT: "9002"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/deplyuser/app:/app
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: always
