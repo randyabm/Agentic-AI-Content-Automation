@@ -57,7 +57,17 @@ Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPT
 
 ## Schema changes
 
-There is no Alembic. `Base.metadata.create_all` runs at API startup, which creates **new tables only** — it will not add columns to existing tables. When a model gains a column, push the code change (auto-deploys), then apply a manual `ALTER TABLE` in the production DB (see deploy instructions above for the psql command).
+`Base.metadata.create_all` runs at API startup and creates **new tables only** — it does not add columns to existing tables.
+
+For any DDL change (new column, index, constraint, etc.) create a numbered SQL file in `migrations/`:
+
+```
+migrations/001_add_foo_to_bar.sql
+```
+
+The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sql` files in order at startup, recording each in `schema_migrations`. Just push — no SSH or manual psql needed.
+
+**Rules:** never edit an already-applied migration; add a new one instead. Use `IF NOT EXISTS` / `IF EXISTS` where possible. See `migrations/README.md` for full conventions.
 
 ## Architecture
 

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.db.migrations import run_migrations
 from app.db.session import Base, SessionLocal, engine
 from app.services import storage
 from app.services.seed import seed
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
     # replace create_all once the schema stabilizes.
     import app.models  # noqa: F401 — register all models on Base
 
+    run_migrations(engine)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
