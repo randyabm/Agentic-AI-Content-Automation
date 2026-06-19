@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_editor
+from app.api.deps import get_current_user, require_client, require_editor
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJob, SearchJobStatus
@@ -17,7 +17,12 @@ from app.schemas.competitor import (
 from app.services import audit
 from app.workers.tasks import run_competitor_analysis, run_competitor_search
 
-router = APIRouter(prefix="/clients/{client_id}/competitors", tags=["competitors"])
+# Every route here is under a client_id; require_client enforces org access for all.
+router = APIRouter(
+    prefix="/clients/{client_id}/competitors",
+    tags=["competitors"],
+    dependencies=[Depends(require_client)],
+)
 
 RUNNING_ANALYSIS = [AnalysisStatus.pending, AnalysisStatus.crawling, AnalysisStatus.extracting, AnalysisStatus.comparing]
 

@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openrouter_api_key: str = ""
 
+    # Zernio — social publishing middleman (one app-wide key). Seeded into an
+    # encrypted ProviderCredential row on first boot; managed by the platform admin.
+    zernio_api_key: str = ""
+    zernio_api_url: str = "https://zernio.com/api/v1"
+    zernio_webhook_secret: str = ""  # HMAC secret to verify Zernio webhook calls
+
+    # Public base URL the backend is reachable at FROM THE INTERNET. Used to build
+    # signed media URLs that Zernio (and the platforms) fetch when publishing.
+    # In production set this to the real domain; localhost is not reachable by Zernio.
+    public_base_url: str = "http://localhost:8000"
+
     s3_endpoint_url: str = "http://minio:9000"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
+import { AutopilotModal } from "../components/AutopilotModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
 import { PostPreviewModal } from "../components/PostPreview";
@@ -39,6 +40,7 @@ export default function CampaignDetail() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [openElementId, setOpenElementId] = useState<string | null>(null);
+  const [showAutopilot, setShowAutopilot] = useState(false);
 
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
@@ -111,6 +113,11 @@ export default function CampaignDetail() {
         </div>
         {canEdit && (
           <div className="competitor-actions">
+            {campaign.status === "ready" && (
+              <button className="btn btn-primary" onClick={() => setShowAutopilot(true)} disabled={!!busy}>
+                <Sparkles size={14} /> AI auto-schedule
+              </button>
+            )}
             <button className="btn btn-ghost" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
               Regenerate all
             </button>
@@ -208,6 +215,13 @@ export default function CampaignDetail() {
           canEdit={canEdit && campaign.status !== "generating"}
           onChange={load}
           onClose={() => setOpenElementId(null)}
+        />
+      )}
+      {showAutopilot && (
+        <AutopilotModal
+          campaignId={campaign.id}
+          onClose={() => setShowAutopilot(false)}
+          onDone={load}
         />
       )}
     </div>
@@ -480,7 +494,80 @@ function CopyForm({
   const [hashtags, setHashtags] = useState(post.hashtags.join(" "));
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
+  const { user } = useAuth();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
+
+  const canReview =
+    !!user?.is_platform_admin || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+  const canSubmit =
+    canReview || user?.org_role === "analyst" || user?.org_role === "creative";
+
+  const [pubMsg, setPubMsg] = useState("");
+  const [pubUrl, setPubUrl] = useState("");
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [showSchedule, setShowSchedule] = useState(false);
+
+  async function review(action: "submit" | "approve" | "reject") {
+    let note = "";
+    if (action === "reject") note = window.prompt("Reason for rejection (optional):") ?? "";
+    setBusy(action === "submit" ? "Submitting…" : action === "approve" ? "Approving…" : "Rejecting…");
+    try {
+      await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, {
+        method: "POST",
+        body: action === "reject" ? { note } : {},
+      });
+      await onChange();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function publishNow() {
+    setBusy("Publishing…");
+    setPubMsg("");
+    setPubUrl("");
+    try {
+      const sp = await api<{ status: string; published_url: string }>(
+        `/campaigns/${campaignId}/posts/${post.id}/publish`,
+        { method: "POST", body: {} }
+      );
+      setPubUrl(sp.published_url);
+      setPubMsg(`Published (${sp.status}).`);
+      await onChange();
+    } catch (e) {
+      setPubMsg(e instanceof Error ? e.message : "Publish failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function schedulePost() {
+    if (!scheduleAt) {
+      setPubMsg("Pick a date and time first.");
+      return;
+    }
+    setBusy("Scheduling…");
+    setPubMsg("");
+    setPubUrl("");
+    try {
+      // datetime-local has no timezone; send the browser's local offset so the
+      // backend interprets the wall-clock time the user picked correctly.
+      const when = new Date(scheduleAt);
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const sp = await api<{ status: string; scheduled_at: string }>(
+        `/campaigns/${campaignId}/posts/${post.id}/schedule`,
+        { method: "POST", body: { scheduled_at: when.toISOString(), timezone: tz } }
+      );
+      setPubMsg(`Scheduled for ${new Date(sp.scheduled_at).toLocaleString()}.`);
+      setShowSchedule(false);
+      setScheduleAt("");
+      await onChange();
+    } catch (e) {
+      setPubMsg(e instanceof Error ? e.message : "Scheduling failed");
+    } finally {
+      setBusy("");
+    }
+  }
 
   useEffect(() => {
     setCopy(post.copy);
@@ -542,6 +629,61 @@ function CopyForm({
       </label>
       {post.best_time && <p className="muted small">⏰ Suggested: {post.best_time}</p>}
       {post.rationale && <p className="muted small">💡 {post.rationale}</p>}
+
+      <div className="approval-bar">
+        <span className={`tag approval-${post.approval_status}`}>
+          {APPROVAL_LABELS[post.approval_status] ?? post.approval_status}
+        </span>
+        {post.approval_status === "rejected" && post.review_note && (
+          <span className="muted small">— {post.review_note}</span>
+        )}
+        {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
+          <button className="btn btn-ghost" onClick={() => review("submit")} disabled={!!busy}>
+            Submit for review
+          </button>
+        )}
+        {canReview && post.approval_status !== "approved" && (
+          <button className="btn btn-primary" onClick={() => review("approve")} disabled={!!busy}>
+            Approve
+          </button>
+        )}
+        {canReview && post.approval_status === "pending_review" && (
+          <button className="btn btn-ghost" onClick={() => review("reject")} disabled={!!busy}>
+            Reject
+          </button>
+        )}
+        {post.approval_status === "approved" && (
+          <button className="btn btn-primary" onClick={publishNow} disabled={!!busy}>
+            Publish now
+          </button>
+        )}
+        {post.approval_status === "approved" && (
+          <button className="btn btn-ghost" onClick={() => setShowSchedule((s) => !s)} disabled={!!busy}>
+            Schedule…
+          </button>
+        )}
+        {pubUrl && (
+          <a href={pubUrl} target="_blank" rel="noreferrer" className="small">
+            View post ↗
+          </a>
+        )}
+        {pubMsg && <span className="muted small">{pubMsg}</span>}
+      </div>
+
+      {post.approval_status === "approved" && showSchedule && (
+        <div className="schedule-row">
+          <input
+            type="datetime-local"
+            value={scheduleAt}
+            onChange={(e) => setScheduleAt(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={schedulePost} disabled={!!busy}>
+            Confirm schedule
+          </button>
+          <span className="muted small">Sent automatically at the chosen time.</span>
+        </div>
+      )}
+
       {canEdit && (
         <div className="form-actions">
           <button className="btn btn-primary" onClick={saveCopy} disabled={!dirty || !!busy}>
@@ -556,6 +698,13 @@ function CopyForm({
     </div>
   );
 }
+
+const APPROVAL_LABELS: Record<string, string> = {
+  draft: "Draft",
+  pending_review: "Pending review",
+  approved: "Approved",
+  rejected: "Rejected",
+};
 
 function ratioRank(r: string): number {
   const i = RATIO_PRIORITY.indexOf(r);

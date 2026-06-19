@@ -5,10 +5,18 @@ from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, sta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_editor
+from app.api.deps import (
+    assert_client_access,
+    get_current_user,
+    org_client_filter,
+    require_contributor,
+    require_editor,
+    require_reviewer,
+)
 from app.db.session import get_db
 from app.models.campaign import (
     Campaign,
+    ApprovalStatus,
     CampaignElement,
     CampaignPlatform,
     CampaignStatus,
@@ -21,6 +29,7 @@ from app.models.campaign import (
     VideoStatus,
 )
 from app.models.client import Client
+from app.models.social import ChannelStatus, PublishStatus, SocialAccount
 from app.models.user import User
 from app.schemas.campaign import (
     CampaignCreate,
@@ -42,8 +51,18 @@ from app.schemas.campaign import (
     PostVideoOut,
     PromptUpdate,
     RegenerateRequest,
+    ReviewReject,
 )
-from app.services import audit, storage
+from app.schemas.social import (
+    AutopilotCommitRequest,
+    AutopilotPreviewRequest,
+    AutopilotPreviewResponse,
+    AutopilotProposal,
+    AutopilotSkipped,
+    ScheduledPostOut,
+    ScheduleRequest,
+)
+from app.services import audit, autopilot, publishing, storage
 from app.services.campaign_gen import generate_platform_copy
 from app.services.compositing import composite_post_image
 from app.services.export import EXPORTERS
@@ -67,14 +86,20 @@ MAX_ASSET_BYTES = 10 * 1024 * 1024
 # --- helpers ---
 
 
-def _get_campaign_or_404(db: Session, campaign_id: str) -> Campaign:
+def _get_campaign_or_404(db: Session, campaign_id: str, user: User) -> Campaign:
     campaign = db.get(Campaign, campaign_id)
     if campaign is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Campaign not found")
+    # Enforce tenant isolation through the owning client's organization.
+    client = db.get(Client, campaign.client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campaign not found")
+    assert_client_access(user, client)
     return campaign
 
 
-def _get_image_or_404(db: Session, campaign_id: str, image_id: str) -> PostImage:
+def _get_image_or_404(db: Session, campaign_id: str, image_id: str, user: User) -> PostImage:
+    _get_campaign_or_404(db, campaign_id, user)  # enforces org access
     image = db.get(PostImage, image_id)
     if image is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image slot not found")
@@ -88,7 +113,7 @@ def _get_image_or_404(db: Session, campaign_id: str, image_id: str) -> PostImage
 
 
 @router.get("/platforms")
-def platform_specs(_: User = Depends(get_current_user)):
+def platform_specs(actor: User = Depends(get_current_user)):
     return [
         {
             "platform": platform.value,
@@ -106,9 +131,13 @@ def platform_specs(_: User = Depends(get_current_user)):
 
 @router.get("", response_model=list[CampaignListItem])
 def list_campaigns(
-    client_id: str | None = None, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    client_id: str | None = None, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     query = select(Campaign).order_by(Campaign.updated_at.desc())
+    # Tenant isolation: restrict to campaigns whose client is in the caller's org.
+    scope = org_client_filter(actor)
+    if scope is not None:
+        query = query.join(Client, Campaign.client_id == Client.id).where(scope)
     if client_id:
         query = query.where(Campaign.client_id == client_id)
     campaigns = db.scalars(query).all()
@@ -147,6 +176,7 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
     client = db.get(Client, body.client_id)
     if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Client not found")
+    assert_client_access(actor, client)  # can't create a campaign for another org's client
     if not any(el.platforms for el in body.elements):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every element needs at least one platform")
     if body.generation_mode == "article" and not (body.article_id or body.article_url or body.article_text):
@@ -220,8 +250,8 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
 
 
 @router.get("/{campaign_id}", response_model=CampaignDetail)
-def get_campaign(campaign_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    campaign = _get_campaign_or_404(db, campaign_id)
+def get_campaign(campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     detail = CampaignDetail.model_validate(campaign)
     posts = db.scalars(
         select(Post).where(Post.campaign_id == campaign_id).order_by(Post.platform, Post.position)
@@ -232,15 +262,15 @@ def get_campaign(campaign_id: str, db: Session = Depends(get_db), _: User = Depe
 
 
 @router.get("/{campaign_id}/status", response_model=CampaignOut)
-def campaign_status(campaign_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return _get_campaign_or_404(db, campaign_id)
+def campaign_status(campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    return _get_campaign_or_404(db, campaign_id, actor)
 
 
 @router.patch("/{campaign_id}", response_model=CampaignOut)
 def update_campaign(
     campaign_id: str, body: CampaignUpdate, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(campaign, field, value)
     db.commit()
@@ -250,10 +280,10 @@ def update_campaign(
 
 @router.get("/{campaign_id}/deletion-summary")
 def campaign_deletion_summary(
-    campaign_id: str, db: Session = Depends(get_db), _: User = Depends(require_editor)
+    campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
     """Counts of records that will be cascade-deleted so the UI can warn the user."""
-    _get_campaign_or_404(db, campaign_id)
+    _get_campaign_or_404(db, campaign_id, actor)
     elements = db.scalar(
         select(func.count()).select_from(CampaignElement).where(CampaignElement.campaign_id == campaign_id)
     ) or 0
@@ -275,7 +305,7 @@ def campaign_deletion_summary(
 
 @router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_campaign(campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)):
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     db.delete(campaign)
     db.commit()
     audit.record(db, actor, "campaign.delete", "campaign", campaign_id)
@@ -288,7 +318,7 @@ def delete_campaign(campaign_id: str, db: Session = Depends(get_db), actor: User
 def regenerate_campaign(
     campaign_id: str, body: RegenerateRequest, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     if body.creativity_level is not None:
         campaign.creativity_level = body.creativity_level
     if body.central_theme is not None:
@@ -307,7 +337,7 @@ def regenerate_campaign(
 def regenerate_one_platform(
     campaign_id: str, platform: Platform, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     campaign.status = CampaignStatus.generating
     db.commit()
     regenerate_platform.delay(campaign_id, platform.value)
@@ -325,6 +355,7 @@ def update_post(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
+    _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
     post = db.get(Post, post_id)
     if post is None or post.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
@@ -340,7 +371,7 @@ def regenerate_post(
     campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
     """Synchronously regenerate the copy of a single post (keeps its image slots)."""
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = db.get(Post, post_id)
     if post is None or post.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
@@ -374,6 +405,232 @@ def regenerate_post(
     return post
 
 
+# --- review / approval workflow (SOCIAL_PUBLISHING_PLAN.md Phase 4) ---
+
+
+def _get_post_or_404(db: Session, campaign_id: str, post_id: str) -> Post:
+    post = db.get(Post, post_id)
+    if post is None or post.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
+    return post
+
+
+@router.post("/{campaign_id}/posts/{post_id}/submit", response_model=PostOut)
+def submit_post(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_contributor)
+):
+    """Contributor submits a post for review (draft/rejected → pending_review)."""
+    _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    post.approval_status = ApprovalStatus.pending_review
+    post.review_note = ""
+    db.commit()
+    audit.record(db, actor, "post.submit", "post", post.id, {"campaign_id": campaign_id})
+    db.refresh(post)
+    return post
+
+
+@router.post("/{campaign_id}/posts/{post_id}/approve", response_model=PostOut)
+def approve_post(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_reviewer)
+):
+    """Reviewer approves a post — only approved posts may be scheduled/published."""
+    _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    post.approval_status = ApprovalStatus.approved
+    post.reviewed_by = actor.id
+    post.reviewed_at = datetime.now(timezone.utc)
+    db.commit()
+    audit.record(db, actor, "post.approve", "post", post.id, {"campaign_id": campaign_id})
+    db.refresh(post)
+    return post
+
+
+@router.post("/{campaign_id}/posts/{post_id}/reject", response_model=PostOut)
+def reject_post(
+    campaign_id: str,
+    post_id: str,
+    body: ReviewReject,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_reviewer),
+):
+    """Reviewer rejects a post with an optional note for the contributor."""
+    _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    post.approval_status = ApprovalStatus.rejected
+    post.reviewed_by = actor.id
+    post.reviewed_at = datetime.now(timezone.utc)
+    post.review_note = body.note
+    db.commit()
+    audit.record(db, actor, "post.reject", "post", post.id, {"campaign_id": campaign_id})
+    db.refresh(post)
+    return post
+
+
+def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:
+    """Shared guards for publish/schedule: the post must be approved and its
+    platform must have a connected channel. Returns the channel to publish to."""
+    if post.approval_status != ApprovalStatus.approved:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
+    channel = db.scalar(
+        select(SocialAccount)
+        .where(
+            SocialAccount.client_id == campaign.client_id,
+            SocialAccount.platform == post.platform.value,
+            SocialAccount.status == ChannelStatus.connected,
+        )
+        .order_by(SocialAccount.created_at)
+    )
+    if channel is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"No connected {post.platform.value} channel. Connect one in the client's Channels tab first.",
+        )
+    return channel
+
+
+@router.post("/{campaign_id}/posts/{post_id}/publish", response_model=ScheduledPostOut)
+def publish_post_now(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+):
+    """Publish an approved post immediately to its platform's connected channel."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    channel = _require_publishable(db, campaign, post)
+    try:
+        sp = publishing.publish_post(db, post, channel, actor.id)
+    except publishing.PublishError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    audit.record(db, actor, "post.publish", "post", post.id, {"channel": channel.id, "status": sp.status.value})
+    if sp.status == PublishStatus.failed:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, sp.error or "Publishing failed")
+    return sp
+
+
+@router.post("/{campaign_id}/posts/{post_id}/schedule", response_model=ScheduledPostOut)
+def schedule_post_for_later(
+    campaign_id: str,
+    post_id: str,
+    body: ScheduleRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Schedule an approved post to publish at a future time (the Beat sweep sends it)."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    channel = _require_publishable(db, campaign, post)
+
+    when = body.scheduled_at
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if when <= datetime.now(timezone.utc):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Scheduled time must be in the future.")
+
+    try:
+        sp = publishing.schedule_post(db, post, channel, actor.id, when, body.timezone)
+    except publishing.PublishError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    audit.record(
+        db, actor, "post.schedule", "post", post.id,
+        {"channel": channel.id, "scheduled_at": when.isoformat()},
+    )
+    return sp
+
+
+# --- AI best-time auto-pilot (SOCIAL_PUBLISHING_PLAN.md Phase 4) ---
+
+
+def _connected_channel(db: Session, client_id: str, platform: str) -> SocialAccount | None:
+    return db.scalar(
+        select(SocialAccount)
+        .where(
+            SocialAccount.client_id == client_id,
+            SocialAccount.platform == platform,
+            SocialAccount.status == ChannelStatus.connected,
+        )
+        .order_by(SocialAccount.created_at)
+    )
+
+
+def _autopilot_split(db: Session, campaign: Campaign) -> tuple[list[tuple[Post, SocialAccount]], list[AutopilotSkipped]]:
+    """Partition a campaign's posts into schedulable (approved + connected channel)
+    pairs and skipped ones (with a reason), preserving order."""
+    posts = db.scalars(
+        select(Post).where(Post.campaign_id == campaign.id).order_by(Post.platform, Post.position)
+    ).all()
+    items: list[tuple[Post, SocialAccount]] = []
+    skipped: list[AutopilotSkipped] = []
+    for post in posts:
+        if post.approval_status != ApprovalStatus.approved:
+            skipped.append(AutopilotSkipped(
+                post_id=post.id, platform=post.platform.value, headline=post.headline or "",
+                reason="Awaiting approval",
+            ))
+            continue
+        channel = _connected_channel(db, campaign.client_id, post.platform.value)
+        if channel is None:
+            skipped.append(AutopilotSkipped(
+                post_id=post.id, platform=post.platform.value, headline=post.headline or "",
+                reason=f"No connected {post.platform.value} channel",
+            ))
+            continue
+        items.append((post, channel))
+    return items, skipped
+
+
+@router.post("/{campaign_id}/autopilot/preview", response_model=AutopilotPreviewResponse)
+def autopilot_preview(
+    campaign_id: str,
+    body: AutopilotPreviewRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Propose an optimal publishing calendar for this campaign's approved posts.
+    Nothing is persisted — the user reviews/edits, then calls /autopilot/commit."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    items, skipped = _autopilot_split(db, campaign)
+    proposals = autopilot.propose_schedule(campaign, items, body.timezone, body.per_day)
+    return AutopilotPreviewResponse(
+        proposals=[AutopilotProposal(**p) for p in proposals],
+        skipped=skipped,
+    )
+
+
+@router.post("/{campaign_id}/autopilot/commit", response_model=list[ScheduledPostOut])
+def autopilot_commit(
+    campaign_id: str,
+    body: AutopilotCommitRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Commit a (possibly user-edited) proposed calendar to ScheduledPost rows."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    now = datetime.now(timezone.utc)
+    created = []
+    for item in body.items:
+        post = _get_post_or_404(db, campaign_id, item.post_id)
+        if post.approval_status != ApprovalStatus.approved:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"Post {post.id} is not approved.")
+        channel = _connected_channel(db, campaign.client_id, post.platform.value)
+        if channel is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"No connected {post.platform.value} channel for one of the posts.",
+            )
+        when = item.scheduled_at
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when <= now:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "All scheduled times must be in the future.")
+        try:
+            sp = publishing.schedule_post(db, post, channel, actor.id, when, body.timezone)
+        except publishing.PublishError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        created.append(sp)
+    audit.record(db, actor, "campaign.autopilot_commit", "campaign", campaign.id, {"count": len(created)})
+    return created
+
+
 # --- image prompts (PRD §5.5.3) ---
 
 
@@ -385,7 +642,7 @@ def update_image_prompt(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     changes = body.model_dump(exclude_unset=True)
     # Snapshot the current prompt before overwriting so the user can restore it.
     if "prompt" in changes or "negative_prompt" in changes:
@@ -407,7 +664,7 @@ def update_image_prompt(
 def restore_prompt(
     campaign_id: str, image_id: str, index: int, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     if index < 0 or index >= len(image.prompt_history):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such prompt version")
     version = image.prompt_history[index]
@@ -429,7 +686,7 @@ def generate_slot_image(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     if image.status == VideoStatus.generating:
         raise HTTPException(status.HTTP_409_CONFLICT, "This image is already being generated.")
     # Validate the model now so a misconfiguration fails fast, then run async in Celery.
@@ -454,7 +711,7 @@ def upload_slot_image(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     if file.content_type not in {"image/png", "image/jpeg", "image/webp"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Image must be PNG, JPG, or WebP")
     data = file.file.read()
@@ -474,9 +731,9 @@ def upload_slot_image(
 
 @router.get("/{campaign_id}/images/{image_id}/base")
 def get_base_image(
-    campaign_id: str, image_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    campaign_id: str, image_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     if not image.base_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No image generated yet")
     data, content_type = storage.get_object(image.base_object_key)
@@ -485,12 +742,12 @@ def get_base_image(
 
 @router.get("/{campaign_id}/images/{image_id}/composite")
 def get_composite_image(
-    campaign_id: str, image_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    campaign_id: str, image_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     if not image.base_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No image generated yet")
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     client = db.get(Client, campaign.client_id)
     try:
         data = composite_post_image(db, image, client)
@@ -511,7 +768,7 @@ def save_canvas(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     image.canvas_state = body.canvas_state
     image.composited_object_key = ""  # canvas changed; re-composite on next export/preview
     db.commit()
@@ -525,10 +782,10 @@ def toggle_image_logo(
     image_id: str,
     body: LogoToggle,
     db: Session = Depends(get_db),
-    _: User = Depends(require_editor),
+    actor: User = Depends(require_editor),
 ):
     """Show or hide the client logo on this image (logo is included by default)."""
-    image = _get_image_or_404(db, campaign_id, image_id)
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
     state = dict(image.canvas_state or {})
     state["logo_enabled"] = body.enabled
     image.canvas_state = state
@@ -541,7 +798,8 @@ def toggle_image_logo(
 # --- videos (provider-abstracted generation; key configured later by an Admin) ---
 
 
-def _get_video_or_404(db: Session, campaign_id: str, video_id: str) -> PostVideo:
+def _get_video_or_404(db: Session, campaign_id: str, video_id: str, user: User) -> PostVideo:
+    _get_campaign_or_404(db, campaign_id, user)  # enforces org access
     video = db.get(PostVideo, video_id)
     if video is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Video slot not found")
@@ -563,6 +821,7 @@ def create_video_slot(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
+    _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
     element = db.get(CampaignElement, element_id)
     if element is None or element.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Element not found")
@@ -590,7 +849,7 @@ def update_video_prompt(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    video = _get_video_or_404(db, campaign_id, video_id)
+    video = _get_video_or_404(db, campaign_id, video_id, actor)
     changes = body.model_dump(exclude_unset=True)
     changes.pop("additional_guidance", None)  # image-only field
     if "prompt" in changes or "negative_prompt" in changes:
@@ -621,7 +880,7 @@ def generate_slot_video(
     actor: User = Depends(require_editor),
 ):
     """Queue async video generation (providers take minutes; the slot tracks status)."""
-    video = _get_video_or_404(db, campaign_id, video_id)
+    video = _get_video_or_404(db, campaign_id, video_id, actor)
     if video.status == VideoStatus.generating:
         raise HTTPException(status.HTTP_409_CONFLICT, "This video is already being generated")
     if not video.prompt.strip():
@@ -642,7 +901,7 @@ def derive_video_ratio_variants(
     campaign_id: str, video_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
     """Reframe the base clip into the element's other aspect ratios (ffmpeg, no re-gen)."""
-    source = _get_video_or_404(db, campaign_id, video_id)
+    source = _get_video_or_404(db, campaign_id, video_id, actor)
     if not source.base_object_key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Generate the base video first")
     element = db.get(CampaignElement, source.element_id)
@@ -660,10 +919,10 @@ def derive_video_ratio_variants(
 
 @router.patch("/{campaign_id}/videos/{video_id}/logo", response_model=PostVideoOut)
 def toggle_video_logo(
-    campaign_id: str, video_id: str, body: LogoToggle, db: Session = Depends(get_db), _: User = Depends(require_editor)
+    campaign_id: str, video_id: str, body: LogoToggle, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
     """Include the client logo when generating this video (applied on next generation)."""
-    video = _get_video_or_404(db, campaign_id, video_id)
+    video = _get_video_or_404(db, campaign_id, video_id, actor)
     video.logo_enabled = body.enabled
     db.commit()
     db.refresh(video)
@@ -678,7 +937,7 @@ def upload_slot_video(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    video = _get_video_or_404(db, campaign_id, video_id)
+    video = _get_video_or_404(db, campaign_id, video_id, actor)
     if file.content_type not in {"video/mp4", "video/webm", "video/quicktime"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Video must be MP4, WebM, or MOV")
     data = file.file.read()
@@ -697,9 +956,9 @@ def upload_slot_video(
 
 @router.get("/{campaign_id}/videos/{video_id}/file")
 def get_video_file(
-    campaign_id: str, video_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    campaign_id: str, video_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
-    video = _get_video_or_404(db, campaign_id, video_id)
+    video = _get_video_or_404(db, campaign_id, video_id, actor)
     if not video.base_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No video generated yet")
     data, content_type = storage.get_object(video.base_object_key)
@@ -710,7 +969,7 @@ def get_video_file(
 def delete_video_slot(
     campaign_id: str, video_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    video = _get_video_or_404(db, campaign_id, video_id)
+    video = _get_video_or_404(db, campaign_id, video_id, actor)
     db.delete(video)
     db.commit()
 
@@ -719,8 +978,8 @@ def delete_video_slot(
 
 
 @router.get("/{campaign_id}/assets", response_model=list[PostAssetOut])
-def list_assets(campaign_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    _get_campaign_or_404(db, campaign_id)
+def list_assets(campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    _get_campaign_or_404(db, campaign_id, actor)
     return db.scalars(
         select(PostAsset).where(PostAsset.campaign_id == campaign_id).order_by(PostAsset.created_at)
     ).all()
@@ -730,7 +989,7 @@ def list_assets(campaign_id: str, db: Session = Depends(get_db), _: User = Depen
 def upload_asset(
     campaign_id: str, file: UploadFile, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    _get_campaign_or_404(db, campaign_id)
+    _get_campaign_or_404(db, campaign_id, actor)
     if file.content_type not in ALLOWED_ASSET_TYPES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Asset must be PNG, JPG, SVG, or WebP")
     data = file.file.read()
@@ -755,7 +1014,7 @@ def upload_asset(
 
 @router.get("/{campaign_id}/assets/{asset_id}/file")
 def get_asset_file(
-    campaign_id: str, asset_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    campaign_id: str, asset_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     asset = db.get(PostAsset, asset_id)
     if asset is None or asset.campaign_id != campaign_id:
@@ -779,8 +1038,8 @@ def delete_asset(
 
 
 @router.get("/{campaign_id}/references", response_model=list[ReferenceImageOut])
-def list_references(campaign_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    _get_campaign_or_404(db, campaign_id)
+def list_references(campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    _get_campaign_or_404(db, campaign_id, actor)
     return db.scalars(
         select(ReferenceImage).where(ReferenceImage.campaign_id == campaign_id).order_by(ReferenceImage.created_at)
     ).all()
@@ -790,7 +1049,7 @@ def list_references(campaign_id: str, db: Session = Depends(get_db), _: User = D
 def upload_reference(
     campaign_id: str, file: UploadFile, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    _get_campaign_or_404(db, campaign_id)
+    _get_campaign_or_404(db, campaign_id, actor)
     if file.content_type not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reference must be a PNG, JPG or WebP image")
     data = file.file.read()
@@ -816,7 +1075,7 @@ def upload_reference(
 
 @router.get("/{campaign_id}/references/{reference_id}/file")
 def get_reference_file(
-    campaign_id: str, reference_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    campaign_id: str, reference_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     ref = db.get(ReferenceImage, reference_id)
     if ref is None or ref.campaign_id != campaign_id:
@@ -846,7 +1105,7 @@ def export_campaign(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
     client = db.get(Client, campaign.client_id)
     exporter = EXPORTERS.get(format)
     if exporter is None:

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.user import UserRole
+from app.models.user import OrgRole, UserRole
 
 
 class UserCreate(BaseModel):
@@ -28,3 +28,7 @@ class UserOut(BaseModel):
     role: UserRole
     is_active: bool
     created_at: datetime
+    # Multi-tenancy context (Phase 0): drives frontend routing/permissions.
+    is_platform_admin: bool = False
+    org_id: str | None = None
+    org_role: OrgRole | None = None
