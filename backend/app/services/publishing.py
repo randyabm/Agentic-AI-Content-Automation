@@ -147,6 +147,7 @@ def _dispatch_direct(
     except DirectSocialError as exc:
         sp.status = PublishStatus.failed
         sp.error = str(exc)
+        raise PublishError(str(exc)) from exc
 
 
 def _dispatch_zernio(

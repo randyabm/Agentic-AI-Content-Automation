@@ -622,5 +622,10 @@ def _publish_linkedin(author_id: str, access_token: str, text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _raise_for(r: httpx.Response, context: str) -> None:
+    if r.status_code == 402:
+        raise DirectSocialError(
+            f"{context}: your Twitter/X Developer app is on the Free tier, which does not allow posting tweets. "
+            "Upgrade to Basic ($100/month) at developer.x.com to enable publishing."
+        )
     if r.status_code >= 400:
         raise DirectSocialError(f"{context} failed ({r.status_code}): {r.text[:300]}")
