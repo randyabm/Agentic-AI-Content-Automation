@@ -210,7 +210,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
             "response_type": "code",
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "twitter"),
-            "scope": "tweet.read tweet.write users.read offline.access",
+            "scope": "tweet.read tweet.write users.read",
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
