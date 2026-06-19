@@ -1,12 +1,14 @@
 #!/bin/bash
 set -e
 
-echo "=== Marketing AI Platform — Deploy ==="
+BRANCH=${1:-competitor-pipeline-speedup}
+
+echo "=== Marketing AI Platform — Deploy ($BRANCH) ==="
 echo "$(date)"
 
-git pull origin master
+git pull origin "$BRANCH"
 
-docker compose -f docker-compose.prod.yml build --no-cache api worker beat frontend
+docker compose -f docker-compose.prod.yml build api worker beat frontend
 docker compose -f docker-compose.prod.yml up -d
 
 docker compose -f docker-compose.prod.yml ps
