@@ -14,33 +14,42 @@ Server: `192.168.0.239` (home lab), user `deplyuser`, accessed via SSH. Stack ru
 
 ## Deploying changes
 
-After making and committing any change, deploy with one command from this machine:
+**No manual deploy command needed.** A GitHub webhook triggers the server to deploy automatically on every push.
 
-```bash
-# SSH credentials are in .env / API KEYS.md (never committed)
-plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cd ~/app && bash deploy.sh master && docker compose -f docker-compose.prod.yml restart nginx cloudflared"
+```
+git commit && git push origin <branch>
+→ GitHub calls https://marketingaidev.randybeltran.xyz/webhook/github
+→ server runs deploy.sh <branch> + restarts nginx and cloudflared
 ```
 
-`deploy.sh` does: `git pull origin competitor-pipeline-speedup` → `docker compose build api worker beat frontend` → `docker compose up -d`.
+- Push to `master` → deploys master (normal workflow)
+- Push to any other branch → deploys that branch (useful for testing from mobile)
+- If no branch can be detected, falls back to master
 
-**The nginx restart after deploy is mandatory** — nginx caches container IPs and new containers get new IPs after each rebuild.
+`deploy.sh` does: `git pull origin <branch>` → `docker compose build api worker beat frontend` → `docker compose up -d`. nginx and cloudflared are always restarted after build — nginx caches container IPs which change on each rebuild.
 
-**Schema changes** (new columns): deploy first, then:
+Deploy logs land in `/tmp/deploy.log` on the server. Check them if something breaks:
+
+```bash
+plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cat /tmp/deploy.log | tail -30"
+```
+
+**Schema changes** (new columns): push first (auto-deploys), then run the ALTER TABLE manually:
 
 ```bash
 plink ... deplyuser@192.168.0.239 "docker exec -it app-db-1 psql -U marketing marketing"
 ```
 
-**Check logs** if something breaks after deploy:
+**Check container logs** if something breaks:
 
 ```bash
 plink ... deplyuser@192.168.0.239 "docker logs app-api-1 --tail 30"
 plink ... deplyuser@192.168.0.239 "docker compose -f ~/app/docker-compose.prod.yml ps"
 ```
 
-Services on the server: `app-api-1` (FastAPI :8000 internal), `app-worker-1` (Celery), `app-beat-1` (Celery beat), `app-frontend-1` (Vite :5173 internal), `app-db-1` (Postgres), `app-redis-1`, `app-minio-1` (:9000 internal), `app-nginx-1` (reverse proxy :80 internal), `app-cloudflared-1` (Cloudflare Tunnel → public domain).
+Services on the server: `app-api-1` (FastAPI :8000 internal), `app-worker-1` (Celery), `app-beat-1` (Celery beat), `app-frontend-1` (Vite :5173 internal), `app-db-1` (Postgres), `app-redis-1`, `app-minio-1` (:9000 internal), `app-nginx-1` (reverse proxy :80 internal), `app-cloudflared-1` (Cloudflare Tunnel → public domain), `app-webhook-1` (GitHub webhook listener :9002 internal).
 
-Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `VITE_API_URL=https://marketingaidev.randybeltran.xyz/api`, `CLOUDFLARE_TUNNEL_TOKEN`, admin credentials.
+Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `VITE_API_URL=https://marketingaidev.randybeltran.xyz/api`, `CLOUDFLARE_TUNNEL_TOKEN`, `GITHUB_WEBHOOK_SECRET`, admin credentials.
 
 - There is no test suite, linter config, or CI at present.
 - The Celery worker does not hot-reload — `deploy.sh` rebuilds and restarts it automatically.
@@ -48,7 +57,7 @@ Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPT
 
 ## Schema changes
 
-There is no Alembic. `Base.metadata.create_all` runs at API startup, which creates **new tables only** — it will not add columns to existing tables. When a model gains a column, deploy first, then apply a manual `ALTER TABLE` in the production DB (see deploy instructions above for the psql command).
+There is no Alembic. `Base.metadata.create_all` runs at API startup, which creates **new tables only** — it will not add columns to existing tables. When a model gains a column, push the code change (auto-deploys), then apply a manual `ALTER TABLE` in the production DB (see deploy instructions above for the psql command).
 
 ## Architecture
 
