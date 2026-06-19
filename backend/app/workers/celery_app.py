@@ -30,5 +30,10 @@ celery_app.conf.update(
             "task": "watchdog.sweep",
             "schedule": 10 * 60.0,  # every 10 minutes
         },
+        # Social scheduling: send any scheduled post whose time has arrived.
+        "publish-due-posts": {
+            "task": "social.publish_due",
+            "schedule": 60.0,  # every minute — minute-level scheduling granularity
+        },
     },
 )

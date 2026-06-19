@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.campaign import (
+    ApprovalStatus,
     CampaignObjective,
     CampaignStatus,
     ElementType,
@@ -153,6 +154,14 @@ class PostOut(BaseModel):
     best_time: str
     rationale: str
     status: PostStatus
+    approval_status: ApprovalStatus = ApprovalStatus.draft
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str = ""
+
+
+class ReviewReject(BaseModel):
+    note: str = ""
 
 
 class PostAssetOut(BaseModel):

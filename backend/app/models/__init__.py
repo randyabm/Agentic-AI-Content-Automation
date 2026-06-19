@@ -14,7 +14,9 @@ from app.models.client import BrandMemoryVersion, Client, ExtractionJob
 from app.models.competitor import Competitor, CompetitorSearchJob
 from app.models.llm import ImageModel, LLMConfig, ProviderCredential, VideoModel
 from app.models.onboarding import OnboardingJob
+from app.models.org import Organization
 from app.models.setting import Setting
+from app.models.social import ScheduledPost, SocialAccount
 from app.models.user import PasswordResetToken, RefreshToken, User
 
 __all__ = [
@@ -32,6 +34,7 @@ __all__ = [
     "ImageModel",
     "LLMConfig",
     "OnboardingJob",
+    "Organization",
     "Post",
     "PostAsset",
     "PostImage",
@@ -40,7 +43,9 @@ __all__ = [
     "ReferenceImage",
     "PasswordResetToken",
     "RefreshToken",
+    "ScheduledPost",
     "Setting",
+    "SocialAccount",
     "User",
     "VideoModel",
 ]

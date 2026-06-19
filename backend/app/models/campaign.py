@@ -62,6 +62,16 @@ class ElementType(str, enum.Enum):
     text = "text"
 
 
+class ApprovalStatus(str, enum.Enum):
+    """Content review gate (SOCIAL_PUBLISHING_PLAN.md): only `approved` posts may
+    be scheduled or published. Creatives submit for review; reviewers decide."""
+
+    draft = "draft"
+    pending_review = "pending_review"
+    approved = "approved"
+    rejected = "rejected"
+
+
 class Campaign(Base):
     __tablename__ = "campaigns"
 
@@ -181,6 +191,15 @@ class Post(Base):
     rationale: Mapped[str] = mapped_column(Text, default="")          # strategic rationale
 
     status: Mapped[PostStatus] = mapped_column(Enum(PostStatus), default=PostStatus.pending)
+
+    # Review/approval gate before publishing (SOCIAL_PUBLISHING_PLAN.md Phase 4).
+    approval_status: Mapped[ApprovalStatus] = mapped_column(
+        Enum(ApprovalStatus), default=ApprovalStatus.draft, nullable=False
+    )
+    reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_note: Mapped[str] = mapped_column(Text, default="")
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

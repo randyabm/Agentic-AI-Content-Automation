@@ -528,6 +528,14 @@ input:focus, select:focus, textarea:focus {
 .tag-amber { background: var(--secondary-soft); color: var(--secondary); border-color: #fde68a; }
 .tag-teal { background: var(--tertiary-soft); color: var(--tertiary); border-color: #99f6e4; }
 
+/* Post review / approval workflow */
+.approval-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+.approval-draft { background: var(--primary-soft); color: var(--primary); border-color: var(--primary-soft-border); }
+.approval-pending_review { background: var(--secondary-soft); color: var(--secondary); border-color: #fde68a; }
+.approval-approved { background: var(--success-bg); color: var(--success-text); border-color: #bbf7d0; }
+.approval-rejected { background: var(--error-bg); color: var(--error-text); border-color: #fecaca; }
+.schedule-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
 /* Tables */
 .table { width: 100%; border-collapse: collapse; }
 .table th {

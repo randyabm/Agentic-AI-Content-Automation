@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_platform_admin
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.audit import AuditLog
@@ -14,12 +14,12 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("", response_model=list[UserOut])
-def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def list_users(db: Session = Depends(get_db), _: User = Depends(require_platform_admin)):
     return db.scalars(select(User).order_by(User.created_at)).all()
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def create_user(body: UserCreate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def create_user(body: UserCreate, db: Session = Depends(get_db), actor: User = Depends(require_platform_admin)):
     email = body.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with this email already exists")
@@ -36,7 +36,7 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), actor: User = D
 
 
 @router.patch("/{user_id}", response_model=UserOut)
-def update_user(user_id: str, body: UserUpdate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def update_user(user_id: str, body: UserUpdate, db: Session = Depends(get_db), actor: User = Depends(require_platform_admin)):
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -51,7 +51,7 @@ def update_user(user_id: str, body: UserUpdate, db: Session = Depends(get_db), a
 
 
 @router.get("/audit-log")
-def audit_log(limit: int = 100, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def audit_log(limit: int = 100, db: Session = Depends(get_db), _: User = Depends(require_platform_admin)):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(min(limit, 500))).all()
     return [
         {

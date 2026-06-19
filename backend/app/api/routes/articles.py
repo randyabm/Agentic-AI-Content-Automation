@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import Text, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin, require_editor
+from app.api.deps import get_current_user, org_client_filter, require_editor, require_platform_admin
 from app.db.session import get_db
 from app.models.article import (
     Article,
@@ -10,6 +10,7 @@ from app.models.article import (
     ArticleSource,
     ArticleStatus,
 )
+from app.models.client import Client
 from app.models.user import User
 from app.schemas.article import (
     ArticleFromText,
@@ -27,13 +28,31 @@ from app.workers.tasks import import_article_from_url, sync_source
 router = APIRouter(prefix="/articles", tags=["articles"])
 
 
+def _get_article_or_404(db: Session, article_id: str, user: User) -> Article:
+    """Load an article, enforcing that a client-associated article belongs to the
+    caller's org. Articles with no client (manually added to the shared global
+    pool) are visible to everyone.
+
+    NOTE: strict isolation of null-client articles needs an `Article.org_id`
+    column (tracked as a follow-up); today they are treated as a shared pool.
+    """
+    article = db.get(Article, article_id)
+    if article is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
+    if article.client_id is not None:
+        client = db.get(Client, article.client_id)
+        if client is None or client.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
+    return article
+
+
 # --- Library browsing & search (PRD §7.6) ---
 
 
 @router.get("", response_model=list[ArticleListItem])
 def list_articles(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     q: str = Query("", description="Keyword across title, author, summary, tags"),
     entry_type: ArticleEntryType | None = None,
     article_status: ArticleStatus | None = None,
@@ -44,6 +63,13 @@ def list_articles(
     offset: int = 0,
 ):
     query = select(Article)
+    # Tenant isolation: client-associated articles only within the caller's org;
+    # null-client (shared global pool) articles remain visible to all.
+    scope = org_client_filter(user)
+    if scope is not None:
+        query = query.outerjoin(Client, Article.client_id == Client.id).where(
+            or_(Client.org_id == user.org_id, Article.client_id.is_(None))
+        )
     if q:
         like = f"%{q.lower()}%"
         query = query.where(
@@ -69,11 +95,8 @@ def list_articles(
 
 
 @router.get("/{article_id}", response_model=ArticleOut)
-def get_article(article_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    article = db.get(Article, article_id)
-    if article is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
-    return article
+def get_article(article_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return _get_article_or_404(db, article_id, user)
 
 
 # --- Manual entry (PRD §7.2.2) ---
@@ -119,9 +142,7 @@ def add_from_text(body: ArticleFromText, db: Session = Depends(get_db), actor: U
 def update_article(
     article_id: str, body: ArticleUpdate, db: Session = Depends(get_db), actor: User = Depends(require_editor)
 ):
-    article = db.get(Article, article_id)
-    if article is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
+    article = _get_article_or_404(db, article_id, actor)
     changes = body.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(article, field, value)
@@ -133,9 +154,7 @@ def update_article(
 @router.post("/{article_id}/approve", response_model=ArticleOut)
 def approve_article(article_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)):
     """Approve an auto-synced article that was queued for review (PRD §7.4)."""
-    article = db.get(Article, article_id)
-    if article is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
+    article = _get_article_or_404(db, article_id, actor)
     article.needs_review = False
     db.commit()
     audit.record(db, actor, "article.approve", "article", article.id)
@@ -144,9 +163,7 @@ def approve_article(article_id: str, db: Session = Depends(get_db), actor: User 
 
 @router.post("/{article_id}/archive", response_model=ArticleOut)
 def archive_article(article_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)):
-    article = db.get(Article, article_id)
-    if article is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
+    article = _get_article_or_404(db, article_id, actor)
     article.status = ArticleStatus.archived
     db.commit()
     audit.record(db, actor, "article.archive", "article", article.id)
@@ -154,11 +171,9 @@ def archive_article(article_id: str, db: Session = Depends(get_db), actor: User 
 
 
 @router.delete("/{article_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_article(article_id: str, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
-    """Permanently delete an article — Admin only (PRD §7.6)."""
-    article = db.get(Article, article_id)
-    if article is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Article not found")
+def delete_article(article_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)):
+    """Permanently delete an article in the caller's org (PRD §7.6)."""
+    article = _get_article_or_404(db, article_id, actor)
     db.delete(article)
     db.commit()
     audit.record(db, actor, "article.delete", "article", article_id)
@@ -170,12 +185,12 @@ sources_router = APIRouter(prefix="/article-sources", tags=["article-sources"])
 
 
 @sources_router.get("", response_model=list[ArticleSourceOut])
-def list_sources(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def list_sources(db: Session = Depends(get_db), _: User = Depends(require_platform_admin)):
     return db.scalars(select(ArticleSource).order_by(ArticleSource.created_at)).all()
 
 
 @sources_router.post("", response_model=ArticleSourceOut, status_code=status.HTTP_201_CREATED)
-def create_source(body: ArticleSourceCreate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def create_source(body: ArticleSourceCreate, db: Session = Depends(get_db), actor: User = Depends(require_platform_admin)):
     source = ArticleSource(
         name=body.name or str(body.url),
         url=str(body.url),
@@ -193,7 +208,7 @@ def create_source(body: ArticleSourceCreate, db: Session = Depends(get_db), acto
 
 @sources_router.patch("/{source_id}", response_model=ArticleSourceOut)
 def update_source(
-    source_id: str, body: ArticleSourceUpdate, db: Session = Depends(get_db), actor: User = Depends(require_admin)
+    source_id: str, body: ArticleSourceUpdate, db: Session = Depends(get_db), actor: User = Depends(require_platform_admin)
 ):
     source = db.get(ArticleSource, source_id)
     if source is None:
@@ -209,7 +224,7 @@ def update_source(
 
 
 @sources_router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_source(source_id: str, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def delete_source(source_id: str, db: Session = Depends(get_db), actor: User = Depends(require_platform_admin)):
     source = db.get(ArticleSource, source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source not found")
@@ -219,7 +234,7 @@ def delete_source(source_id: str, db: Session = Depends(get_db), actor: User = D
 
 
 @sources_router.post("/{source_id}/sync", response_model=ArticleSourceOut, status_code=status.HTTP_202_ACCEPTED)
-def trigger_sync(source_id: str, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def trigger_sync(source_id: str, db: Session = Depends(get_db), actor: User = Depends(require_platform_admin)):
     """Run an on-demand sync now (PRD §7.2.1 'or on demand')."""
     source = db.get(ArticleSource, source_id)
     if source is None:

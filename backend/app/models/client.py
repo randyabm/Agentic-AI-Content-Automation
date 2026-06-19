@@ -14,6 +14,14 @@ class Client(Base):
     __tablename__ = "clients"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Tenant root: every client belongs to one organization. Nullable only so the
+    # column can be added to the existing table before backfill; treated as required.
+    org_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    # Zernio profile that groups this client's connected social accounts (see
+    # SOCIAL_PUBLISHING_PLAN.md). Created lazily when the first channel connects.
+    zernio_profile_id: Mapped[str] = mapped_column(String(64), default="")
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     website_url: Mapped[str] = mapped_column(String(500), nullable=False)
     industry: Mapped[str] = mapped_column(String(255), default="")
