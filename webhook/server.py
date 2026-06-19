@@ -11,8 +11,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("webhook")
 
 SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "").encode()
-DEPLOY_CMD = ["/bin/bash", "/app/deploy.sh", "master"]
 RESTART_CMD = ["docker", "compose", "-f", "/app/docker-compose.prod.yml", "restart", "nginx", "cloudflared"]
+
+
+def deploy_cmd(branch: str) -> list[str]:
+    return ["/bin/bash", "/app/deploy.sh", branch]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -40,22 +43,26 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             ref = ""
 
+        # Extract branch name from ref (e.g. "refs/heads/feature-x" → "feature-x")
+        branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else "master"
+
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"ok")
 
-        if ref in ("refs/heads/master", "refs/heads/main"):
-            log.info("Push to %s — starting deploy", ref)
+        if ref.startswith("refs/heads/"):
+            log.info("Push to %s — deploying branch %s", ref, branch)
+            cmd = deploy_cmd(branch)
             try:
                 subprocess.Popen(
-                    ["/bin/bash", "-c", f"{' '.join(DEPLOY_CMD)} && {' '.join(RESTART_CMD)}"],
+                    ["/bin/bash", "-c", f"{' '.join(cmd)} && {' '.join(RESTART_CMD)}"],
                     stdout=open("/tmp/deploy.log", "w"),
                     stderr=subprocess.STDOUT,
                 )
             except Exception as exc:
                 log.error("Failed to start deploy: %s", exc)
         else:
-            log.info("Push to %s — not master, skipping", ref or "(unknown)")
+            log.info("ref=%r — not a branch push, skipping", ref or "(unknown)")
 
     def log_message(self, *args):
         pass
