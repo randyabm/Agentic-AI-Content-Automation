@@ -6,26 +6,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Internal AI Marketing Platform: client intelligence, competitive analysis, and AI-powered social campaign generation. Spec lives in `prd_extracted.md` (extracted from the PRD docx); README maps modules to PRD sections. All v1.1 modules are implemented; video generation is a beyond-PRD extra.
 
-## Running
+## Environment
 
-Everything runs in Docker Compose (no local venv/node setup expected):
+**The development environment is the remote server at https://marketingaidev.randybeltran.xyz — do NOT use local Docker for development.** All changes must be committed and deployed to the server to be tested.
+
+Server: `192.168.0.239` (home lab), user `deplyuser`, accessed via SSH. Stack runs under `~/app/` with `docker-compose.prod.yml`. Data lives in Docker volumes `pgdata` and `miniodata` on the server — do not wipe these.
+
+## Deploying changes
+
+After making and committing any change, deploy with one command from this machine:
 
 ```bash
-docker compose up --build
+# SSH credentials are in .env / API KEYS.md (never committed)
+plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cd ~/app && bash deploy.sh && docker compose -f docker-compose.prod.yml restart nginx"
 ```
 
-Services: `api` (FastAPI, hot-reload via volume mount, :8000), `worker` (Celery), `beat` (Celery beat — periodic article-source sync), `frontend` (Vite dev server, :5173), `db` (Postgres :5432), `redis`, `minio` (:9000/:9001), `mailpit` (:8025).
+`deploy.sh` does: `git pull origin competitor-pipeline-speedup` → `docker compose build api worker beat frontend` → `docker compose up -d`.
 
-Requires a `.env` (gitignored) with `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, admin credentials. On first boot the API seeds the admin user, per-function LLM configs, default image/video model lists, and global settings (`app/services/seed.py`).
+**The nginx restart after deploy is mandatory** — nginx caches container IPs and new containers get new IPs after each rebuild.
 
-- Restart a backend code path: API reloads automatically; the **Celery worker does not hot-reload** — `docker compose restart worker` after changing `app/workers/` or services used by tasks.
-- Frontend: after any frontend change, clear `node_modules/.vite` and restart the frontend container, then verify the served module (Vite cache is sticky in Docker).
-- Frontend build/typecheck: `docker compose exec frontend npm run build` (`tsc -b && vite build`).
+**Schema changes** (new columns): deploy first, then:
+
+```bash
+plink ... deplyuser@192.168.0.239 "docker exec -it app-db-1 psql -U marketing marketing"
+```
+
+**Check logs** if something breaks after deploy:
+
+```bash
+plink ... deplyuser@192.168.0.239 "docker logs app-api-1 --tail 30"
+plink ... deplyuser@192.168.0.239 "docker compose -f ~/app/docker-compose.prod.yml ps"
+```
+
+Services on the server: `app-api-1` (FastAPI :8000 internal), `app-worker-1` (Celery), `app-beat-1` (Celery beat), `app-frontend-1` (Vite :5173 internal), `app-db-1` (Postgres), `app-redis-1`, `app-minio-1` (:9000 internal), `app-nginx-1` (reverse proxy :80 internal), `app-cloudflared-1` (Cloudflare Tunnel → public domain).
+
+Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `VITE_API_URL=https://marketingaidev.randybeltran.xyz/api`, `CLOUDFLARE_TUNNEL_TOKEN`, admin credentials.
+
 - There is no test suite, linter config, or CI at present.
+- The Celery worker does not hot-reload — `deploy.sh` rebuilds and restarts it automatically.
+- Frontend changes: `deploy.sh` rebuilds the frontend container.
 
 ## Schema changes
 
-There is no Alembic. `Base.metadata.create_all` runs at API startup, which creates **new tables only** — it will not add columns to existing tables. When a model gains a column, apply a manual `ALTER TABLE` in Postgres (`docker compose exec db psql -U marketing marketing`).
+There is no Alembic. `Base.metadata.create_all` runs at API startup, which creates **new tables only** — it will not add columns to existing tables. When a model gains a column, deploy first, then apply a manual `ALTER TABLE` in the production DB (see deploy instructions above for the psql command).
 
 ## Architecture
 
