@@ -640,15 +640,15 @@ def publish(
 
 def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list[str], video_url: str = "") -> tuple[str, str]:
     if video_url:
-        logger.info(f"Publishing video to Facebook page {page_id} with URL: {video_url}")
-        r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/videos",
+        logger.info(f"Publishing Reel to Facebook page {page_id} with URL: {video_url}")
+        r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
             data={"description": text, "file_url": video_url, "access_token": page_token}, timeout=300)
-        logger.info(f"Facebook video response: {r.status_code} - {r.text[:500]}")
-        _raise_for(r, "Facebook video post")
-        video_id = r.json().get("id", "")
-        published_url = f"https://www.facebook.com/video.php?v={video_id}" if video_id else ""
-        logger.info(f"Facebook video published: {published_url}")
-        return video_id, published_url
+        logger.info(f"Facebook Reel response: {r.status_code} - {r.text[:500]}")
+        _raise_for(r, "Facebook Reel post")
+        reel_id = r.json().get("id", "") or r.json().get("video_id", "")
+        published_url = f"https://www.facebook.com/reel/{reel_id}" if reel_id else ""
+        logger.info(f"Facebook Reel published: {published_url}")
+        return reel_id, published_url
     elif len(image_urls) > 1:
         return _publish_facebook_carousel(page_id, page_token, text, image_urls)
     elif image_urls:
