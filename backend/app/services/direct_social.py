@@ -561,8 +561,10 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "")
 
 def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) -> str:
     if image_url:
+        logger.info(f"Publishing to Facebook page {page_id} with image URL: {image_url}")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/photos",
             data={"caption": text, "url": image_url, "access_token": page_token}, timeout=60)
+        logger.info(f"Facebook response: {r.status_code} - {r.text[:500]}")
         _raise_for(r, "Facebook photo post")
     else:
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/feed",
