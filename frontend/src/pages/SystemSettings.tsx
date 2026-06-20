@@ -289,7 +289,7 @@ function IntegrationsSection() {
           <p className="muted small">
             Register these as allowed redirect URIs in each platform's developer console:
           </p>
-          {["facebook", "twitter", "linkedin"].map((p) => (
+          {["facebook", "instagram", "twitter", "linkedin"].map((p) => (
             <div key={p} className="mono small" style={{ marginBottom: 4 }}>
               {urlSettings.app_public_url || "http://localhost:8000"}/auth/{p}/callback
             </div>
