@@ -19,6 +19,7 @@ import base64
 import hashlib
 import logging
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -647,12 +648,31 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
     if not image_url:
         raise DirectSocialError("Instagram requires an image to publish.")
     logger.info(f"Publishing to Instagram account {ig_account_id} with image URL: {image_url}")
+
+    # Step 1: create media container
     r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media",
         data={"caption": text, "image_url": image_url, "media_type": "IMAGE",
               "access_token": page_token}, timeout=60)
     logger.info(f"Instagram media container response: {r.status_code} - {r.text[:500]}")
     _raise_for(r, "Instagram media container")
     container_id = r.json()["id"]
+
+    # Step 2: wait for container to finish processing (Instagram processes async)
+    for attempt in range(15):
+        time.sleep(3)
+        r = httpx.get(f"{INSTAGRAM_GRAPH}/{container_id}",
+            params={"fields": "status_code,status", "access_token": page_token}, timeout=30)
+        _raise_for(r, "Instagram container status")
+        status = r.json().get("status_code", "")
+        logger.info(f"Instagram container {container_id} status: {status} (attempt {attempt + 1})")
+        if status == "FINISHED":
+            break
+        if status == "ERROR":
+            raise DirectSocialError(f"Instagram media container failed to process: {r.json().get('status', 'unknown error')}")
+    else:
+        raise DirectSocialError("Instagram media container timed out — image took too long to process.")
+
+    # Step 3: publish
     r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media_publish",
         data={"creation_id": container_id, "access_token": page_token}, timeout=60)
     _raise_for(r, "Instagram media publish")
