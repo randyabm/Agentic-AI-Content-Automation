@@ -89,3 +89,45 @@ The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sq
 - New backend feature = model + schema + route + service (+ Celery task if slow), wired through `models/__init__.py` and `api/router.py`, plus seed updates if it needs defaults.
 - `API KEYS.md` and `.env` are gitignored secrets — never commit or print their contents.
 - **Textareas**: never use a bare `<textarea>` in the frontend. Always use `<TextareaZoom>` imported from `frontend/src/components/TextareaZoom.tsx`. It renders a read-only preview that opens a full-size editable mini-modal on click. Props: `label` (shown as modal title), `value`, `onChange`, `rows` (optional, default 2), `placeholder` (optional), `readOnly` (optional). The only exception is inside `TextareaZoom` itself.
+
+## Facebook & Instagram Publishing (Direct API)
+
+**Status**: Facebook Pages live ✅; Instagram Phase 2 (planned).
+
+**Architecture**: Direct publishing via Meta Graph API v19.0 (not Zernio middleman). OAuth tokens stored encrypted in `SocialAccount` rows. Media URLs are signed JWTs bound to MinIO objects; Facebook downloads them via the public endpoint.
+
+**Critical environment variable** (must be set in `~/app/.env`):
+```
+PUBLIC_BASE_URL=https://marketingaidev.randybeltran.xyz/api
+```
+This is used to build signed media URLs that Facebook fetches in the background. If missing, defaults to `http://localhost:8000` (unreachable) → Facebook rejects posts with "Missing or invalid image file" (code 324).
+
+**Meta App Setup** (developers.facebook.com):
+- **App ID**: `2078337289753964` (Solomoit-Test1)
+- **OAuth Redirect URI**: `https://marketingaidev.randybeltran.xyz/api/auth/facebook/callback` (must be in App settings)
+- **App Domains**: `marketingaidev.randybeltran.xyz`
+- **Facebook Login Settings**:
+  - Valid OAuth Redirect URIs: `https://marketingaidev.randybeltran.xyz/api/auth/facebook/callback`
+  - Use Strict Mode for Redirect URIs: OFF (for now, dev mode)
+
+**Publishing Flow**:
+1. User connects a Facebook Page via OAuth → `SocialAccount` created with encrypted token
+2. User creates post + selects Facebook Page channel → approves post
+3. "Publish now" → backend generates signed media URL (`/media/public/{token}`) → sends to Facebook Graph API `POST /{page_id}/photos`
+4. Facebook downloads image from signed URL → creates post → returns post_id → stored in `ScheduledPost`
+
+**Scopes** (currently Facebook Pages only):
+- `pages_manage_posts` — create posts on pages
+- `pages_read_engagement` — read page metrics
+- `pages_show_list` — list managed pages
+
+**Code paths**:
+- **OAuth + token exchange**: `backend/app/services/direct_social.py` — `get_connect_url()`, `_exchange_facebook()`
+- **Publishing**: `backend/app/services/publishing.py::_dispatch_direct()` → `direct_social.py::publish()`
+- **Media proxy**: `backend/app/api/routes/media.py::public_media({token})`
+- **Channel management**: `backend/app/api/routes/channels.py`
+
+**Debugging**:
+- Check API logs: `docker logs app-api-1 --tail 50` (look for "Publishing to Facebook" + URL)
+- Verify media endpoint: `curl "https://marketingaidev.randybeltran.xyz/api/media/public/{token}"` should return image data
+- Token refresh logged at publish time if token is near expiry (< 7 days)
