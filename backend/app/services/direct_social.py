@@ -719,24 +719,22 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
     _raise_for(r, "Instagram media publish")
     media_id = r.json().get("id", "")
 
-    # Step 4: fetch permalink directly — Instagram returns the correct URL for both
-    # images (/p/) and reels (/reel/) without any manual URL construction needed.
+    # Step 4: fetch shortcode to build the public permalink
     published_url = ""
     try:
         r = httpx.get(f"{INSTAGRAM_GRAPH}/{media_id}",
-            params={"fields": "permalink,media_type", "access_token": page_token}, timeout=15)
+            params={"fields": "shortcode,media_type", "access_token": page_token}, timeout=15)
         data = r.json()
-        permalink = data.get("permalink", "")
-        logger.info(f"Instagram permalink response for {media_id}: {data}")
-        if permalink and permalink.startswith("http"):
-            published_url = permalink
+        shortcode = data.get("shortcode", "")
+        media_type = data.get("media_type", "")
+        if shortcode:
+            if media_type in ("VIDEO", "REELS"):
+                published_url = f"https://www.instagram.com/reel/{shortcode}/"
+            else:
+                published_url = f"https://www.instagram.com/p/{shortcode}/"
             logger.info(f"Instagram post published: {published_url}")
-        elif permalink:
-            # Unexpected relative value — prepend instagram.com
-            published_url = f"https://www.instagram.com{permalink}"
-            logger.warning(f"Instagram returned relative permalink '{permalink}', constructed: {published_url}")
     except Exception as exc:
-        logger.warning(f"Could not fetch Instagram permalink for {media_id}: {exc}")
+        logger.warning(f"Could not fetch Instagram shortcode for {media_id}: {exc}")
 
     return media_id, published_url
 
