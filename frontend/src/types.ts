@@ -529,9 +529,21 @@ export interface Post {
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_note: string;
+  publish_state: PublishState | null;
 }
 
 export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
+
+export type PublishStatus = "draft" | "scheduled" | "publishing" | "published" | "partial" | "failed";
+
+export interface PublishState {
+  status: PublishStatus;
+  published_url: string;
+  scheduled_at: string | null;
+  error: string;
+  channel_id: string;
+  updated_at: string | null;
+}
 
 export interface PostAsset {
   id: string;

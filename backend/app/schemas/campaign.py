@@ -139,6 +139,18 @@ class GenerateVideoRequest(BaseModel):
     video_model_id: str | None = None
 
 
+class PublishStateOut(BaseModel):
+    """The latest publish/schedule attempt for a post, surfaced on PostOut so the
+    UI can show persistent publish status without a separate calendar lookup."""
+
+    status: str                      # scheduled | publishing | published | partial | failed
+    published_url: str = ""
+    scheduled_at: datetime | None = None
+    error: str = ""
+    channel_id: str = ""
+    updated_at: datetime | None = None
+
+
 class PostOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,6 +170,7 @@ class PostOut(BaseModel):
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_note: str = ""
+    publish_state: PublishStateOut | None = None
 
 
 class ReviewReject(BaseModel):

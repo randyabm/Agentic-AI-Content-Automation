@@ -17,6 +17,7 @@ import type {
   Post,
   PostImage,
   PostVideo,
+  PublishState,
   VideoModel,
 } from "../types";
 
@@ -258,6 +259,12 @@ function ElementCard({
     videoCount > 0 ? `${readyVideos}/${videoCount} video${videoCount > 1 ? "s" : ""}` : "",
   ].filter(Boolean);
 
+  // Publish summary across this element's posts (shown as a card badge)
+  const publishedCount = posts.filter((p) => p.publish_state?.status === "published" || p.publish_state?.status === "partial").length;
+  const publishingCount = posts.filter((p) => p.publish_state?.status === "publishing").length;
+  const scheduledCount = posts.filter((p) => p.publish_state?.status === "scheduled").length;
+  const failedCount = posts.filter((p) => p.publish_state?.status === "failed").length;
+
   return (
     <div className="card element-card" onClick={onOpen}>
       <div className="element-thumb">
@@ -294,6 +301,22 @@ function ElementCard({
             <span className="tag"> generating…</span>
           )}
         </div>
+        {(publishedCount > 0 || publishingCount > 0 || scheduledCount > 0 || failedCount > 0) && (
+          <div className="platform-chips" style={{ marginTop: 4 }}>
+            {publishedCount > 0 && (
+              <span className="tag approval-approved">✓ {publishedCount} published</span>
+            )}
+            {publishingCount > 0 && (
+              <span className="tag approval-pending_review">⏳ {publishingCount} publishing</span>
+            )}
+            {scheduledCount > 0 && (
+              <span className="tag">⏰ {scheduledCount} scheduled</span>
+            )}
+            {failedCount > 0 && (
+              <span className="tag approval-rejected">✗ {failedCount} failed</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -503,9 +526,12 @@ function CopyForm({
     canReview || user?.org_role === "analyst" || user?.org_role === "creative";
 
   const [pubMsg, setPubMsg] = useState("");
-  const [pubUrl, setPubUrl] = useState("");
   const [scheduleAt, setScheduleAt] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
+
+  // Persistent publish status comes from the server (post.publish_state); local
+  // state is only a transient overlay for in-flight feedback / error messages.
+  const ps = post.publish_state;
 
   async function review(action: "submit" | "approve" | "reject") {
     let note = "";
@@ -523,19 +549,18 @@ function CopyForm({
   }
 
   async function publishNow() {
+    if (!window.confirm("Publish this post now?")) return;
     setBusy("Publishing…");
     setPubMsg("");
-    setPubUrl("");
     try {
-      const sp = await api<{ status: string; published_url: string }>(
+      await api<{ status: string; published_url: string }>(
         `/campaigns/${campaignId}/posts/${post.id}/publish`,
         { method: "POST", body: {} }
       );
-      setPubUrl(sp.published_url);
-      setPubMsg(`Published (${sp.status}).`);
-      await onChange();
+      await onChange();  // refreshes post.publish_state with the persisted result
     } catch (e) {
       setPubMsg(e instanceof Error ? e.message : "Publish failed");
+      await onChange();  // a failed attempt is still persisted server-side
     } finally {
       setBusy("");
     }
@@ -548,7 +573,6 @@ function CopyForm({
     }
     setBusy("Scheduling…");
     setPubMsg("");
-    setPubUrl("");
     try {
       // datetime-local has no timezone; send the browser's local offset so the
       // backend interprets the wall-clock time the user picked correctly.
@@ -653,8 +677,8 @@ function CopyForm({
           </button>
         )}
         {post.approval_status === "approved" && (
-          <button className="btn btn-primary" onClick={publishNow} disabled={!!busy}>
-            Publish now
+          <button className="btn btn-primary" onClick={publishNow} disabled={!!busy || ps?.status === "publishing"}>
+            {ps?.status === "published" ? "Publish again" : "Publish now"}
           </button>
         )}
         {post.approval_status === "approved" && (
@@ -662,12 +686,8 @@ function CopyForm({
             Schedule…
           </button>
         )}
-        {pubUrl && (
-          <a href={pubUrl} target="_blank" rel="noreferrer" className="small">
-            View post ↗
-          </a>
-        )}
-        {pubMsg && <span className="muted small">{pubMsg}</span>}
+        {ps && <PublishBadge ps={ps} busy={!!busy} />}
+        {pubMsg && <span className="char-over small">{pubMsg}</span>}
       </div>
 
       {post.approval_status === "approved" && showSchedule && (
@@ -697,6 +717,41 @@ function CopyForm({
       )}
     </div>
   );
+}
+
+function PublishBadge({ ps, busy }: { ps: PublishState; busy: boolean }) {
+  if (ps.status === "published" || ps.status === "partial") {
+    return (
+      <span className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+        <span className="tag approval-approved">
+          {ps.status === "partial" ? "⚠ Partially published" : "✓ Published"}
+        </span>
+        {ps.published_url && (
+          <a href={ps.published_url} target="_blank" rel="noreferrer">
+            View post ↗
+          </a>
+        )}
+      </span>
+    );
+  }
+  if (ps.status === "publishing") {
+    return <span className="tag approval-pending_review">{busy ? "Publishing…" : "Publishing…"}</span>;
+  }
+  if (ps.status === "scheduled") {
+    return (
+      <span className="muted small">
+        ⏰ Scheduled{ps.scheduled_at ? ` for ${new Date(ps.scheduled_at).toLocaleString()}` : ""}
+      </span>
+    );
+  }
+  if (ps.status === "failed") {
+    return (
+      <span className="char-over small" title={ps.error}>
+        ✗ Failed{ps.error ? `: ${ps.error.slice(0, 120)}` : ""}
+      </span>
+    );
+  }
+  return null;
 }
 
 const APPROVAL_LABELS: Record<string, string> = {

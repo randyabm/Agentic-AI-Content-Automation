@@ -136,9 +136,14 @@ def publish_post(
         created_by=actor_id,
     )
     db.add(sp)
-    db.flush()
-    _dispatch(db, sp, channel, text, image_keys, video_key)
+    # Commit the "publishing" state up front so a reload mid-publish (video
+    # uploads can take a while) shows progress instead of nothing, and so a
+    # failure is still recorded even though _dispatch re-raises.
     db.commit()
+    try:
+        _dispatch(db, sp, channel, text, image_keys, video_key)
+    finally:
+        db.commit()
     return sp
 
 
