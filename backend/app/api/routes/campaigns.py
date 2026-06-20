@@ -29,7 +29,7 @@ from app.models.campaign import (
     VideoStatus,
 )
 from app.models.client import Client
-from app.models.social import ChannelStatus, PublishStatus, SocialAccount
+from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
 from app.models.user import User
 from app.schemas.campaign import (
     CampaignCreate,
@@ -45,6 +45,7 @@ from app.schemas.campaign import (
     PostAssetOut,
     PostOut,
     PostImageOut,
+    PublishStateOut,
     PostUpdate,
     ReferenceImageOut,
     PostVideoCreate,
@@ -256,9 +257,44 @@ def get_campaign(campaign_id: str, db: Session = Depends(get_db), actor: User = 
     posts = db.scalars(
         select(Post).where(Post.campaign_id == campaign_id).order_by(Post.platform, Post.position)
     ).all()
-    detail.posts = [PostOut.model_validate(p) for p in posts]
+
+    # Latest publish/schedule attempt per post, so the UI shows persistent status
+    # (publishing / published / scheduled / failed) without a separate lookup.
+    publish_states = _latest_publish_states(db, [p.id for p in posts])
+
+    out_posts = []
+    for p in posts:
+        po = PostOut.model_validate(p)
+        po.publish_state = publish_states.get(p.id)
+        out_posts.append(po)
+    detail.posts = out_posts
     detail.elements = [ElementOut.model_validate(el) for el in campaign.elements]
     return detail
+
+
+def _latest_publish_states(db: Session, post_ids: list[str]) -> dict[str, PublishStateOut]:
+    """Most-recent ScheduledPost per post id, mapped to a PublishStateOut."""
+    if not post_ids:
+        return {}
+    rows = db.scalars(
+        select(ScheduledPost)
+        .where(ScheduledPost.post_id.in_(post_ids))
+        .order_by(ScheduledPost.created_at)
+    ).all()
+    latest: dict[str, ScheduledPost] = {}
+    for sp in rows:  # ordered oldest→newest, so the last write wins
+        latest[sp.post_id] = sp
+    return {
+        pid: PublishStateOut(
+            status=sp.status.value,
+            published_url=sp.published_url or "",
+            scheduled_at=sp.scheduled_at,
+            error=sp.error or "",
+            channel_id=sp.social_account_id or "",
+            updated_at=sp.updated_at,
+        )
+        for pid, sp in latest.items()
+    }
 
 
 @router.get("/{campaign_id}/status", response_model=CampaignOut)

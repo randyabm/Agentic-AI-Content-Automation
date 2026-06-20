@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
 import time
@@ -608,8 +609,15 @@ def verify_channel_health(channel: SocialAccount) -> ChannelStatus:
 # Publishing
 # ---------------------------------------------------------------------------
 
-def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "", video_url: str = "") -> tuple[str, str]:
-    """Publish content directly to the platform. Returns (native_post_id, published_url)."""
+def publish(
+    db: Session, channel: SocialAccount, text: str,
+    image_urls: list[str] | None = None, video_url: str = "",
+) -> tuple[str, str]:
+    """Publish content directly to the platform. Returns (native_post_id, published_url).
+
+    `image_urls` is a list — one item for a single image, multiple for a carousel.
+    """
+    image_urls = image_urls or []
     maybe_refresh_token(db, channel)
     access_token = decrypt_secret(channel.access_token_encrypted)
     if not access_token:
@@ -619,9 +627,9 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "",
     account_id = channel.platform_account_id
 
     if p == "facebook":
-        return _publish_facebook(account_id, access_token, text, image_url)
+        return _publish_facebook(account_id, access_token, text, image_urls, video_url)
     if p == "instagram":
-        return _publish_instagram(account_id, access_token, text, image_url, video_url)
+        return _publish_instagram(account_id, access_token, text, image_urls, video_url)
     if p in ("twitter", "x"):
         return _publish_twitter(access_token, text)
     if p == "linkedin":
@@ -630,23 +638,141 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "",
     raise DirectSocialError(f"Platform not supported for direct publishing: {p}")
 
 
-def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) -> tuple[str, str]:
-    if image_url:
-        logger.info(f"Publishing to Facebook page {page_id} with image URL: {image_url}")
+def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list[str], video_url: str = "") -> tuple[str, str]:
+    if video_url:
+        return _publish_facebook_reel(page_id, page_token, text, video_url)
+    elif len(image_urls) > 1:
+        return _publish_facebook_carousel(page_id, page_token, text, image_urls)
+    elif image_urls:
+        logger.info(f"Publishing image to Facebook page {page_id}")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/photos",
-            data={"caption": text, "url": image_url, "access_token": page_token}, timeout=60)
-        logger.info(f"Facebook response: {r.status_code} - {r.text[:500]}")
+            data={"caption": text, "url": image_urls[0], "access_token": page_token}, timeout=60)
+        logger.info(f"Facebook photo response: {r.status_code} - {r.text[:500]}")
         _raise_for(r, "Facebook photo post")
+        post_id = r.json().get("post_id") or r.json().get("id", "")
     else:
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/feed",
             data={"message": text, "access_token": page_token}, timeout=60)
         _raise_for(r, "Facebook feed post")
-    return r.json().get("id", ""), ""
+        post_id = r.json().get("id", "")
+
+    published_url = ""
+    if post_id:
+        try:
+            r = httpx.get(f"{FACEBOOK_GRAPH}/{post_id}",
+                params={"fields": "permalink_url", "access_token": page_token}, timeout=15)
+            permalink = r.json().get("permalink_url", "")
+            if permalink:
+                published_url = permalink
+                logger.info(f"Facebook post published: {published_url}")
+        except Exception as exc:
+            logger.warning(f"Could not fetch Facebook permalink for {post_id}: {exc}")
+
+    return post_id, published_url
 
 
-def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str, video_url: str = "") -> tuple[str, str]:
-    if not image_url and not video_url:
+def _publish_facebook_reel(page_id: str, page_token: str, text: str, video_url: str) -> tuple[str, str]:
+    """Publish a Facebook Reel using the 3-phase resumable upload flow.
+
+    1. start  → POST /{page_id}/video_reels?upload_phase=start → video_id + upload_url
+    2. upload → POST {upload_url} with a `file_url` header (Facebook fetches the file)
+    3. finish → POST /{page_id}/video_reels?upload_phase=finish → publishes the reel
+    """
+    logger.info(f"Publishing Reel to Facebook page {page_id}: starting upload session")
+
+    # Phase 1: start — get the video_id and the rupload URL
+    r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
+        data={"upload_phase": "start", "access_token": page_token}, timeout=60)
+    logger.info(f"Facebook Reel start: {r.status_code} - {r.text[:500]}")
+    _raise_for(r, "Facebook Reel start")
+    start = r.json()
+    video_id = start.get("video_id", "")
+    upload_url = start.get("upload_url", "")
+    if not video_id or not upload_url:
+        raise DirectSocialError(f"Facebook Reel start did not return video_id/upload_url: {start}")
+
+    # Phase 2: upload — tell Facebook to fetch the file from our signed media URL
+    r = httpx.post(upload_url,
+        headers={"Authorization": f"OAuth {page_token}", "file_url": video_url},
+        timeout=300)
+    logger.info(f"Facebook Reel upload: {r.status_code} - {r.text[:500]}")
+    _raise_for(r, "Facebook Reel upload")
+
+    # Phase 3: finish — publish the reel
+    r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
+        data={
+            "upload_phase": "finish",
+            "video_id": video_id,
+            "video_state": "PUBLISHED",
+            "description": text,
+            "access_token": page_token,
+        }, timeout=60)
+    logger.info(f"Facebook Reel finish: {r.status_code} - {r.text[:500]}")
+    _raise_for(r, "Facebook Reel finish")
+
+    # Poll until the reel is processed and published
+    for attempt in range(20):
+        time.sleep(3)
+        r = httpx.get(f"{FACEBOOK_GRAPH}/{video_id}",
+            params={"fields": "status", "access_token": page_token}, timeout=30)
+        status = (r.json().get("status") or {})
+        video_status = status.get("video_status", "")
+        logger.info(f"Facebook Reel {video_id} status: {video_status} (attempt {attempt + 1})")
+        if video_status in ("ready", "published"):
+            break
+        if video_status == "error":
+            raise DirectSocialError(f"Facebook Reel processing failed: {status}")
+
+    published_url = f"https://www.facebook.com/reel/{video_id}" if video_id else ""
+    logger.info(f"Facebook Reel published: {published_url}")
+    return video_id, published_url
+
+
+def _publish_facebook_carousel(page_id: str, page_token: str, text: str, image_urls: list[str]) -> tuple[str, str]:
+    logger.info(f"Publishing {len(image_urls)}-slide carousel to Facebook page {page_id}")
+
+    # Upload each image as an unpublished photo to get its ID
+    photo_ids: list[str] = []
+    for i, url in enumerate(image_urls):
+        r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/photos",
+            data={"url": url, "published": "false", "access_token": page_token}, timeout=60)
+        logger.info(f"Facebook carousel photo {i + 1}: {r.status_code} - {r.text[:300]}")
+        _raise_for(r, f"Facebook carousel photo {i + 1}")
+        photo_ids.append(r.json().get("id", ""))
+
+    # Publish a single feed post with all photos attached
+    r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/feed",
+        data={
+            "message": text,
+            "attached_media": json.dumps([{"media_fbid": pid} for pid in photo_ids]),
+            "access_token": page_token,
+        }, timeout=60)
+    logger.info(f"Facebook carousel feed: {r.status_code} - {r.text[:300]}")
+    _raise_for(r, "Facebook carousel post")
+    post_id = r.json().get("id", "")
+
+    published_url = ""
+    if post_id:
+        try:
+            r = httpx.get(f"{FACEBOOK_GRAPH}/{post_id}",
+                params={"fields": "permalink_url", "access_token": page_token}, timeout=15)
+            published_url = r.json().get("permalink_url", "")
+            if published_url:
+                logger.info(f"Facebook carousel published: {published_url}")
+        except Exception as exc:
+            logger.warning(f"Could not fetch Facebook carousel permalink for {post_id}: {exc}")
+
+    return post_id, published_url
+
+
+def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_urls: list[str], video_url: str = "") -> tuple[str, str]:
+    if not image_urls and not video_url:
         raise DirectSocialError("Instagram requires an image or video to publish.")
+
+    if len(image_urls) > 1:
+        return _publish_instagram_carousel(ig_account_id, page_token, text, image_urls)
+
+    image_url = image_urls[0] if image_urls else ""
 
     if video_url:
         logger.info(f"Publishing video to Instagram account {ig_account_id}")
@@ -657,7 +783,7 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
             "access_token": page_token,
         }
     else:
-        logger.info(f"Publishing image to Instagram account {ig_account_id} with URL: {image_url}")
+        logger.info(f"Publishing image to Instagram account {ig_account_id}")
         container_data = {
             "caption": text,
             "image_url": image_url,
@@ -699,13 +825,84 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
     published_url = ""
     try:
         r = httpx.get(f"{INSTAGRAM_GRAPH}/{media_id}",
+            params={"fields": "shortcode,media_type", "access_token": page_token}, timeout=15)
+        data = r.json()
+        shortcode = data.get("shortcode", "")
+        media_type = data.get("media_type", "")
+        if shortcode:
+            if media_type in ("VIDEO", "REELS"):
+                published_url = f"https://www.instagram.com/reel/{shortcode}/"
+            else:
+                published_url = f"https://www.instagram.com/p/{shortcode}/"
+            logger.info(f"Instagram post published: {published_url}")
+    except Exception as exc:
+        logger.warning(f"Could not fetch Instagram shortcode for {media_id}: {exc}")
+
+    return media_id, published_url
+
+
+def _publish_instagram_carousel(ig_account_id: str, page_token: str, text: str, image_urls: list[str]) -> tuple[str, str]:
+    logger.info(f"Publishing {len(image_urls)}-slide carousel to Instagram account {ig_account_id}")
+
+    # Step 1: create one container per slide (each must finish processing before moving on)
+    container_ids: list[str] = []
+    for i, image_url in enumerate(image_urls):
+        r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media",
+            data={
+                "image_url": image_url,
+                "media_type": "IMAGE",
+                "is_carousel_item": "true",
+                "access_token": page_token,
+            }, timeout=60)
+        logger.info(f"Instagram carousel item {i + 1}: {r.status_code} - {r.text[:300]}")
+        _raise_for(r, f"Instagram carousel item {i + 1} container")
+        container_id = r.json()["id"]
+
+        for attempt in range(15):
+            time.sleep(3)
+            r = httpx.get(f"{INSTAGRAM_GRAPH}/{container_id}",
+                params={"fields": "status_code", "access_token": page_token}, timeout=30)
+            _raise_for(r, f"Instagram carousel item {i + 1} status")
+            status = r.json().get("status_code", "")
+            logger.info(f"Instagram carousel item {i + 1} container {container_id}: {status} (attempt {attempt + 1})")
+            if status == "FINISHED":
+                break
+            if status == "ERROR":
+                raise DirectSocialError(f"Instagram carousel item {i + 1} failed: {r.json()}")
+        else:
+            raise DirectSocialError(f"Instagram carousel item {i + 1} timed out.")
+
+        container_ids.append(container_id)
+
+    # Step 2: create the carousel container
+    r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media",
+        data={
+            "caption": text,
+            "media_type": "CAROUSEL",
+            "children": ",".join(container_ids),
+            "access_token": page_token,
+        }, timeout=60)
+    logger.info(f"Instagram carousel container: {r.status_code} - {r.text[:300]}")
+    _raise_for(r, "Instagram carousel container")
+    carousel_id = r.json()["id"]
+
+    # Step 3: publish
+    r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media_publish",
+        data={"creation_id": carousel_id, "access_token": page_token}, timeout=60)
+    _raise_for(r, "Instagram carousel publish")
+    media_id = r.json().get("id", "")
+
+    # Step 4: permalink (carousels always show as /p/)
+    published_url = ""
+    try:
+        r = httpx.get(f"{INSTAGRAM_GRAPH}/{media_id}",
             params={"fields": "shortcode", "access_token": page_token}, timeout=15)
         shortcode = r.json().get("shortcode", "")
         if shortcode:
             published_url = f"https://www.instagram.com/p/{shortcode}/"
-            logger.info(f"Instagram post published: {published_url}")
+            logger.info(f"Instagram carousel published: {published_url}")
     except Exception as exc:
-        logger.warning(f"Could not fetch Instagram shortcode for {media_id}: {exc}")
+        logger.warning(f"Could not fetch Instagram carousel shortcode for {media_id}: {exc}")
 
     return media_id, published_url
 
