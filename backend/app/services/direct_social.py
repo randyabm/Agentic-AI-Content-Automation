@@ -83,6 +83,14 @@ def get_publishing_mode(db: Session) -> str:
     return _get_setting(db, "social_publishing_mode", "zernio")
 
 
+def get_facebook_oauth_scopes(db: Session) -> str:
+    return _get_setting(db, "facebook_oauth_scopes", "pages_manage_posts,pages_read_engagement,pages_show_list")
+
+
+def get_instagram_oauth_scopes(db: Session) -> str:
+    return _get_setting(db, "instagram_oauth_scopes", "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement")
+
+
 # ---------------------------------------------------------------------------
 # OAuth app credentials (platform-admin managed, encrypted)
 # ---------------------------------------------------------------------------
@@ -192,9 +200,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
         params = {
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "facebook"),
-            "scope": (
-                "pages_manage_posts,pages_read_engagement,pages_show_list"
-            ),
+            "scope": get_facebook_oauth_scopes(db),
             "state": state,
             "response_type": "code",
         }
@@ -206,7 +212,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
         params = {
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "instagram"),
-            "scope": "instagram_business_basic,instagram_business_content_publish,pages_show_list,pages_read_engagement",
+            "scope": get_instagram_oauth_scopes(db),
             "state": state,
             "response_type": "code",
         }
