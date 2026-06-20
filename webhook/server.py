@@ -11,9 +11,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("webhook")
 
 SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "").encode()
-RESTART_CMD = ["docker", "compose", "-f", "/app/docker-compose.prod.yml", "restart", "nginx", "cloudflared"]
-
-
 def deploy_cmd(branch: str) -> list[str]:
     return ["/bin/bash", "/app/deploy.sh", branch]
 
@@ -55,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
             cmd = deploy_cmd(branch)
             try:
                 subprocess.Popen(
-                    ["/bin/bash", "-c", f"{' '.join(cmd)} && {' '.join(RESTART_CMD)}"],
+                    cmd,
                     stdout=open("/tmp/deploy.log", "w"),
                     stderr=subprocess.STDOUT,
                 )

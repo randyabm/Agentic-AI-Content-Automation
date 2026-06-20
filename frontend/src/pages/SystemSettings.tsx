@@ -81,7 +81,8 @@ type SocialAppStatus = {
 };
 
 const SOCIAL_APP_PLATFORMS: { provider: string; label: string; idLabel: string; secretLabel: string }[] = [
-  { provider: "oauth_facebook", label: "Facebook & Instagram", idLabel: "App ID", secretLabel: "App Secret" },
+  { provider: "oauth_facebook", label: "Facebook", idLabel: "App ID", secretLabel: "App Secret" },
+  { provider: "oauth_instagram", label: "Instagram", idLabel: "App ID", secretLabel: "App Secret" },
   { provider: "oauth_twitter", label: "Twitter / X", idLabel: "Client ID", secretLabel: "Client Secret" },
   { provider: "oauth_linkedin", label: "LinkedIn", idLabel: "Client ID", secretLabel: "Client Secret" },
 ];
@@ -110,6 +111,15 @@ function IntegrationsSection() {
   const [urlMsg, setUrlMsg] = useState("");
   const [urlError, setUrlError] = useState("");
 
+  // OAuth advanced settings (scopes + Instagram URL)
+  const [oauthSettings, setOauthSettings] = useState({
+    facebook_oauth_scopes: "",
+    instagram_oauth_scopes: "",
+    instagram_oauth_url: "",
+  });
+  const [oauthMsg, setOauthMsg] = useState("");
+  const [oauthError, setOauthError] = useState("");
+
   useEffect(() => {
     api<Setting[]>("/settings").then((s) => {
       setAllSettings(s);
@@ -120,6 +130,11 @@ function IntegrationsSection() {
       setUrlSettings({
         app_public_url: pub?.value ?? "",
         app_frontend_url: fe?.value ?? "",
+      });
+      setOauthSettings({
+        facebook_oauth_scopes: s.find((x) => x.key === "facebook_oauth_scopes")?.value ?? "",
+        instagram_oauth_scopes: s.find((x) => x.key === "instagram_oauth_scopes")?.value ?? "",
+        instagram_oauth_url: s.find((x) => x.key === "instagram_oauth_url")?.value ?? "",
       });
     }).catch(() => {});
 
@@ -207,6 +222,20 @@ function IntegrationsSection() {
       setUrlMsg("URLs saved.");
     } catch (e) {
       setUrlError(e instanceof Error ? e.message : "Could not save URLs");
+    }
+  }
+
+  async function saveOauthSettings() {
+    setOauthMsg("");
+    setOauthError("");
+    try {
+      await api<Setting[]>("/settings", {
+        method: "PUT",
+        body: { values: oauthSettings },
+      });
+      setOauthMsg("OAuth settings saved.");
+    } catch (e) {
+      setOauthError(e instanceof Error ? e.message : "Could not save OAuth settings");
     }
   }
 
@@ -375,6 +404,44 @@ function IntegrationsSection() {
             </div>
           );
         })}
+
+        {/* OAuth Advanced Settings */}
+        <h3 style={{ marginTop: 24 }}>OAuth Advanced Settings</h3>
+        <p className="muted small">
+          Configure the authorization URL and permission scopes sent to each platform during the connect flow.
+          Changes take effect on the next "Connect account" click.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <label>
+            Facebook — OAuth scopes
+            <input
+              value={oauthSettings.facebook_oauth_scopes}
+              onChange={(e) => setOauthSettings((o) => ({ ...o, facebook_oauth_scopes: e.target.value }))}
+              placeholder="pages_manage_posts,pages_read_engagement,pages_show_list"
+            />
+          </label>
+          <label>
+            Instagram — OAuth authorization URL
+            <input
+              value={oauthSettings.instagram_oauth_url}
+              onChange={(e) => setOauthSettings((o) => ({ ...o, instagram_oauth_url: e.target.value }))}
+              placeholder="https://api.instagram.com/oauth/authorize"
+            />
+          </label>
+          <label>
+            Instagram — OAuth scopes
+            <input
+              value={oauthSettings.instagram_oauth_scopes}
+              onChange={(e) => setOauthSettings((o) => ({ ...o, instagram_oauth_scopes: e.target.value }))}
+              placeholder="instagram_business_basic,instagram_business_content_publish"
+            />
+          </label>
+        </div>
+        {oauthError && <div className="alert alert-error">{oauthError}</div>}
+        {oauthMsg && <div className="alert alert-success">{oauthMsg}</div>}
+        <div className="form-actions" style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" onClick={saveOauthSettings}>Save OAuth settings</button>
+        </div>
       </div>
     </div>
   );

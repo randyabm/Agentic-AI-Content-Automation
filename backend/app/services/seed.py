@@ -91,9 +91,10 @@ DEFAULT_SETTINGS = [
     ("show_onboarding_panel", "false", "Show the Onboarding panel on the client detail page. Keep OFF in production; enable for testing/debugging the pipeline."),
     ("dev_mode", "false", "Developer/testing mode: shows admin action buttons (Analyze Website, Import Articles) on the client detail page."),
     ("show_article_library", "true", "Show the Article Library link in the left navigation sidebar. Disable to hide the global library and keep article access per-client."),
-    # Direct social publishing scopes
+    # Direct social publishing scopes and OAuth URLs
     ("facebook_oauth_scopes", "pages_manage_posts,pages_read_engagement,pages_show_list", "OAuth scopes to request for Facebook Pages (comma-separated)"),
-    ("instagram_oauth_scopes", "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement", "OAuth scopes to request for Instagram (comma-separated). Test different combinations here."),
+    ("instagram_oauth_scopes", "instagram_business_basic,instagram_business_content_publish", "OAuth scopes to request for Instagram (comma-separated)"),
+    ("instagram_oauth_url", "https://api.instagram.com/oauth/authorize", "Instagram OAuth authorization URL"),
 ]
 
 DEFAULT_IMAGE_MODELS = [
