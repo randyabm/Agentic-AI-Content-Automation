@@ -619,7 +619,7 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "",
     account_id = channel.platform_account_id
 
     if p == "facebook":
-        return _publish_facebook(account_id, access_token, text, image_url)
+        return _publish_facebook(account_id, access_token, text, image_url, video_url)
     if p == "instagram":
         return _publish_instagram(account_id, access_token, text, image_url, video_url)
     if p in ("twitter", "x"):
@@ -630,18 +630,42 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "",
     raise DirectSocialError(f"Platform not supported for direct publishing: {p}")
 
 
-def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) -> tuple[str, str]:
-    if image_url:
-        logger.info(f"Publishing to Facebook page {page_id} with image URL: {image_url}")
+def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str, video_url: str = "") -> tuple[str, str]:
+    if video_url:
+        logger.info(f"Publishing video to Facebook page {page_id}")
+        r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/videos",
+            data={"description": text, "file_url": video_url, "access_token": page_token}, timeout=120)
+        logger.info(f"Facebook video response: {r.status_code} - {r.text[:500]}")
+        _raise_for(r, "Facebook video post")
+        post_id = r.json().get("id", "")
+    elif image_url:
+        logger.info(f"Publishing image to Facebook page {page_id} with URL: {image_url}")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/photos",
             data={"caption": text, "url": image_url, "access_token": page_token}, timeout=60)
-        logger.info(f"Facebook response: {r.status_code} - {r.text[:500]}")
+        logger.info(f"Facebook photo response: {r.status_code} - {r.text[:500]}")
         _raise_for(r, "Facebook photo post")
+        # photos endpoint returns `post_id` (the wall post) and `id` (the photo object)
+        post_id = r.json().get("post_id") or r.json().get("id", "")
     else:
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/feed",
             data={"message": text, "access_token": page_token}, timeout=60)
         _raise_for(r, "Facebook feed post")
-    return r.json().get("id", ""), ""
+        post_id = r.json().get("id", "")
+
+    # Fetch the public permalink for the post
+    published_url = ""
+    if post_id:
+        try:
+            r = httpx.get(f"{FACEBOOK_GRAPH}/{post_id}",
+                params={"fields": "permalink_url", "access_token": page_token}, timeout=15)
+            permalink = r.json().get("permalink_url", "")
+            if permalink:
+                published_url = permalink
+                logger.info(f"Facebook post published: {published_url}")
+        except Exception as exc:
+            logger.warning(f"Could not fetch Facebook permalink for {post_id}: {exc}")
+
+    return post_id, published_url
 
 
 def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str, video_url: str = "") -> tuple[str, str]:
