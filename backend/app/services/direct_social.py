@@ -206,7 +206,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
         params = {
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "instagram"),
-            "scope": "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement",
+            "scope": "instagram_business_basic,instagram_business_content_publish,pages_show_list,pages_read_engagement",
             "state": state,
             "response_type": "code",
         }

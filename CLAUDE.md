@@ -135,7 +135,7 @@ Used to build signed media URLs that platforms fetch asynchronously. If missing,
   - `https://marketingaidev.randybeltran.xyz/api/auth/instagram/callback`
 - **Products**: Facebook Login + Instagram API (both required)
 
-**Scopes**: `instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement`
+**Scopes**: `instagram_business_basic,instagram_business_content_publish,pages_show_list,pages_read_engagement`
 
 **Flow**:
 1. User OAuth → redirects to `facebook.com/v19.0/dialog/oauth` (same endpoint as Facebook!)
