@@ -140,9 +140,9 @@ def _dispatch_direct(
     from app.services.direct_social import DirectSocialError
     image_url = public_media_url(image_key) if image_key else ""
     try:
-        post_id = direct_publish(db, channel, text, image_url)
+        post_id, published_url = direct_publish(db, channel, text, image_url)
         sp.external_post_id = post_id
-        sp.published_url = ""
+        sp.published_url = published_url
         sp.status = PublishStatus.published
     except DirectSocialError as exc:
         sp.status = PublishStatus.failed

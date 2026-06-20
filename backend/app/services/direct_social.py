@@ -608,8 +608,8 @@ def verify_channel_health(channel: SocialAccount) -> ChannelStatus:
 # Publishing
 # ---------------------------------------------------------------------------
 
-def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "") -> str:
-    """Publish content directly to the platform. Returns the native post ID/URL."""
+def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "") -> tuple[str, str]:
+    """Publish content directly to the platform. Returns (native_post_id, published_url)."""
     maybe_refresh_token(db, channel)
     access_token = decrypt_secret(channel.access_token_encrypted)
     if not access_token:
@@ -630,7 +630,7 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "")
     raise DirectSocialError(f"Platform not supported for direct publishing: {p}")
 
 
-def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) -> str:
+def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) -> tuple[str, str]:
     if image_url:
         logger.info(f"Publishing to Facebook page {page_id} with image URL: {image_url}")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/photos",
@@ -641,10 +641,10 @@ def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) 
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/feed",
             data={"message": text, "access_token": page_token}, timeout=60)
         _raise_for(r, "Facebook feed post")
-    return r.json().get("id", "")
+    return r.json().get("id", ""), ""
 
 
-def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str) -> str:
+def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str) -> tuple[str, str]:
     if not image_url:
         raise DirectSocialError("Instagram requires an image to publish.")
     logger.info(f"Publishing to Instagram account {ig_account_id} with image URL: {image_url}")
@@ -676,18 +676,32 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
     r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media_publish",
         data={"creation_id": container_id, "access_token": page_token}, timeout=60)
     _raise_for(r, "Instagram media publish")
-    return r.json().get("id", "")
+    media_id = r.json().get("id", "")
+
+    # Step 4: fetch shortcode to build the public permalink
+    published_url = ""
+    try:
+        r = httpx.get(f"{INSTAGRAM_GRAPH}/{media_id}",
+            params={"fields": "shortcode", "access_token": page_token}, timeout=15)
+        shortcode = r.json().get("shortcode", "")
+        if shortcode:
+            published_url = f"https://www.instagram.com/p/{shortcode}/"
+            logger.info(f"Instagram post published: {published_url}")
+    except Exception as exc:
+        logger.warning(f"Could not fetch Instagram shortcode for {media_id}: {exc}")
+
+    return media_id, published_url
 
 
-def _publish_twitter(access_token: str, text: str) -> str:
+def _publish_twitter(access_token: str, text: str) -> tuple[str, str]:
     r = httpx.post(f"{TWITTER_API}/2/tweets",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
         json={"text": text}, timeout=60)
     _raise_for(r, "Twitter tweet")
-    return r.json().get("data", {}).get("id", "")
+    return r.json().get("data", {}).get("id", ""), ""
 
 
-def _publish_linkedin(author_id: str, access_token: str, text: str) -> str:
+def _publish_linkedin(author_id: str, access_token: str, text: str) -> tuple[str, str]:
     payload = {
         "author": f"urn:li:person:{author_id}",
         "lifecycleState": "PUBLISHED",
@@ -707,7 +721,7 @@ def _publish_linkedin(author_id: str, access_token: str, text: str) -> str:
         },
         json=payload, timeout=60)
     _raise_for(r, "LinkedIn post")
-    return r.headers.get("x-restli-id", "") or r.json().get("id", "")
+    return r.headers.get("x-restli-id", "") or r.json().get("id", ""), ""
 
 
 # ---------------------------------------------------------------------------
