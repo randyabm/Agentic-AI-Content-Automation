@@ -640,17 +640,26 @@ def publish(
 
 def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list[str], video_url: str = "") -> tuple[str, str]:
     if video_url:
-        logger.info(f"Publishing Reel to Facebook page {page_id} with URL: {video_url}")
+        logger.info(f"Publishing Reel to Facebook page {page_id}: uploading video")
+        # Step 1: Upload the video
+        r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/videos",
+            data={"file_url": video_url, "access_token": page_token}, timeout=300)
+        logger.info(f"Facebook video upload response: {r.status_code} - {r.text[:500]}")
+        _raise_for(r, "Facebook video upload")
+        video_id = r.json().get("id", "")
+
+        # Step 2: Publish as Reel
+        logger.info(f"Publishing video {video_id} as Reel")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
             data={
                 "description": text,
-                "file_url": video_url,
+                "video_id": video_id,
                 "upload_phase": "finish",
                 "access_token": page_token,
             }, timeout=300)
         logger.info(f"Facebook Reel response: {r.status_code} - {r.text[:500]}")
         _raise_for(r, "Facebook Reel post")
-        reel_id = r.json().get("id", "") or r.json().get("video_id", "")
+        reel_id = r.json().get("id", "") or video_id
         published_url = f"https://www.facebook.com/reel/{reel_id}" if reel_id else ""
         logger.info(f"Facebook Reel published: {published_url}")
         return reel_id, published_url
