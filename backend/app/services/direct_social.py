@@ -640,24 +640,7 @@ def publish(
 
 def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list[str], video_url: str = "") -> tuple[str, str]:
     if video_url:
-        logger.info(f"Publishing video to Facebook page {page_id}")
-        r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/feed",
-            data={"message": text, "video_url": video_url, "access_token": page_token}, timeout=300)
-        logger.info(f"Facebook video response: {r.status_code} - {r.text[:500]}")
-        _raise_for(r, "Facebook video post")
-        post_id = r.json().get("id", "")
-        published_url = ""
-        if post_id:
-            try:
-                r = httpx.get(f"{FACEBOOK_GRAPH}/{post_id}",
-                    params={"fields": "permalink_url", "access_token": page_token}, timeout=15)
-                permalink = r.json().get("permalink_url", "")
-                if permalink:
-                    published_url = permalink
-                    logger.info(f"Facebook video published: {published_url}")
-            except Exception as exc:
-                logger.warning(f"Could not fetch Facebook permalink for {post_id}: {exc}")
-        return post_id, published_url
+        return _publish_facebook_reel(page_id, page_token, text, video_url)
     elif len(image_urls) > 1:
         return _publish_facebook_carousel(page_id, page_token, text, image_urls)
     elif image_urls:
@@ -686,6 +669,63 @@ def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list
             logger.warning(f"Could not fetch Facebook permalink for {post_id}: {exc}")
 
     return post_id, published_url
+
+
+def _publish_facebook_reel(page_id: str, page_token: str, text: str, video_url: str) -> tuple[str, str]:
+    """Publish a Facebook Reel using the 3-phase resumable upload flow.
+
+    1. start  → POST /{page_id}/video_reels?upload_phase=start → video_id + upload_url
+    2. upload → POST {upload_url} with a `file_url` header (Facebook fetches the file)
+    3. finish → POST /{page_id}/video_reels?upload_phase=finish → publishes the reel
+    """
+    logger.info(f"Publishing Reel to Facebook page {page_id}: starting upload session")
+
+    # Phase 1: start — get the video_id and the rupload URL
+    r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
+        data={"upload_phase": "start", "access_token": page_token}, timeout=60)
+    logger.info(f"Facebook Reel start: {r.status_code} - {r.text[:500]}")
+    _raise_for(r, "Facebook Reel start")
+    start = r.json()
+    video_id = start.get("video_id", "")
+    upload_url = start.get("upload_url", "")
+    if not video_id or not upload_url:
+        raise DirectSocialError(f"Facebook Reel start did not return video_id/upload_url: {start}")
+
+    # Phase 2: upload — tell Facebook to fetch the file from our signed media URL
+    r = httpx.post(upload_url,
+        headers={"Authorization": f"OAuth {page_token}", "file_url": video_url},
+        timeout=300)
+    logger.info(f"Facebook Reel upload: {r.status_code} - {r.text[:500]}")
+    _raise_for(r, "Facebook Reel upload")
+
+    # Phase 3: finish — publish the reel
+    r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
+        data={
+            "upload_phase": "finish",
+            "video_id": video_id,
+            "video_state": "PUBLISHED",
+            "description": text,
+            "access_token": page_token,
+        }, timeout=60)
+    logger.info(f"Facebook Reel finish: {r.status_code} - {r.text[:500]}")
+    _raise_for(r, "Facebook Reel finish")
+
+    # Poll until the reel is processed and published
+    for attempt in range(20):
+        time.sleep(3)
+        r = httpx.get(f"{FACEBOOK_GRAPH}/{video_id}",
+            params={"fields": "status", "access_token": page_token}, timeout=30)
+        status = (r.json().get("status") or {})
+        video_status = status.get("video_status", "")
+        logger.info(f"Facebook Reel {video_id} status: {video_status} (attempt {attempt + 1})")
+        if video_status in ("ready", "published"):
+            break
+        if video_status == "error":
+            raise DirectSocialError(f"Facebook Reel processing failed: {status}")
+
+    published_url = f"https://www.facebook.com/reel/{video_id}" if video_id else ""
+    logger.info(f"Facebook Reel published: {published_url}")
+    return video_id, published_url
 
 
 def _publish_facebook_carousel(page_id: str, page_token: str, text: str, image_urls: list[str]) -> tuple[str, str]:
