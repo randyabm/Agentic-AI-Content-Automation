@@ -5,7 +5,8 @@ generation, authorization code exchange, token refresh, and publishing.
 
 App-level OAuth credentials (App ID / Consumer Key / Client ID + their secrets)
 are stored encrypted in ProviderCredential rows:
-  provider='oauth_facebook'  → Facebook Pages + Instagram (same Meta app, different scopes)
+  provider='oauth_facebook'  → Facebook Pages (Meta Graph API)
+  provider='oauth_instagram' → Instagram (standalone Instagram API)
   provider='oauth_twitter'   → Twitter / X
   provider='oauth_linkedin'  → LinkedIn
 
@@ -35,13 +36,15 @@ from app.models.social import ChannelStatus, SocialAccount
 logger = logging.getLogger(__name__)
 
 FACEBOOK_GRAPH = "https://graph.facebook.com/v19.0"
+INSTAGRAM_API = "https://api.instagram.com"
+INSTAGRAM_GRAPH = "https://graph.instagram.com/v21.0"
 TWITTER_AUTH = "https://x.com"         # OAuth 2.0 authorization page (x.com = active session domain)
 TWITTER_API = "https://api.x.com"      # REST API v2 (rebranded domain)
 LINKEDIN_API = "https://api.linkedin.com"
 
 _PLATFORM_PROVIDER: dict[str, str] = {
     "facebook": "oauth_facebook",
-    "instagram": "oauth_facebook",  # Instagram uses the same Meta app as Facebook
+    "instagram": "oauth_instagram",
     "twitter": "oauth_twitter",
     "x": "oauth_twitter",
     "linkedin": "oauth_linkedin",
@@ -49,6 +52,7 @@ _PLATFORM_PROVIDER: dict[str, str] = {
 
 _PLATFORM_LABELS: dict[str, str] = {
     "oauth_facebook": "Facebook",
+    "oauth_instagram": "Instagram",
     "oauth_twitter": "Twitter / X",
     "oauth_linkedin": "LinkedIn",
 }
@@ -87,8 +91,12 @@ def get_facebook_oauth_scopes(db: Session) -> str:
     return _get_setting(db, "facebook_oauth_scopes", "pages_manage_posts,pages_read_engagement,pages_show_list")
 
 
+def get_instagram_oauth_url(db: Session) -> str:
+    return _get_setting(db, "instagram_oauth_url", "https://api.instagram.com/oauth/authorize")
+
+
 def get_instagram_oauth_scopes(db: Session) -> str:
-    return _get_setting(db, "instagram_oauth_scopes", "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement")
+    return _get_setting(db, "instagram_oauth_scopes", "instagram_business_basic,instagram_business_content_publish")
 
 
 # ---------------------------------------------------------------------------
@@ -132,11 +140,10 @@ def set_oauth_app(db: Session, platform: str, app_id: str, app_secret: str) -> N
 
 
 def list_oauth_apps(db: Session) -> list[dict]:
-    """Return configured OAuth apps status list for the Integrations UI.
-    Note: Instagram and Facebook share the same Meta app (oauth_facebook)."""
+    """Return configured OAuth apps status list for the Integrations UI."""
     seen: set[str] = set()
     result = []
-    for platform_key in ("oauth_facebook", "oauth_twitter", "oauth_linkedin"):
+    for platform_key in ("oauth_facebook", "oauth_instagram", "oauth_twitter", "oauth_linkedin"):
         if platform_key in seen:
             continue
         seen.add(platform_key)
@@ -207,7 +214,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
         return f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}"
 
     if p == "instagram":
-        app_id, _ = get_oauth_app(db, "facebook")  # Instagram uses the same Meta app as Facebook
+        app_id, _ = get_oauth_app(db, "instagram")
         state = generate_state(client_id, user_id, p)
         params = {
             "client_id": app_id,
@@ -216,7 +223,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
             "state": state,
             "response_type": "code",
         }
-        return f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}"
+        return f"{get_instagram_oauth_url(db)}?{urlencode(params)}"
 
     if p in ("twitter", "x"):
         app_id, _ = get_oauth_app(db, "twitter")
@@ -264,8 +271,10 @@ def exchange_code(db: Session, platform: str, code: str, state_payload: dict) ->
     """Exchange the OAuth authorization code for tokens. Returns a list of account
     dicts (one per connected account)."""
     p = platform.lower()
-    if p in ("facebook", "instagram"):
+    if p == "facebook":
         return _exchange_facebook(db, code, p)
+    if p == "instagram":
+        return _exchange_instagram(db, code)
     if p in ("twitter", "x"):
         verifier = state_payload.get("pkce_verifier", "")
         return _exchange_twitter(db, code, verifier)
@@ -275,8 +284,7 @@ def exchange_code(db: Session, platform: str, code: str, state_payload: dict) ->
 
 
 def _exchange_facebook(db: Session, code: str, platform: str = "facebook") -> list[dict]:
-    """Exchange OAuth code for tokens. Handles both Facebook Pages and Instagram.
-    Instagram uses the same Meta app but requests different scopes and filters for IG accounts."""
+    """Exchange OAuth code for Facebook Page tokens."""
     app_id, app_secret = get_oauth_app(db, "facebook")
     redirect = _redirect_uri(db, platform)
 
@@ -299,53 +307,81 @@ def _exchange_facebook(db: Session, code: str, platform: str = "facebook") -> li
     long_token = data["access_token"]
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=data.get("expires_in", 5_184_000))
 
-    # 3. List managed pages (includes linked Instagram accounts if scopes permit)
-    fields = "id,name,access_token,picture{url}"
-    if platform == "instagram":
-        fields += ",instagram_business_account{id,username,name,profile_picture_url}"
-
+    # 3. List managed pages
     r = httpx.get(f"{FACEBOOK_GRAPH}/me/accounts", params={
-        "fields": fields,
+        "fields": "id,name,access_token,picture{url}",
         "access_token": long_token,
     }, timeout=30)
-    _raise_for(r, "Meta pages/accounts list")
+    _raise_for(r, "Meta pages list")
     pages = r.json().get("data", [])
 
     accounts: list[dict] = []
-
-    if platform == "facebook":
-        for page in pages:
-            page_token = page.get("access_token", long_token)
-            avatar = ((page.get("picture") or {}).get("data") or {}).get("url", "")
-            accounts.append({
-                "platform": "facebook",
-                "platform_account_id": page["id"],
-                "display_name": page.get("name", ""),
-                "username": "",
-                "avatar_url": avatar,
-                "access_token": page_token,
-                "access_token_secret": "",
-                "refresh_token": "",
-                "token_expires_at": expires_at,
-            })
-
-    elif platform == "instagram":
-        for page in pages:
-            ig = page.get("instagram_business_account")
-            if ig:
-                accounts.append({
-                    "platform": "instagram",
-                    "platform_account_id": ig["id"],
-                    "display_name": ig.get("name") or page.get("name", ""),
-                    "username": ig.get("username", ""),
-                    "avatar_url": ig.get("profile_picture_url", ""),
-                    "access_token": page.get("access_token", long_token),
-                    "access_token_secret": "",
-                    "refresh_token": "",
-                    "token_expires_at": expires_at,
-                })
+    for page in pages:
+        page_token = page.get("access_token", long_token)
+        avatar = ((page.get("picture") or {}).get("data") or {}).get("url", "")
+        accounts.append({
+            "platform": "facebook",
+            "platform_account_id": page["id"],
+            "display_name": page.get("name", ""),
+            "username": "",
+            "avatar_url": avatar,
+            "access_token": page_token,
+            "access_token_secret": "",
+            "refresh_token": "",
+            "token_expires_at": expires_at,
+        })
 
     return accounts
+
+
+def _exchange_instagram(db: Session, code: str) -> list[dict]:
+    """Exchange OAuth code for Instagram tokens using the standalone Instagram API."""
+    app_id, app_secret = get_oauth_app(db, "instagram")
+    redirect = _redirect_uri(db, "instagram")
+
+    # 1. Short-lived token via Instagram's own endpoint
+    r = httpx.post(f"{INSTAGRAM_API}/oauth/access_token", data={
+        "client_id": app_id,
+        "client_secret": app_secret,
+        "redirect_uri": redirect,
+        "code": code,
+        "grant_type": "authorization_code",
+    }, timeout=30)
+    _raise_for(r, "Instagram token exchange")
+    short_data = r.json()
+    short_token = short_data["access_token"]
+    ig_user_id = str(short_data.get("user_id", ""))
+
+    # 2. Long-lived token (60 days) via Instagram Graph
+    r = httpx.get(f"{INSTAGRAM_GRAPH}/access_token", params={
+        "grant_type": "ig_exchange_token",
+        "client_secret": app_secret,
+        "access_token": short_token,
+    }, timeout=30)
+    _raise_for(r, "Instagram long-lived token")
+    long_data = r.json()
+    long_token = long_data["access_token"]
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=long_data.get("expires_in", 5_184_000))
+
+    # 3. User profile
+    r = httpx.get(f"{INSTAGRAM_GRAPH}/me", params={
+        "fields": "id,username,name,profile_picture_url",
+        "access_token": long_token,
+    }, timeout=30)
+    _raise_for(r, "Instagram user info")
+    user = r.json()
+
+    return [{
+        "platform": "instagram",
+        "platform_account_id": user.get("id") or ig_user_id,
+        "display_name": user.get("name") or user.get("username", ""),
+        "username": user.get("username", ""),
+        "avatar_url": user.get("profile_picture_url", ""),
+        "access_token": long_token,
+        "access_token_secret": "",
+        "refresh_token": "",
+        "token_expires_at": expires_at,
+    }]
 
 
 def _exchange_twitter(db: Session, code: str, pkce_verifier: str) -> list[dict]:
@@ -471,7 +507,7 @@ def maybe_refresh_token(db: Session, channel: SocialAccount) -> bool:
 
     try:
         p = channel.platform
-        if p in ("facebook", "instagram"):
+        if p == "facebook":
             app_id, app_secret = get_oauth_app(db, "facebook")
             cur_token = decrypt_secret(channel.access_token_encrypted)
             r = httpx.get(f"{FACEBOOK_GRAPH}/oauth/access_token", params={
@@ -480,6 +516,17 @@ def maybe_refresh_token(db: Session, channel: SocialAccount) -> bool:
                 "fb_exchange_token": cur_token,
             }, timeout=30)
             _raise_for(r, "Facebook token refresh")
+            data = r.json()
+            channel.access_token_encrypted = encrypt_secret(data["access_token"])
+            channel.token_expires_at = now + timedelta(seconds=data.get("expires_in", 5_184_000))
+
+        elif p == "instagram":
+            cur_token = decrypt_secret(channel.access_token_encrypted)
+            r = httpx.get(f"{INSTAGRAM_GRAPH}/refresh_access_token", params={
+                "grant_type": "ig_refresh_token",
+                "access_token": cur_token,
+            }, timeout=30)
+            _raise_for(r, "Instagram token refresh")
             data = r.json()
             channel.access_token_encrypted = encrypt_secret(data["access_token"])
             channel.token_expires_at = now + timedelta(seconds=data.get("expires_in", 5_184_000))
@@ -535,8 +582,10 @@ def verify_channel_health(channel: SocialAccount) -> ChannelStatus:
         return ChannelStatus.revoked
     try:
         p = channel.platform
-        if p in ("facebook", "instagram"):
+        if p == "facebook":
             r = httpx.get(f"{FACEBOOK_GRAPH}/me", params={"access_token": token}, timeout=10)
+        elif p == "instagram":
+            r = httpx.get(f"{INSTAGRAM_GRAPH}/me", params={"fields": "id", "access_token": token}, timeout=10)
         elif p in ("twitter", "x"):
             r = httpx.get(f"{TWITTER_API}/2/users/me",
                 headers={"Authorization": f"Bearer {token}"}, timeout=10)
@@ -597,12 +646,14 @@ def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) 
 def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str) -> str:
     if not image_url:
         raise DirectSocialError("Instagram requires an image to publish.")
-    r = httpx.post(f"{FACEBOOK_GRAPH}/{ig_account_id}/media",
+    logger.info(f"Publishing to Instagram account {ig_account_id} with image URL: {image_url}")
+    r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media",
         data={"caption": text, "image_url": image_url, "media_type": "IMAGE",
               "access_token": page_token}, timeout=60)
+    logger.info(f"Instagram media container response: {r.status_code} - {r.text[:500]}")
     _raise_for(r, "Instagram media container")
     container_id = r.json()["id"]
-    r = httpx.post(f"{FACEBOOK_GRAPH}/{ig_account_id}/media_publish",
+    r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media_publish",
         data={"creation_id": container_id, "access_token": page_token}, timeout=60)
     _raise_for(r, "Instagram media publish")
     return r.json().get("id", "")
