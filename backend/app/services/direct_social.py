@@ -640,9 +640,9 @@ def publish(
 
 def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list[str], video_url: str = "") -> tuple[str, str]:
     if video_url:
-        logger.info(f"Publishing video to Facebook page {page_id}")
+        logger.info(f"Publishing video to Facebook page {page_id} with URL: {video_url}")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/videos",
-            data={"description": text, "source": video_url, "access_token": page_token}, timeout=300)
+            data={"description": text, "file_url": video_url, "access_token": page_token}, timeout=300)
         logger.info(f"Facebook video response: {r.status_code} - {r.text[:500]}")
         _raise_for(r, "Facebook video post")
         video_id = r.json().get("id", "")
