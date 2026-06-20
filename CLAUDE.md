@@ -90,44 +90,69 @@ The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sq
 - `API KEYS.md` and `.env` are gitignored secrets — never commit or print their contents.
 - **Textareas**: never use a bare `<textarea>` in the frontend. Always use `<TextareaZoom>` imported from `frontend/src/components/TextareaZoom.tsx`. It renders a read-only preview that opens a full-size editable mini-modal on click. Props: `label` (shown as modal title), `value`, `onChange`, `rows` (optional, default 2), `placeholder` (optional), `readOnly` (optional). The only exception is inside `TextareaZoom` itself.
 
-## Facebook & Instagram Publishing (Direct API)
+## Social Publishing: Direct Platform APIs
 
-**Status**: Facebook Pages live ✅; Instagram Phase 2 (planned).
+**Status**: Facebook Pages ✅; Instagram Business Account ✅; Twitter/LinkedIn (TBD).
 
-**Architecture**: Direct publishing via Meta Graph API v19.0 (not Zernio middleman). OAuth tokens stored encrypted in `SocialAccount` rows. Media URLs are signed JWTs bound to MinIO objects; Facebook downloads them via the public endpoint.
+### Architecture
+
+Direct publishing to platforms (not Zernio middleman). Each platform has separate OAuth credentials managed in System Settings → Integrations.
+
+- **Facebook**: Meta Graph API v19.0, connects Facebook Pages
+- **Instagram**: Instagram Login (instagram.com OAuth), connects Instagram Business Accounts directly
+- **Twitter/LinkedIn**: TBD
+
+OAuth app credentials stored encrypted in `ProviderCredential` rows (`provider='oauth_facebook'` | `oauth_instagram` | etc.). Per-user tokens stored encrypted in `SocialAccount` rows. Media URLs are signed JWTs bound to MinIO objects; platforms download them via public endpoint.
 
 **Critical environment variable** (must be set in `~/app/.env`):
 ```
 PUBLIC_BASE_URL=https://marketingaidev.randybeltran.xyz/api
 ```
-This is used to build signed media URLs that Facebook fetches in the background. If missing, defaults to `http://localhost:8000` (unreachable) → Facebook rejects posts with "Missing or invalid image file" (code 324).
+Used to build signed media URLs that platforms fetch asynchronously. If missing, defaults to `http://localhost:8000` (unreachable) → publishing fails with image/auth errors.
 
-**Meta App Setup** (developers.facebook.com):
-- **App ID**: `2078337289753964` (Solomoit-Test1)
-- **OAuth Redirect URI**: `https://marketingaidev.randybeltran.xyz/api/auth/facebook/callback` (must be in App settings)
+### Facebook Setup
+
+**App**: `2078337289753964` (Solomoit-Test1, developers.facebook.com)
+- **Redirect URI**: `https://marketingaidev.randybeltran.xyz/api/auth/facebook/callback`
 - **App Domains**: `marketingaidev.randybeltran.xyz`
-- **Facebook Login Settings**:
-  - Valid OAuth Redirect URIs: `https://marketingaidev.randybeltran.xyz/api/auth/facebook/callback`
-  - Use Strict Mode for Redirect URIs: OFF (for now, dev mode)
+- **Product**: Facebook Login (for Pages + OAuth)
 
-**Publishing Flow**:
-1. User connects a Facebook Page via OAuth → `SocialAccount` created with encrypted token
-2. User creates post + selects Facebook Page channel → approves post
-3. "Publish now" → backend generates signed media URL (`/media/public/{token}`) → sends to Facebook Graph API `POST /{page_id}/photos`
-4. Facebook downloads image from signed URL → creates post → returns post_id → stored in `ScheduledPost`
+**Scopes**: `pages_manage_posts,pages_read_engagement,pages_show_list`
 
-**Scopes** (currently Facebook Pages only):
-- `pages_manage_posts` — create posts on pages
-- `pages_read_engagement` — read page metrics
-- `pages_show_list` — list managed pages
+**Flow**:
+1. User OAuth → Meta redirects to `facebook.com/v19.0/dialog/oauth`
+2. Backend exchanges code for long-lived token (60 days)
+3. Lists connected Facebook Pages (+ their tokens)
+4. User picks a Page → `SocialAccount` created with Page token + ID
+5. Publish: `POST {page_id}/photos` with caption + signed image URL
 
-**Code paths**:
-- **OAuth + token exchange**: `backend/app/services/direct_social.py` — `get_connect_url()`, `_exchange_facebook()`
+### Instagram Setup
+
+**App**: `1037200462181688` (separate Instagram Login app, developers.facebook.com)
+- **Redirect URI**: `https://marketingaidev.randybeltran.xyz/api/auth/instagram/callback`
+- **App Domains**: `marketingaidev.randybeltran.xyz`
+- **Product**: Instagram Graph API (for Instagram Login + publishing)
+
+**Scopes**: `instagram_business_basic,instagram_business_content_publish`
+
+**Flow**:
+1. User OAuth → Instagram redirects to `instagram.com/oauth/authorize`
+2. Backend exchanges code: `api.instagram.com/oauth/access_token` (short-lived)
+3. Converts to long-lived token: `graph.instagram.com/access_token` (60 days)
+4. Fetches account info → `SocialAccount` created with IG Business Account ID + token
+5. Publish: two-step (POST `{ig_account_id}/media` → POST `.../media_publish`) with caption + signed image URL
+
+### Code Paths
+
+- **OAuth + token exchange**: `backend/app/services/direct_social.py` — `get_connect_url()`, `exchange_code()`, `_exchange_facebook()`, `_exchange_instagram()`
 - **Publishing**: `backend/app/services/publishing.py::_dispatch_direct()` → `direct_social.py::publish()`
+- **Settings UI**: `frontend/src/pages/SystemSettings.tsx` → **Integrations** tab
 - **Media proxy**: `backend/app/api/routes/media.py::public_media({token})`
 - **Channel management**: `backend/app/api/routes/channels.py`
 
-**Debugging**:
-- Check API logs: `docker logs app-api-1 --tail 50` (look for "Publishing to Facebook" + URL)
+### Debugging
+
+- Check API logs: `docker logs app-api-1 --tail 50` (look for "Publishing to Facebook" | "Publishing to Instagram" + URL)
 - Verify media endpoint: `curl "https://marketingaidev.randybeltran.xyz/api/media/public/{token}"` should return image data
-- Token refresh logged at publish time if token is near expiry (< 7 days)
+- Token refresh: logged at publish time if token expires within 7 days
+- Instagram two-step media: both requests logged separately
