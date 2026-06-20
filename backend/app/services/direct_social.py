@@ -608,7 +608,7 @@ def verify_channel_health(channel: SocialAccount) -> ChannelStatus:
 # Publishing
 # ---------------------------------------------------------------------------
 
-def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "") -> tuple[str, str]:
+def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "", video_url: str = "") -> tuple[str, str]:
     """Publish content directly to the platform. Returns (native_post_id, published_url)."""
     maybe_refresh_token(db, channel)
     access_token = decrypt_secret(channel.access_token_encrypted)
@@ -621,7 +621,7 @@ def publish(db: Session, channel: SocialAccount, text: str, image_url: str = "")
     if p == "facebook":
         return _publish_facebook(account_id, access_token, text, image_url)
     if p == "instagram":
-        return _publish_instagram(account_id, access_token, text, image_url)
+        return _publish_instagram(account_id, access_token, text, image_url, video_url)
     if p in ("twitter", "x"):
         return _publish_twitter(access_token, text)
     if p == "linkedin":
@@ -644,21 +644,37 @@ def _publish_facebook(page_id: str, page_token: str, text: str, image_url: str) 
     return r.json().get("id", ""), ""
 
 
-def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str) -> tuple[str, str]:
-    if not image_url:
-        raise DirectSocialError("Instagram requires an image to publish.")
-    logger.info(f"Publishing to Instagram account {ig_account_id} with image URL: {image_url}")
+def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url: str, video_url: str = "") -> tuple[str, str]:
+    if not image_url and not video_url:
+        raise DirectSocialError("Instagram requires an image or video to publish.")
+
+    if video_url:
+        logger.info(f"Publishing video to Instagram account {ig_account_id}")
+        container_data = {
+            "caption": text,
+            "video_url": video_url,
+            "media_type": "REELS",
+            "access_token": page_token,
+        }
+    else:
+        logger.info(f"Publishing image to Instagram account {ig_account_id} with URL: {image_url}")
+        container_data = {
+            "caption": text,
+            "image_url": image_url,
+            "media_type": "IMAGE",
+            "access_token": page_token,
+        }
 
     # Step 1: create media container
     r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media",
-        data={"caption": text, "image_url": image_url, "media_type": "IMAGE",
-              "access_token": page_token}, timeout=60)
+        data=container_data, timeout=60)
     logger.info(f"Instagram media container response: {r.status_code} - {r.text[:500]}")
     _raise_for(r, "Instagram media container")
     container_id = r.json()["id"]
 
     # Step 2: wait for container to finish processing (Instagram processes async)
-    for attempt in range(15):
+    poll_attempts = 30 if video_url else 15
+    for attempt in range(poll_attempts):
         time.sleep(3)
         r = httpx.get(f"{INSTAGRAM_GRAPH}/{container_id}",
             params={"fields": "status_code,status", "access_token": page_token}, timeout=30)
@@ -670,7 +686,8 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
         if status == "ERROR":
             raise DirectSocialError(f"Instagram media container failed to process: {r.json().get('status', 'unknown error')}")
     else:
-        raise DirectSocialError("Instagram media container timed out — image took too long to process.")
+        media_type = "video" if video_url else "image"
+        raise DirectSocialError(f"Instagram media container timed out — {media_type} took too long to process.")
 
     # Step 3: publish
     r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media_publish",

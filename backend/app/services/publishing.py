@@ -9,7 +9,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.campaign import CampaignElement, Post, PostImage
+from app.models.campaign import CampaignElement, Post, PostImage, PostVideo, VideoStatus
 from app.models.social import PublishStatus, ScheduledPost, SocialAccount
 from app.services import zernio
 from app.services.direct_social import get_publishing_mode
@@ -44,6 +44,23 @@ def resolve_image(db: Session, post: Post) -> PostImage | None:
     return images[0]
 
 
+def resolve_video(db: Session, post: Post) -> PostVideo | None:
+    """The ready video rendition for this post's platform aspect ratio, if any."""
+    if not post.element_id:
+        return None
+    element = db.get(CampaignElement, post.element_id)
+    if element is None or not element.videos:
+        return None
+    ready = [v for v in element.videos if v.status == VideoStatus.ready and v.base_object_key]
+    if not ready:
+        return None
+    ratio = (element.platform_ratios or {}).get(post.platform.value)
+    for vid in ready:
+        if ratio and vid.aspect_ratio == ratio:
+            return vid
+    return ready[0]
+
+
 def _image_key(img: PostImage) -> str:
     return img.composited_object_key or img.base_object_key or ""
 
@@ -52,14 +69,16 @@ class PublishError(Exception):
     pass
 
 
-def _resolve_content(db: Session, post: Post) -> tuple[str, PostImage | None, str]:
-    """Compose text + pick the image rendition; raise if there's nothing to send."""
+def _resolve_content(db: Session, post: Post) -> tuple[str, PostImage | None, str, PostVideo | None, str]:
+    """Compose text + pick image/video rendition; raise if there's nothing to send."""
     text = compose_text(post)
     image = resolve_image(db, post)
     image_key = _image_key(image) if image else ""
-    if not text and not image_key:
-        raise PublishError("Nothing to publish — the post has no copy and no image.")
-    return text, image, image_key
+    video = resolve_video(db, post) if not image_key else None
+    video_key = video.base_object_key if video else ""
+    if not text and not image_key and not video_key:
+        raise PublishError("Nothing to publish — the post has no copy, no image, and no ready video.")
+    return text, image, image_key, video, video_key
 
 
 def publish_post(
@@ -69,19 +88,20 @@ def publish_post(
     actor_id: str,
 ) -> ScheduledPost:
     """Publish `post` to `channel` immediately via Zernio, recording a ScheduledPost."""
-    text, image, image_key = _resolve_content(db, post)
+    text, image, image_key, video, video_key = _resolve_content(db, post)
 
     sp = ScheduledPost(
         post_id=post.id,
         social_account_id=channel.id,
         post_image_id=image.id if image else None,
+        post_video_id=video.id if video else None,
         scheduled_at=None,
         status=PublishStatus.publishing,
         created_by=actor_id,
     )
     db.add(sp)
     db.flush()
-    _dispatch(db, sp, channel, text, image_key)
+    _dispatch(db, sp, channel, text, image_key, video_key)
     db.commit()
     return sp
 
@@ -98,12 +118,13 @@ def schedule_post(
     the Celery Beat sweep (`publish_due_posts`) hands it to Zernio when due — this
     lets us re-check approval and mint a fresh signed media URL at send time, and
     makes cancel/reschedule a pure local operation."""
-    _, image, _ = _resolve_content(db, post)  # validate there's something to send
+    _, image, _, video, _ = _resolve_content(db, post)  # validate there's something to send
 
     sp = ScheduledPost(
         post_id=post.id,
         social_account_id=channel.id,
         post_image_id=image.id if image else None,
+        post_video_id=video.id if video else None,
         scheduled_at=scheduled_at,
         timezone=timezone or "UTC",
         status=PublishStatus.scheduled,
@@ -116,31 +137,32 @@ def schedule_post(
 
 def send_scheduled_post(db: Session, sp: ScheduledPost, post: Post, channel: SocialAccount) -> ScheduledPost:
     """Push an already-recorded scheduled post to Zernio (called by the due sweep)."""
-    text, _, image_key = _resolve_content(db, post)
+    text, _, image_key, _, video_key = _resolve_content(db, post)
     sp.status = PublishStatus.publishing
     sp.error = ""
     db.commit()
-    _dispatch(db, sp, channel, text, image_key)
+    _dispatch(db, sp, channel, text, image_key, video_key)
     db.commit()
     return sp
 
 
-def _dispatch(db: Session, sp: ScheduledPost, channel: SocialAccount, text: str, image_key: str) -> None:
+def _dispatch(db: Session, sp: ScheduledPost, channel: SocialAccount, text: str, image_key: str, video_key: str = "") -> None:
     """Route the publish call to the active connector and record the result on sp."""
     mode = get_publishing_mode(db)
     if mode == "direct":
-        _dispatch_direct(db, sp, channel, text, image_key)
+        _dispatch_direct(db, sp, channel, text, image_key, video_key)
     else:
-        _dispatch_zernio(db, sp, channel, text, image_key)
+        _dispatch_zernio(db, sp, channel, text, image_key, video_key)
 
 
 def _dispatch_direct(
-    db: Session, sp: ScheduledPost, channel: SocialAccount, text: str, image_key: str
+    db: Session, sp: ScheduledPost, channel: SocialAccount, text: str, image_key: str, video_key: str = ""
 ) -> None:
     from app.services.direct_social import DirectSocialError
     image_url = public_media_url(image_key) if image_key else ""
+    video_url = public_media_url(video_key) if video_key else ""
     try:
-        post_id, published_url = direct_publish(db, channel, text, image_url)
+        post_id, published_url = direct_publish(db, channel, text, image_url, video_url)
         sp.external_post_id = post_id
         sp.published_url = published_url
         sp.status = PublishStatus.published
@@ -151,7 +173,7 @@ def _dispatch_direct(
 
 
 def _dispatch_zernio(
-    db: Session, sp: ScheduledPost, channel: SocialAccount, text: str, image_key: str
+    db: Session, sp: ScheduledPost, channel: SocialAccount, text: str, image_key: str, video_key: str = ""
 ) -> None:
     """Build the Zernio payload (immediate publish) and apply the result to sp."""
     payload: dict = {
@@ -161,6 +183,8 @@ def _dispatch_zernio(
     }
     if image_key:
         payload["mediaItems"] = [{"type": "image", "url": public_media_url(image_key)}]
+    elif video_key:
+        payload["mediaItems"] = [{"type": "video", "url": public_media_url(video_key)}]
 
     try:
         result = zernio.create_post(db, payload)
