@@ -194,8 +194,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "facebook"),
             "scope": (
-                "pages_manage_posts,pages_read_engagement,pages_show_list,"
-                "instagram_business_basic,instagram_business_content_publish"
+                "pages_manage_posts,pages_read_engagement,pages_show_list"
             ),
             "state": state,
             "response_type": "code",
