@@ -642,7 +642,12 @@ def _publish_facebook(page_id: str, page_token: str, text: str, image_urls: list
     if video_url:
         logger.info(f"Publishing Reel to Facebook page {page_id} with URL: {video_url}")
         r = httpx.post(f"{FACEBOOK_GRAPH}/{page_id}/video_reels",
-            data={"description": text, "file_url": video_url, "access_token": page_token}, timeout=300)
+            data={
+                "description": text,
+                "file_url": video_url,
+                "upload_phase": "finish",
+                "access_token": page_token,
+            }, timeout=300)
         logger.info(f"Facebook Reel response: {r.status_code} - {r.text[:500]}")
         _raise_for(r, "Facebook Reel post")
         reel_id = r.json().get("id", "") or r.json().get("video_id", "")
