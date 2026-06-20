@@ -81,7 +81,8 @@ type SocialAppStatus = {
 };
 
 const SOCIAL_APP_PLATFORMS: { provider: string; label: string; idLabel: string; secretLabel: string }[] = [
-  { provider: "oauth_facebook", label: "Facebook / Instagram (Meta)", idLabel: "App ID", secretLabel: "App Secret" },
+  { provider: "oauth_facebook", label: "Facebook", idLabel: "App ID", secretLabel: "App Secret" },
+  { provider: "oauth_instagram", label: "Instagram", idLabel: "App ID", secretLabel: "App Secret" },
   { provider: "oauth_twitter", label: "Twitter / X", idLabel: "Client ID", secretLabel: "Client Secret" },
   { provider: "oauth_linkedin", label: "LinkedIn", idLabel: "Client ID", secretLabel: "Client Secret" },
 ];

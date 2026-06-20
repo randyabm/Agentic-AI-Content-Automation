@@ -95,8 +95,7 @@ def update_social_app(
     actor: User = Depends(require_platform_admin),
 ):
     """Set (or update) the OAuth app credentials for a platform.
-    `platform` must be one of: facebook, twitter, linkedin.
-    Instagram shares the Facebook app credentials."""
+    `platform` must be one of: facebook, instagram, twitter, linkedin."""
     try:
         set_oauth_app(db, platform, body.app_id, body.app_secret)
     except DirectSocialError as exc:
