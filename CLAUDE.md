@@ -96,13 +96,14 @@ The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sq
 
 ### Architecture
 
-Direct publishing to platforms (not Zernio middleman). Each platform has separate OAuth credentials managed in System Settings → Integrations.
+Direct publishing to platforms (not Zernio middleman). Facebook and Instagram share the **same Meta app and OAuth endpoint** — they differ only in scopes and account filtering.
 
-- **Facebook**: Meta Graph API v19.0, connects Facebook Pages
-- **Instagram**: Instagram Login (instagram.com OAuth), connects Instagram Business Accounts directly
-- **Twitter/LinkedIn**: TBD
+- **Single Meta App**: `2078337289753964` (both Facebook Pages and Instagram Business)
+- **Single OAuth Endpoint**: `https://www.facebook.com/v19.0/dialog/oauth`
+- **Different Scopes**: Platform-specific (Facebook Pages vs. Instagram Business)
+- **Different Account Types**: Facebook returns Pages; Instagram filters for linked IG accounts
 
-OAuth app credentials stored encrypted in `ProviderCredential` rows (`provider='oauth_facebook'` | `oauth_instagram` | etc.). Per-user tokens stored encrypted in `SocialAccount` rows. Media URLs are signed JWTs bound to MinIO objects; platforms download them via public endpoint.
+OAuth app credentials stored encrypted in `ProviderCredential` rows (`provider='oauth_facebook'`). Per-user tokens stored encrypted in `SocialAccount` rows. Media URLs are signed JWTs bound to MinIO objects; platforms download them via public endpoint.
 
 **Critical environment variable** (must be set in `~/app/.env`):
 ```
@@ -126,27 +127,31 @@ Used to build signed media URLs that platforms fetch asynchronously. If missing,
 4. User picks a Page → `SocialAccount` created with Page token + ID
 5. Publish: `POST {page_id}/photos` with caption + signed image URL
 
-### Instagram Setup
+### Instagram Business Flow
 
-**App**: `1037200462181688` (separate Instagram Login app, developers.facebook.com)
-- **Redirect URI**: `https://marketingaidev.randybeltran.xyz/api/auth/instagram/callback`
-- **App Domains**: `marketingaidev.randybeltran.xyz`
-- **Product**: Instagram Graph API (for Instagram Login + publishing)
+**App**: `2078337289753964` (same Meta app as Facebook)
+- **Redirect URIs** (both in Settings → Basic → Facebook Login → Valid OAuth Redirect URIs):
+  - `https://marketingaidev.randybeltran.xyz/api/auth/facebook/callback`
+  - `https://marketingaidev.randybeltran.xyz/api/auth/instagram/callback`
+- **Products**: Facebook Login + Instagram API (both required)
 
-**Scopes**: `instagram_business_basic,instagram_business_content_publish`
+**Scopes**: `instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement`
 
 **Flow**:
-1. User OAuth → Instagram redirects to `instagram.com/oauth/authorize`
-2. Backend exchanges code: `api.instagram.com/oauth/access_token` (short-lived)
-3. Converts to long-lived token: `graph.instagram.com/access_token` (60 days)
-4. Fetches account info → `SocialAccount` created with IG Business Account ID + token
+1. User OAuth → redirects to `facebook.com/v19.0/dialog/oauth` (same endpoint as Facebook!)
+2. Backend exchanges code for long-lived token (60 days)
+3. Calls `GET /me/accounts?fields=instagram_business_account{...}` → filters for linked IG accounts
+4. User picks an IG account → `SocialAccount` created with IG account ID + token
 5. Publish: two-step (POST `{ig_account_id}/media` → POST `.../media_publish`) with caption + signed image URL
 
 ### Code Paths
 
-- **OAuth + token exchange**: `backend/app/services/direct_social.py` — `get_connect_url()`, `exchange_code()`, `_exchange_facebook()`, `_exchange_instagram()`
+- **OAuth + token exchange**: `backend/app/services/direct_social.py`
+  - `get_connect_url()` — routes Facebook or Instagram to same endpoint with different scopes
+  - `exchange_code()` — routes to `_exchange_facebook(code, platform)` for both
+  - `_exchange_facebook(code, platform)` — filters accounts based on platform
 - **Publishing**: `backend/app/services/publishing.py::_dispatch_direct()` → `direct_social.py::publish()`
-- **Settings UI**: `frontend/src/pages/SystemSettings.tsx` → **Integrations** tab
+- **Settings UI**: `frontend/src/pages/SystemSettings.tsx` → **Integrations** tab (single "Facebook & Instagram" card)
 - **Media proxy**: `backend/app/api/routes/media.py::public_media({token})`
 - **Channel management**: `backend/app/api/routes/channels.py`
 
