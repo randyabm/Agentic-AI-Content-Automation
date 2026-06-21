@@ -9,6 +9,15 @@ import { PlatformIcon } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RATIO_PRIORITY } from "../ratios";
 import { useAuth } from "../auth";
 import type {
@@ -111,9 +120,9 @@ export default function CampaignDetail() {
     <div>
       <div className="page-header">
         <div>
-          <button className="btn btn-ghost" onClick={() => navigate("/campaigns")}>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/campaigns")}>
             ← Campaigns
-          </button>
+          </Button>
           <h1 style={{ marginTop: "0.5rem" }}>{campaign.name}</h1>
           <p className="muted small">
             {client?.company_name} · {campaign.objective} ·{" "}
@@ -125,16 +134,16 @@ export default function CampaignDetail() {
         {canEdit && (
           <div className="competitor-actions">
             {campaign.status === "ready" && (
-              <button className="btn btn-primary" onClick={() => setShowAutopilot(true)} disabled={!!busy}>
+              <Button onClick={() => setShowAutopilot(true)} disabled={!!busy}>
                 <Sparkles size={14} /> AI auto-schedule
-              </button>
+              </Button>
             )}
-            <button className="btn btn-ghost" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
+            <Button variant="ghost" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
               Regenerate all
-            </button>
-            <button className="btn btn-ghost danger" onClick={remove}>
+            </Button>
+            <Button variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={remove}>
               Delete
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -157,13 +166,14 @@ export default function CampaignDetail() {
         <div className="card export-bar">
           <strong>Export:</strong>
           {(["zip", "pdf", "json", "csv"] as const).map((fmt) => (
-            <button
+            <Button
               key={fmt}
-              className="btn btn-ghost"
+              variant="ghost"
+              size="sm"
               onClick={() => downloadFile(`/campaigns/${campaign.id}/export?format=${fmt}`, `campaign_${campaign.id}.${fmt}`)}
             >
               {fmt.toUpperCase()}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -446,9 +456,9 @@ function ElementModal({
       >
         <div className="modal-header">
           <h2>{element ? element.theme || element.element_type : activePost?.headline || "Post"}</h2>
-          <button className="btn btn-ghost" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
 
         <div className={showPreview ? "composer-layout" : "element-modal-layout"}>
@@ -700,7 +710,7 @@ function CopyForm({
     <div className="post-copy">
       <label className="small">
         Headline
-        <input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
+        <Input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
       </label>
       <label className="small">
         Copy{" "}
@@ -711,11 +721,11 @@ function CopyForm({
       </label>
       <label className="small">
         Call to action
-        <input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
+        <Input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
       </label>
       <label className="small">
         Hashtags
-        <input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
+        <Input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
       </label>
       {post.best_time && <p className="muted small">⏰ Suggested: {post.best_time}</p>}
       {post.rationale && <p className="muted small">💡 {post.rationale}</p>}
@@ -728,29 +738,29 @@ function CopyForm({
           <span className="muted small">— {post.review_note}</span>
         )}
         {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
-          <button className="btn btn-ghost" onClick={() => review("submit")} disabled={!!busy}>
+          <Button variant="ghost" size="sm" onClick={() => review("submit")} disabled={!!busy}>
             Submit for review
-          </button>
+          </Button>
         )}
         {canReview && post.approval_status !== "approved" && (
-          <button className="btn btn-primary" onClick={() => review("approve")} disabled={!!busy}>
+          <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
             Approve
-          </button>
+          </Button>
         )}
         {canReview && post.approval_status === "pending_review" && (
-          <button className="btn btn-ghost" onClick={() => review("reject")} disabled={!!busy}>
+          <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
             Reject
-          </button>
+          </Button>
         )}
         {post.approval_status === "approved" && (
-          <button className="btn btn-primary" onClick={publishNow} disabled={!!busy || ps?.status === "publishing"}>
+          <Button size="sm" onClick={publishNow} disabled={!!busy || ps?.status === "publishing"}>
             {ps?.status === "published" ? "Publish again" : "Publish now"}
-          </button>
+          </Button>
         )}
         {post.approval_status === "approved" && (
-          <button className="btn btn-ghost" onClick={() => setShowSchedule((s) => !s)} disabled={!!busy}>
+          <Button variant="ghost" size="sm" onClick={() => setShowSchedule((s) => !s)} disabled={!!busy}>
             Schedule…
-          </button>
+          </Button>
         )}
         {ps && <PublishBadge ps={ps} busy={!!busy} />}
         {pubMsg && <span className="char-over small">{pubMsg}</span>}
@@ -758,26 +768,27 @@ function CopyForm({
 
       {post.approval_status === "approved" && showSchedule && (
         <div className="schedule-row">
-          <input
+          <Input
             type="datetime-local"
+            className="w-auto"
             value={scheduleAt}
             onChange={(e) => setScheduleAt(e.target.value)}
           />
-          <button className="btn btn-primary" onClick={schedulePost} disabled={!!busy}>
+          <Button size="sm" onClick={schedulePost} disabled={!!busy}>
             Confirm schedule
-          </button>
+          </Button>
           <span className="muted small">Sent automatically at the chosen time.</span>
         </div>
       )}
 
       {canEdit && (
         <div className="form-actions">
-          <button className="btn btn-primary" onClick={saveCopy} disabled={!dirty || !!busy}>
+          <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>
             Save
-          </button>
-          <button className="btn btn-ghost" onClick={regenerate} disabled={!!busy}>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>
             Regenerate copy
-          </button>
+          </Button>
           {busy && <span className="muted small">{busy}</span>}
         </div>
       )}
@@ -830,6 +841,39 @@ const APPROVAL_LABELS: Record<string, string> = {
 function ratioRank(r: string): number {
   const i = RATIO_PRIORITY.indexOf(r);
   return i === -1 ? RATIO_PRIORITY.length : i;
+}
+
+// Radix Select forbids an empty-string item value, so the "Default model"
+// option uses a sentinel that maps back to "" (= use the system default).
+const DEFAULT_MODEL = "__default__";
+
+function ModelSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { id: string; display_name: string }[];
+}) {
+  return (
+    <Select
+      value={value || DEFAULT_MODEL}
+      onValueChange={(v) => onChange(v === DEFAULT_MODEL ? "" : v)}
+    >
+      <SelectTrigger size="sm" className="w-[170px]">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={DEFAULT_MODEL}>Default model</SelectItem>
+        {options.map((m) => (
+          <SelectItem key={m.id} value={m.id}>
+            {m.display_name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 function statusDot(item?: { status: string; base_object_key: string }) {
@@ -1086,45 +1130,41 @@ function ImageSlot({
 
       {canEdit && (
         <div className="image-actions">
-          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="small">
-            <option value="">Default model</option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.display_name}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn btn-primary small"
+          <ModelSelect value={modelId} onChange={setModelId} options={models} />
+          <Button
+            size="sm"
             onClick={generate}
             disabled={!!busy || image.status === "generating" || lockGenerate}
             title={lockGenerate && image.status !== "generating" ? "The base ratio is generating — it will create this one too" : undefined}
           >
             <Sparkles size={14} />
             {image.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : image.base_object_key ? "Regenerate" : "Generate"}
-          </button>
-          <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setShowPrompt((v) => !v)}>
             <Type size={14} /> Prompt
-          </button>
-          <label className={`file-btn btn btn-ghost small ${lockGenerate ? "disabled" : ""}`}>
-            <UploadIcon size={14} /> Upload
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              hidden
-              disabled={!!busy || lockGenerate}
-              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-            />
-          </label>
+          </Button>
+          <Button asChild variant="ghost" size="sm" className={lockGenerate ? "pointer-events-none opacity-50" : ""}>
+            <label className="file-btn">
+              <UploadIcon size={14} /> Upload
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                hidden
+                disabled={!!busy || lockGenerate}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+              />
+            </label>
+          </Button>
           {client?.logo_object_key && (
-            <button
-              className="btn btn-ghost small"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={toggleLogo}
               disabled={!!busy}
               title="Include the brand logo in the generated image (applied next time you generate)"
             >
               {logoOn ? <Eye size={14} /> : <EyeOff size={14} />} Logo {logoOn ? "on" : "off"}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -1146,12 +1186,12 @@ function ImageSlot({
           </label>
           <label className="small">
             Additional guidance (appended)
-            <input value={guidance} onChange={(e) => setGuidance(e.target.value)} />
+            <Input value={guidance} onChange={(e) => setGuidance(e.target.value)} />
           </label>
           <div className="form-actions">
-            <button className="btn btn-ghost small" onClick={savePrompt}>
+            <Button variant="ghost" size="sm" onClick={savePrompt}>
               Save prompt
-            </button>
+            </Button>
             {image.prompt_history.length > 0 && (
               <span className="muted small">{image.prompt_history.length} previous version(s)</span>
             )}
@@ -1386,59 +1426,56 @@ function VideoSlot({
         <div className="image-actions">
           {isPrimary ? (
             <>
-              <select value={modelId} onChange={(e) => setModelId(e.target.value)} className="small">
-                <option value="">Default model</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.display_name}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="btn btn-primary small"
+              <ModelSelect value={modelId} onChange={setModelId} options={models} />
+              <Button
+                size="sm"
                 onClick={generate}
                 disabled={!!busy || video.status === "generating" || lockGenerate}
               >
                 <Sparkles size={14} />
                 {video.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : video.base_object_key ? "Regenerate" : "Generate"}
-              </button>
-              <button className="btn btn-ghost small" onClick={() => setShowPrompt((v) => !v)}>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowPrompt((v) => !v)}>
                 <Type size={14} /> Prompt
-              </button>
+              </Button>
               {client?.logo_object_key && (
-                <button
-                  className="btn btn-ghost small"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={toggleLogo}
                   disabled={!!busy}
                   title="Overlay the brand logo on the video (applied next time you generate)"
                 >
                   {logoOn ? <Eye size={14} /> : <EyeOff size={14} />} Logo {logoOn ? "on" : "off"}
-                </button>
+                </Button>
               )}
               {hasSiblings && video.base_object_key && (
-                <button
-                  className="btn btn-secondary small"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={deriveVariants}
                   disabled={!!busy || lockGenerate}
                   title="Reframe this base video into the other aspect ratios"
                 >
                   <Sparkles size={14} /> Generate other ratios
-                </button>
+                </Button>
               )}
             </>
           ) : (
             <span className="muted small">↳ Reframed from the base ratio</span>
           )}
-          <label className={`file-btn btn btn-ghost small ${lockGenerate ? "disabled" : ""}`}>
-            <UploadIcon size={14} /> Upload
-            <input
-              type="file"
-              accept="video/mp4,video/webm,video/quicktime"
-              hidden
-              disabled={!!busy || lockGenerate}
-              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-            />
-          </label>
+          <Button asChild variant="ghost" size="sm" className={lockGenerate ? "pointer-events-none opacity-50" : ""}>
+            <label className="file-btn">
+              <UploadIcon size={14} /> Upload
+              <input
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime"
+                hidden
+                disabled={!!busy || lockGenerate}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
+              />
+            </label>
+          </Button>
         </div>
       )}
 
@@ -1453,9 +1490,9 @@ function VideoSlot({
             <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
           </label>
           <div className="form-actions">
-            <button className="btn btn-ghost small" onClick={savePrompt}>
+            <Button variant="ghost" size="sm" onClick={savePrompt}>
               Save prompt
-            </button>
+            </Button>
           </div>
         </div>
       )}
