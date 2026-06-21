@@ -451,7 +451,7 @@ function ElementModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        className={`modal element-modal ${showPreview ? "composer-modal max-w-[1240px]" : ""}`}
+        className={`modal element-modal ${showPreview ? "composer-modal" : ""}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
@@ -727,8 +727,8 @@ function CopyForm({
         Hashtags
         <Input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
       </label>
-      {post.best_time && <p className="muted small">⏰ Suggested: {post.best_time}</p>}
-      {post.rationale && <p className="muted small">💡 {post.rationale}</p>}
+      {post.best_time && <p className="post-hint">⏰ <strong>Suggested:</strong> {post.best_time}</p>}
+      {post.rationale && <p className="post-hint">💡 {post.rationale}</p>}
 
       <div className="approval-bar">
         <span className={`tag approval-${post.approval_status}`}>

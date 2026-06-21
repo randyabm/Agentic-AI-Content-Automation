@@ -1337,22 +1337,31 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* --- Campaign composer (editor left / live preview column right) --- */
-.composer-modal { max-width: 1240px; width: 96vw; max-height: 92vh; overflow-y: auto; }
+.composer-modal {
+  max-width: min(1680px, 97vw);
+  width: 97vw;
+  height: 94vh;
+  max-height: 94vh;
+  overflow-y: auto;
+}
 .composer-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 430px;
-  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr) minmax(440px, 30%);
+  gap: 1.75rem;
   align-items: start;
   margin-top: 1rem;
 }
 .composer-editor {
   display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 1.5rem;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  gap: 1.75rem;
   align-items: start;
   min-width: 0;
 }
 .composer-editor .element-copy { min-width: 0; }
+/* In this dense area the global muted grey is too faint — darken it so the
+   char counter, suggested time and rationale hints are clearly legible. */
+.composer-editor .muted { color: #57534e; }
 /* Preview column sticks while the editor scrolls. */
 .composer-preview {
   position: sticky;
@@ -1361,8 +1370,8 @@ input:focus, select:focus, textarea:focus {
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.9rem;
-  max-height: calc(92vh - 5rem);
+  padding: 1rem;
+  max-height: calc(94vh - 4.5rem);
   overflow-y: auto;
 }
 .composer-preview-head {
@@ -1393,6 +1402,19 @@ input:focus, select:focus, textarea:focus {
 }
 .live-preview-stage { display: flex; justify-content: center; }
 .live-preview-stage .preview-card { max-width: 100%; }
+
+/* Helpful AI hints under the copy (best time / rationale) — readable, not faint. */
+.post-hint {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #44403c;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.post-hint strong { color: var(--text); }
 
 @media (max-width: 1100px) {
   .composer-layout { grid-template-columns: 1fr; }
