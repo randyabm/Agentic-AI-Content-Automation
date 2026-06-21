@@ -12,6 +12,8 @@ import { Channels } from "../components/Channels";
 import { PublishCalendar } from "../components/PublishCalendar";
 import { Competitors } from "../components/Competitors";
 import { PlatformIcon, platformFromUrl } from "../components/PlatformIcon";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { Article, ArticleListItem, Client, ExtractionDraft, ExtractionJob, OnboardingJob, OnboardingStatus } from "../types";
 
 const RUNNING = ["pending", "crawling", "extracting"];
@@ -329,12 +331,12 @@ export default function ClientDetail() {
             onChange={(v) => setDraft({ ...draft, social_media_urls: v.split("\n").filter(Boolean) })}
           />
           <div className="form-actions">
-            <button className="btn btn-primary" onClick={confirmDraft}>
+            <Button onClick={confirmDraft}>
               Confirm and save profile
-            </button>
-            <button className="btn btn-ghost" onClick={() => setDraft(null)}>
+            </Button>
+            <Button variant="ghost" onClick={() => setDraft(null)}>
               Discard
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -344,14 +346,14 @@ export default function ClientDetail() {
           <div className="card-header-row">
             <h2>Profile</h2>
             {canEdit && !editing && (
-              <button
-                className="btn btn-ghost"
+              <Button
+                variant="ghost"
                 onClick={startEditing}
                 disabled={profileLocked}
                 title={profileLocked ? "Available once the website analysis finishes" : undefined}
               >
                 Edit profile
-              </button>
+              </Button>
             )}
           </div>
 
@@ -374,12 +376,12 @@ export default function ClientDetail() {
               <Area label="Social media URLs (one per line)" rows={3} value={profileForm.social_media_urls} onChange={(v) => setProfileForm({ ...profileForm, social_media_urls: v })} />
               <Area label="Notes" rows={3} value={profileForm.notes} onChange={(v) => setProfileForm({ ...profileForm, notes: v })} />
               <div className="form-actions">
-                <button className="btn btn-primary" onClick={saveProfile}>
+                <Button onClick={saveProfile}>
                   Save profile
-                </button>
-                <button className="btn btn-ghost" onClick={() => { setEditing(false); setProfileForm(null); }}>
+                </Button>
+                <Button variant="ghost" onClick={() => { setEditing(false); setProfileForm(null); }}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -405,23 +407,27 @@ export default function ClientDetail() {
               <ClientAvatar client={client} large />
             </div>
             {canEdit && (
-              <label
-                className={`btn btn-ghost file-btn ${profileLocked ? "disabled" : ""}`}
+              <Button
+                asChild
+                variant="ghost"
+                className={profileLocked ? "pointer-events-none opacity-50" : ""}
                 title={profileLocked ? "Available once the website analysis finishes" : undefined}
               >
-                {client.avatar_object_key ? "Change photo" : "Upload photo"}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  hidden
-                  disabled={profileLocked}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) setPendingAvatar(f);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
+                <label className="file-btn">
+                  {client.avatar_object_key ? "Change photo" : "Upload photo"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    hidden
+                    disabled={profileLocked}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setPendingAvatar(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </Button>
             )}
           </div>
           <div className="card">
@@ -434,19 +440,23 @@ export default function ClientDetail() {
               )}
             </div>
             {canEdit && (
-              <label
-                className={`btn btn-ghost file-btn ${profileLocked ? "disabled" : ""}`}
+              <Button
+                asChild
+                variant="ghost"
+                className={profileLocked ? "pointer-events-none opacity-50" : ""}
                 title={profileLocked ? "Available once the website analysis finishes" : undefined}
               >
-                Upload logo
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                  hidden
-                  disabled={profileLocked}
-                  onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])}
-                />
-              </label>
+                <label className="file-btn">
+                  Upload logo
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                    hidden
+                    disabled={profileLocked}
+                    onChange={(e) => e.target.files?.[0] && uploadLogo(e.target.files[0])}
+                  />
+                </label>
+              </Button>
             )}
           </div>
           <BrandMemory client={client} canEdit={canEdit} />
@@ -489,9 +499,9 @@ export default function ClientDetail() {
                   ⏳ Analysis running…
                 </p>
               )}
-              <button className="btn btn-primary" onClick={analyze} disabled={!!running}>
+              <Button onClick={analyze} disabled={!!running}>
                 {running ? "Analyzing…" : "Analyze Website"}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -655,7 +665,7 @@ function ClientArticles({
       <div className="client-articles-bar">
         <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
           <Search size={14} style={{ position: "absolute", left: "0.6rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", pointerEvents: "none" }} />
-          <input
+          <Input
             placeholder="Search articles…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -664,13 +674,14 @@ function ClientArticles({
         </div>
         <span className="muted small">{visible.length} article{visible.length !== 1 ? "s" : ""}</span>
         {canEdit && (
-          <button
-            className={`btn btn-ghost small${showImport ? " btn-active" : ""}`}
+          <Button
+            variant="ghost"
+            size="sm"
+            className={showImport ? "bg-accent text-accent-foreground ml-auto" : "ml-auto"}
             onClick={() => { setShowImport((v) => !v); setImportNotice(""); setImportError(""); }}
-            style={{ marginLeft: "auto" }}
           >
             + Import articles
-          </button>
+          </Button>
         )}
       </div>
 
@@ -696,7 +707,7 @@ function ClientArticles({
               <div className="import-row">
                 <label className="import-label">
                   From
-                  <input
+                  <Input
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
@@ -706,7 +717,7 @@ function ClientArticles({
                 </label>
                 <label className="import-label">
                   To
-                  <input
+                  <Input
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
@@ -716,7 +727,7 @@ function ClientArticles({
                 </label>
                 <label className="import-label" title="Maximum articles to import">
                   Limit
-                  <input
+                  <Input
                     type="number"
                     min={1}
                     max={500}
@@ -726,9 +737,9 @@ function ClientArticles({
                     style={{ margin: 0, width: 72 }}
                   />
                 </label>
-                <button className="btn btn-primary small" onClick={handleImportByDate} disabled={importBusy}>
+                <Button size="sm" onClick={handleImportByDate} disabled={importBusy}>
                   {importBusy ? "Importing…" : "Import"}
-                </button>
+                </Button>
               </div>
               <p className="muted small" style={{ marginTop: "0.4rem" }}>
                 Leave dates empty to import the most recent articles. Already-imported articles are skipped automatically.
@@ -739,7 +750,7 @@ function ClientArticles({
           {importMode === "url" && (
             <div className="import-panel-body">
               <div className="import-row">
-                <input
+                <Input
                   type="url"
                   placeholder="https://example.com/blog/article-title"
                   value={importUrl}
@@ -747,13 +758,13 @@ function ClientArticles({
                   disabled={importBusy}
                   style={{ margin: 0, flex: 1 }}
                 />
-                <button
-                  className="btn btn-primary small"
+                <Button
+                  size="sm"
                   onClick={handleImportByUrl}
                   disabled={importBusy || !importUrl.trim()}
                 >
                   {importBusy ? "Importing…" : "Import"}
-                </button>
+                </Button>
               </div>
               <p className="muted small" style={{ marginTop: "0.4rem" }}>
                 If the URL is already in the library, it won't be imported again.
@@ -961,14 +972,15 @@ function OnboardingProgress({
           {canEdit && (
             <div className="onboarding-setup-actions">
               {failedSteps.map((s) => (
-                <button
+                <Button
                   key={s.key}
-                  className="btn btn-secondary small"
+                  variant="secondary"
+                  size="sm"
                   disabled={busy}
                   onClick={() => retryStep(s.key)}
                 >
                   {busy ? "Retrying…" : `Retry: ${s.label}`}
-                </button>
+                </Button>
               ))}
             </div>
           )}
@@ -983,9 +995,9 @@ function OnboardingProgress({
       <div className="card onboarding-card">
         <div className="onboarding-head">
           <strong>Onboarding</strong>
-          <button className="btn btn-ghost small" onClick={rerun} disabled={busy}>
+          <Button variant="ghost" size="sm" onClick={rerun} disabled={busy}>
             {busy ? "Starting…" : "Run onboarding"}
-          </button>
+          </Button>
         </div>
         {err && <div className="alert alert-error">{err}</div>}
       </div>
@@ -1003,9 +1015,9 @@ function OnboardingProgress({
       <div className="onboarding-head">
         <strong>{running && <span className="spinner-inline" />} {title}</strong>
         {canEdit && !running && (
-          <button className="btn btn-ghost small" onClick={rerun} disabled={busy}>
+          <Button variant="ghost" size="sm" onClick={rerun} disabled={busy}>
             {busy ? "Starting…" : "Re-run onboarding"}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1024,9 +1036,9 @@ function OnboardingProgress({
             <span className="step-label">{s.label}</span>
             {s.detail && <span className="step-detail muted small">{s.detail}</span>}
             {canEdit && !running && s.status === "error" && (
-              <button className="btn btn-ghost small" onClick={() => retryStep(s.key)} disabled={busy}>
+              <Button variant="ghost" size="sm" onClick={() => retryStep(s.key)} disabled={busy}>
                 Retry
-              </button>
+              </Button>
             )}
           </li>
         ))}

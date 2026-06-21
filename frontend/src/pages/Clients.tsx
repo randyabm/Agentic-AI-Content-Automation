@@ -5,6 +5,8 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { Client } from "../types";
 
 type DeletionSummary = { campaigns: number; competitors: number; articles: number };
@@ -119,9 +121,9 @@ export default function Clients() {
       <div className="page-header">
         <h1>Clients</h1>
         {canEdit && (
-          <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>
+          <Button variant={showForm ? "ghost" : "default"} onClick={() => setShowForm((v) => !v)}>
             {showForm ? "Cancel" : "+ New client"}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -129,11 +131,11 @@ export default function Clients() {
         <form className="card form-inline" onSubmit={createClient}>
           <label>
             Company name
-            <input value={name} onChange={(e) => setName(e.target.value)} required />
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
           </label>
           <label>
             Website URL
-            <input
+            <Input
               type="url"
               placeholder="https://example.com"
               value={url}
@@ -141,9 +143,9 @@ export default function Clients() {
               required
             />
           </label>
-          <button className="btn btn-primary" disabled={busy}>
+          <Button type="submit" disabled={busy}>
             {busy ? "Creating…" : "Create"}
-          </button>
+          </Button>
         </form>
       )}
 
@@ -153,7 +155,7 @@ export default function Clients() {
       <div className="client-filter-bar">
         <div className="client-filter-search">
           <Search size={15} className="client-search-icon" />
-          <input
+          <Input
             placeholder="Search clients…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
