@@ -20,6 +20,17 @@ const SEE_MORE_LIMIT: Record<string, number> = {
   tiktok: 100,
 };
 
+/** Live, editable post fields the preview reflects in real time. */
+export type PreviewDraft = {
+  headline: string;
+  copy: string;
+  hashtags: string; // raw, space-separated (as typed in the editor)
+};
+
+function draftFromPost(p: Post): PreviewDraft {
+  return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
+}
+
 /** Load a protected binary as an object URL (revoked on cleanup). */
 function useBlobUrl(path: string) {
   const [url, setUrl] = useState("");
@@ -138,31 +149,23 @@ function Media({
   );
 }
 
-export function PostPreviewModal({
+/** A single platform's post preview, rendered from live draft fields + the
+ *  element's shared visual for that platform's ratio. */
+export function PostPreviewCard({
   campaignId,
   element,
-  posts,
   client,
-  initialPlatform,
-  onClose,
+  platform,
+  draft,
+  logoUrl,
 }: {
   campaignId: string;
   element: CampaignElement;
-  posts: Post[];
   client: Client;
-  initialPlatform: string;
-  onClose: () => void;
+  platform: string;
+  draft: PreviewDraft;
+  logoUrl: string;
 }) {
-  const [platform, setPlatform] = useState(initialPlatform);
-  // Prefer the client's profile photo as the author avatar; fall back to the logo.
-  const avatarPath = client.avatar_object_key
-    ? `/clients/${client.id}/avatar`
-    : client.logo_object_key
-      ? `/clients/${client.id}/logo`
-      : "";
-  const logoUrl = useBlobUrl(avatarPath);
-
-  const post = posts.find((p) => p.platform === platform) ?? null;
   const ratio = element.platform_ratios?.[platform] ?? "1:1";
   const images = useMemo(
     () => element.images.filter((i) => i.aspect_ratio === ratio),
@@ -175,156 +178,197 @@ export function PostPreviewModal({
       : "";
 
   const name = client.company_name;
-  const copyWithTags = post ? [post.copy, post.hashtags.join(" ")].filter(Boolean).join("\n\n") : "";
-  const media = (
-    <Media campaignId={campaignId} images={images} videoPath={videoPath} ratio={ratio} />
-  );
+  const copyWithTags = [draft.copy, draft.hashtags].map((s) => s.trim()).filter(Boolean).join("\n\n");
+  const media = <Media campaignId={campaignId} images={images} videoPath={videoPath} ratio={ratio} />;
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal preview-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Post preview</h2>
-          <button className="btn btn-ghost" onClick={onClose}>
-            ✕ Close
-          </button>
+  if (platform === "facebook") {
+    return (
+      <div className="preview-card fb">
+        <div className="preview-head">
+          <Avatar url={logoUrl} name={name} />
+          <div>
+            <strong>{name}</strong>
+            <div className="muted small">Just now · 🌐</div>
+          </div>
         </div>
-        <div className="source-tabs">
-          {element.platforms.map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={`tab ${platform === p ? "tab-active" : ""}`}
-              onClick={() => setPlatform(p)}
-            >
-              <PlatformIcon platform={p} size={15} /> {PLATFORM_LABELS[p] ?? p}
-            </button>
-          ))}
-        </div>
-        <p className="muted small">Simulated preview — approximation of how the post will look when published.</p>
-
-        <div className="preview-stage">
-          {!post && <p className="muted">No post was generated for this platform.</p>}
-
-          {post && platform === "facebook" && (
-            <div className="preview-card fb">
-              <div className="preview-head">
-                <Avatar url={logoUrl} name={name} />
-                <div>
-                  <strong>{name}</strong>
-                  <div className="muted small">Just now · 🌐</div>
-                </div>
-              </div>
-              <TruncatedCopy text={copyWithTags} platform="facebook" />
-              {media}
-              <div className="preview-actions-row">
-                <span>👍 Like</span>
-                <span>💬 Comment</span>
-                <span>↪ Share</span>
-              </div>
-            </div>
-          )}
-
-          {post && platform === "instagram" && (
-            <div className="preview-card ig">
-              <div className="preview-head">
-                <Avatar url={logoUrl} name={name} />
-                <strong>{handleOf(name)}</strong>
-                <span className="muted" style={{ marginLeft: "auto" }}>
-                  ⋯
-                </span>
-              </div>
-              {media}
-              <div className="preview-actions-row ig-icons">
-                <span>♥</span>
-                <span>💬</span>
-                <span>✈</span>
-                <span style={{ marginLeft: "auto" }}>🔖</span>
-              </div>
-              <div className="preview-copy">
-                <strong>{handleOf(name)}</strong>{" "}
-                <TruncatedCopy text={copyWithTags} platform="instagram" />
-              </div>
-              <div className="muted small">Just now</div>
-            </div>
-          )}
-
-          {post && platform === "linkedin" && (
-            <div className="preview-card li">
-              <div className="preview-head">
-                <Avatar url={logoUrl} name={name} square />
-                <div>
-                  <strong>{name}</strong>
-                  <div className="muted small">{client.industry || "Company"} · Just now</div>
-                </div>
-                <span className="muted" style={{ marginLeft: "auto" }}>
-                  + Follow
-                </span>
-              </div>
-              <TruncatedCopy text={copyWithTags} platform="linkedin" />
-              {media}
-              <div className="preview-actions-row">
-                <span>👍 Like</span>
-                <span>💬 Comment</span>
-                <span>🔁 Repost</span>
-                <span>📤 Send</span>
-              </div>
-            </div>
-          )}
-
-          {post && platform === "x" && (
-            <div className="preview-card x-card">
-              <div className="preview-head">
-                <Avatar url={logoUrl} name={name} />
-                <div>
-                  <strong>{name}</strong> <span className="muted small">@{handleOf(name)} · now</span>
-                </div>
-              </div>
-              <p className="preview-copy">{copyWithTags}</p>
-              <div className="preview-media-rounded">{media}</div>
-              <div className="preview-actions-row">
-                <span>💬</span>
-                <span>🔁</span>
-                <span>♥</span>
-                <span>📊</span>
-                <span>📤</span>
-              </div>
-            </div>
-          )}
-
-          {post && platform === "tiktok" && (
-            <div className="preview-phone">
-              {media}
-              <div className="preview-phone-overlay">
-                <strong>@{handleOf(name)}</strong>
-                <TruncatedCopy text={copyWithTags} platform="tiktok" />
-              </div>
-              <div className="preview-phone-rail">
-                <span>♥</span>
-                <span>💬</span>
-                <span>🔖</span>
-                <span>↪</span>
-              </div>
-            </div>
-          )}
-
-          {post && platform === "youtube" && (
-            <div className="preview-card yt">
-              {media}
-              <h3 style={{ margin: "0.5rem 0 0.25rem" }}>{post.headline || name}</h3>
-              <div className="preview-head" style={{ marginTop: "0.25rem" }}>
-                <Avatar url={logoUrl} name={name} />
-                <div>
-                  <strong>{name}</strong>
-                  <div className="muted small">Just now</div>
-                </div>
-                <span className="preview-subscribe">Subscribe</span>
-              </div>
-              <TruncatedCopy text={copyWithTags} platform="facebook" />
-            </div>
-          )}
+        <TruncatedCopy text={copyWithTags} platform="facebook" />
+        {media}
+        <div className="preview-actions-row">
+          <span>👍 Like</span>
+          <span>💬 Comment</span>
+          <span>↪ Share</span>
         </div>
       </div>
+    );
+  }
+  if (platform === "instagram") {
+    return (
+      <div className="preview-card ig">
+        <div className="preview-head">
+          <Avatar url={logoUrl} name={name} />
+          <strong>{handleOf(name)}</strong>
+          <span className="muted" style={{ marginLeft: "auto" }}>
+            ⋯
+          </span>
+        </div>
+        {media}
+        <div className="preview-actions-row ig-icons">
+          <span>♥</span>
+          <span>💬</span>
+          <span>✈</span>
+          <span style={{ marginLeft: "auto" }}>🔖</span>
+        </div>
+        <div className="preview-copy">
+          <strong>{handleOf(name)}</strong>{" "}
+          <TruncatedCopy text={copyWithTags} platform="instagram" />
+        </div>
+        <div className="muted small">Just now</div>
+      </div>
+    );
+  }
+  if (platform === "linkedin") {
+    return (
+      <div className="preview-card li">
+        <div className="preview-head">
+          <Avatar url={logoUrl} name={name} square />
+          <div>
+            <strong>{name}</strong>
+            <div className="muted small">{client.industry || "Company"} · Just now</div>
+          </div>
+          <span className="muted" style={{ marginLeft: "auto" }}>
+            + Follow
+          </span>
+        </div>
+        <TruncatedCopy text={copyWithTags} platform="linkedin" />
+        {media}
+        <div className="preview-actions-row">
+          <span>👍 Like</span>
+          <span>💬 Comment</span>
+          <span>🔁 Repost</span>
+          <span>📤 Send</span>
+        </div>
+      </div>
+    );
+  }
+  if (platform === "x") {
+    return (
+      <div className="preview-card x-card">
+        <div className="preview-head">
+          <Avatar url={logoUrl} name={name} />
+          <div>
+            <strong>{name}</strong> <span className="muted small">@{handleOf(name)} · now</span>
+          </div>
+        </div>
+        <p className="preview-copy">{copyWithTags}</p>
+        <div className="preview-media-rounded">{media}</div>
+        <div className="preview-actions-row">
+          <span>💬</span>
+          <span>🔁</span>
+          <span>♥</span>
+          <span>📊</span>
+          <span>📤</span>
+        </div>
+      </div>
+    );
+  }
+  if (platform === "tiktok") {
+    return (
+      <div className="preview-phone">
+        {media}
+        <div className="preview-phone-overlay">
+          <strong>@{handleOf(name)}</strong>
+          <TruncatedCopy text={copyWithTags} platform="tiktok" />
+        </div>
+        <div className="preview-phone-rail">
+          <span>♥</span>
+          <span>💬</span>
+          <span>🔖</span>
+          <span>↪</span>
+        </div>
+      </div>
+    );
+  }
+  if (platform === "youtube") {
+    return (
+      <div className="preview-card yt">
+        {media}
+        <h3 style={{ margin: "0.5rem 0 0.25rem" }}>{draft.headline || name}</h3>
+        <div className="preview-head" style={{ marginTop: "0.25rem" }}>
+          <Avatar url={logoUrl} name={name} />
+          <div>
+            <strong>{name}</strong>
+            <div className="muted small">Just now</div>
+          </div>
+          <span className="preview-subscribe">Subscribe</span>
+        </div>
+        <TruncatedCopy text={copyWithTags} platform="facebook" />
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Live preview column: one card per platform of the element, kept in sync with
+ *  the editor drafts so changes (copy, hashtags, headline) render instantly. */
+export function LivePreviewColumn({
+  campaignId,
+  element,
+  posts,
+  client,
+  drafts,
+  activePlatform,
+}: {
+  campaignId: string;
+  element: CampaignElement;
+  posts: Post[];
+  client: Client;
+  drafts: Record<string, PreviewDraft>;
+  activePlatform?: string;
+}) {
+  // Prefer the client's profile photo as the author avatar; fall back to the logo.
+  const avatarPath = client.avatar_object_key
+    ? `/clients/${client.id}/avatar`
+    : client.logo_object_key
+      ? `/clients/${client.id}/logo`
+      : "";
+  const logoUrl = useBlobUrl(avatarPath);
+
+  // Show a card for every platform that has a post, in the element's order.
+  const cards = element.platforms
+    .map((platform) => ({ platform, post: posts.find((p) => p.platform === platform) ?? null }))
+    .filter((c) => c.post);
+
+  if (cards.length === 0) {
+    return <p className="muted small">No posts to preview yet.</p>;
+  }
+
+  return (
+    <div className="live-preview-column">
+      {cards.map(({ platform, post }) => {
+        const draft = (post && drafts[post.id]) || (post ? draftFromPost(post) : { headline: "", copy: "", hashtags: "" });
+        const ratio = element.platform_ratios?.[platform] ?? "1:1";
+        const isActive = platform === activePlatform;
+        return (
+          <div key={platform} className={`live-preview-item ${isActive ? "active" : ""}`}>
+            <div className="live-preview-label">
+              <span className="live-preview-platform">
+                <PlatformIcon platform={platform} size={14} /> {PLATFORM_LABELS[platform] ?? platform}
+              </span>
+              <span className="ratio-pill">{ratio}</span>
+            </div>
+            <div className="live-preview-stage">
+              <PostPreviewCard
+                campaignId={campaignId}
+                element={element}
+                client={client}
+                platform={platform}
+                draft={draft}
+                logoUrl={logoUrl}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

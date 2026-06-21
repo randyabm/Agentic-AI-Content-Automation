@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
@@ -6,7 +6,7 @@ import { ImageEditor } from "../components/ImageEditor";
 import { AutopilotModal } from "../components/AutopilotModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
-import { PostPreviewModal } from "../components/PostPreview";
+import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { RATIO_PRIORITY } from "../ratios";
 import { useAuth } from "../auth";
 import type {
@@ -387,6 +387,10 @@ function useImageUrl(campaignId: string, image: PostImage): string {
   return url;
 }
 
+function makeDraft(p: Post): PreviewDraft {
+  return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
+}
+
 function ElementModal({
   campaignId,
   element,
@@ -409,8 +413,14 @@ function ElementModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState(posts[0]?.platform ?? "");
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // Live drafts feed the right-hand preview column in real time. Each CopyForm
+  // reports its in-progress edits here so the preview updates as you type —
+  // without saving or reopening anything.
+  const [drafts, setDrafts] = useState<Record<string, PreviewDraft>>(() =>
+    Object.fromEntries(posts.map((p) => [p.id, makeDraft(p)])),
+  );
   const activePost = posts.find((p) => p.platform === tab) ?? posts[0] ?? null;
+  const showPreview = !!element && !!client && posts.length > 0;
 
   // Platforms sharing each image's ratio, so a visual is shown once with its audience.
   function platformsForRatio(ratio: string): string[] {
@@ -420,80 +430,91 @@ function ElementModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal element-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`modal element-modal ${showPreview ? "composer-modal max-w-[1240px]" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <h2>{element ? element.theme || element.element_type : activePost?.headline || "Post"}</h2>
-          <div className="competitor-actions">
-            {element && client && posts.length > 0 && (
-              <button className="btn btn-ghost" onClick={() => setPreviewOpen(true)}>
-                👁 Preview
-              </button>
-            )}
-            <button className="btn btn-ghost" onClick={onClose}>
-              Close
-            </button>
-          </div>
+          <button className="btn btn-ghost" onClick={onClose}>
+            Close
+          </button>
         </div>
 
-        {previewOpen && element && client && (
-          <PostPreviewModal
-            campaignId={campaignId}
-            element={element}
-            posts={posts}
-            client={client}
-            initialPlatform={activePost?.platform ?? element.platforms[0]}
-            onClose={() => setPreviewOpen(false)}
-          />
-        )}
-
-        <div className="element-modal-layout">
-          {element && (
-            <div className="element-visuals">
-              <h3 className="small muted">Visual (shared across platforms)</h3>
-              {element.images.length > 0 && (
-                <ElementVisual
-                  campaignId={campaignId}
-                  images={element.images}
-                  client={client}
-                  models={models}
-                  canEdit={canEdit}
-                  onChange={onChange}
-                  platformsForRatio={platformsForRatio}
-                />
-              )}
-              {element.videos.length > 0 && (
-                <VideoVisual
-                  campaignId={campaignId}
-                  videos={element.videos}
-                  client={client}
-                  models={videoModels}
-                  canEdit={canEdit}
-                  onChange={onChange}
-                  platformsForRatio={platformsForRatio}
-                />
-              )}
-            </div>
-          )}
-
-          <div className="element-copy">
-            {posts.length > 1 && (
-              <div className="tab-bar">
-                {posts.map((p) => (
-                  <button
-                    key={p.id}
-                    className={`tab ${tab === p.platform ? "active" : ""}`}
-                    onClick={() => setTab(p.platform)}
-                  >
-                    <PlatformIcon platform={p.platform} size={14} /> {p.platform}
-                  </button>
-                ))}
+        <div className={showPreview ? "composer-layout" : "element-modal-layout"}>
+          <div className="composer-editor">
+            {element && (
+              <div className="element-visuals">
+                <h3 className="small muted">Visual (shared across platforms)</h3>
+                {element.images.length > 0 && (
+                  <ElementVisual
+                    campaignId={campaignId}
+                    images={element.images}
+                    client={client}
+                    models={models}
+                    canEdit={canEdit}
+                    onChange={onChange}
+                    platformsForRatio={platformsForRatio}
+                  />
+                )}
+                {element.videos.length > 0 && (
+                  <VideoVisual
+                    campaignId={campaignId}
+                    videos={element.videos}
+                    client={client}
+                    models={videoModels}
+                    canEdit={canEdit}
+                    onChange={onChange}
+                    platformsForRatio={platformsForRatio}
+                  />
+                )}
               </div>
             )}
-            {activePost && (
-              <CopyForm key={activePost.id} campaignId={campaignId} post={activePost} canEdit={canEdit} onChange={onChange} />
-            )}
-            {posts.length === 0 && <p className="muted small">This element has no posts.</p>}
+
+            <div className="element-copy">
+              {posts.length > 1 && (
+                <div className="tab-bar">
+                  {posts.map((p) => (
+                    <button
+                      key={p.id}
+                      className={`tab ${tab === p.platform ? "active" : ""}`}
+                      onClick={() => setTab(p.platform)}
+                    >
+                      <PlatformIcon platform={p.platform} size={14} /> {p.platform}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activePost && (
+                <CopyForm
+                  key={activePost.id}
+                  campaignId={campaignId}
+                  post={activePost}
+                  canEdit={canEdit}
+                  onChange={onChange}
+                  setDrafts={setDrafts}
+                />
+              )}
+              {posts.length === 0 && <p className="muted small">This element has no posts.</p>}
+            </div>
           </div>
+
+          {showPreview && (
+            <aside className="composer-preview">
+              <div className="composer-preview-head">
+                <span className="small muted">Live preview</span>
+                <span className="small muted">updates as you type</span>
+              </div>
+              <LivePreviewColumn
+                campaignId={campaignId}
+                element={element!}
+                posts={posts}
+                client={client!}
+                drafts={drafts}
+                activePlatform={tab}
+              />
+            </aside>
+          )}
         </div>
       </div>
     </div>
@@ -505,11 +526,13 @@ function CopyForm({
   post,
   canEdit,
   onChange,
+  setDrafts,
 }: {
   campaignId: string;
   post: Post;
   canEdit: boolean;
   onChange: () => Promise<void>;
+  setDrafts?: Dispatch<SetStateAction<Record<string, PreviewDraft>>>;
 }) {
   const [copy, setCopy] = useState(post.copy);
   const [headline, setHeadline] = useState(post.headline);
@@ -600,6 +623,19 @@ function CopyForm({
     setHashtags(post.hashtags.join(" "));
     setDirty(false);
   }, [post.copy, post.headline, post.cta, post.hashtags]);
+
+  // Mirror in-progress edits into the shared drafts map so the live preview
+  // column reflects them immediately. Guarded to avoid a re-render loop.
+  useEffect(() => {
+    if (!setDrafts) return;
+    setDrafts((prev) => {
+      const cur = prev[post.id];
+      if (cur && cur.headline === headline && cur.copy === copy && cur.hashtags === hashtags) {
+        return prev;
+      }
+      return { ...prev, [post.id]: { headline, copy, hashtags } };
+    });
+  }, [headline, copy, hashtags, post.id, setDrafts]);
 
   async function saveCopy() {
     setBusy("Saving…");
