@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../api";
 import type { ReviewQueueItem } from "../types";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
+import { usePrompt } from "@/components/ui/dialogs";
 
 export default function ReviewQueue() {
   const [items, setItems] = useState<ReviewQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const promptDialog = usePrompt();
 
   async function load() {
     try {
@@ -27,7 +30,17 @@ export default function ReviewQueue() {
 
   async function decide(item: ReviewQueueItem, action: "approve" | "reject") {
     let note = "";
-    if (action === "reject") note = window.prompt("Reason for rejection (optional):") ?? "";
+    if (action === "reject") {
+      const reason = await promptDialog({
+        title: "Reject post",
+        description: "Add an optional note explaining why (the author will see it).",
+        placeholder: "Reason for rejection (optional)",
+        confirmLabel: "Reject",
+        destructive: true,
+      });
+      if (reason === null) return; // cancelled
+      note = reason;
+    }
     setBusy(item.post_id);
     setError("");
     try {
@@ -35,9 +48,11 @@ export default function ReviewQueue() {
         method: "POST",
         body: action === "reject" ? { note } : {},
       });
+      toast.success(action === "approve" ? "Post approved" : "Post rejected");
       setItems((prev) => prev.filter((i) => i.post_id !== item.post_id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
+      toast.error(e instanceof Error ? e.message : "Action failed");
     } finally {
       setBusy("");
     }

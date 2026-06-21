@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Client, Competitor, CompetitorSearchJob } from "../types";
+import { useConfirm } from "@/components/ui/dialogs";
 
 const RUNNING_ANALYSIS = ["pending", "crawling", "extracting", "comparing"];
 const RUNNING_SEARCH = ["pending", "identifying"];
 
 export function Competitors({ client, onboardingRunning }: { client: Client; onboardingRunning?: boolean }) {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
@@ -113,7 +115,13 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Remove this competitor?")) return;
+    const ok = await confirm({
+      title: "Remove competitor",
+      description: "This removes the competitor from this client's analysis.",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api(`/clients/${client.id}/competitors/${id}`, { method: "DELETE" });
       setCompetitors((prev) => prev.filter((c) => c.id !== id));

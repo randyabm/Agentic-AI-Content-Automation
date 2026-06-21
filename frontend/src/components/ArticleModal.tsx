@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Article } from "../types";
+import { useConfirm } from "@/components/ui/dialogs";
 
 export function ArticleModal({
   article,
@@ -14,6 +15,7 @@ export function ArticleModal({
   onClose: () => void;
   onAction: (id: string, path: string, method?: string) => void;
 }) {
+  const confirm = useConfirm();
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -51,8 +53,14 @@ export function ArticleModal({
             {isAdmin && (
               <button
                 className="btn btn-ghost danger"
-                onClick={() => {
-                  if (window.confirm("Permanently delete this article?")) onAction(article.id, "", "DELETE");
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: "Delete article",
+                    description: "This permanently deletes the article from the library.",
+                    confirmLabel: "Delete",
+                    destructive: true,
+                  });
+                  if (ok) onAction(article.id, "", "DELETE");
                 }}
               >
                 Delete

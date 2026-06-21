@@ -4,6 +4,7 @@ import { CalendarDays, RefreshCw } from "lucide-react";
 import { api } from "../api";
 import type { CalendarItem, Client } from "../types";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
+import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 
 const STATUS_TAG: Record<string, string> = {
   scheduled: "tag-amber",
@@ -34,6 +35,8 @@ function dayKey(iso: string | null): string {
 }
 
 export function PublishCalendar({ client, canEdit }: { client: Client; canEdit: boolean }) {
+  const confirm = useConfirm();
+  const promptDialog = usePrompt();
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -55,10 +58,14 @@ export function PublishCalendar({ client, canEdit }: { client: Client; canEdit: 
 
   async function reschedule(item: CalendarItem) {
     const current = item.scheduled_at ? new Date(item.scheduled_at) : new Date();
-    const input = window.prompt(
-      "New date & time (YYYY-MM-DD HH:MM, local time):",
-      current.toLocaleString("sv").slice(0, 16)
-    );
+    const input = await promptDialog({
+      title: "Reschedule post",
+      description: "New date & time (YYYY-MM-DD HH:MM, local time).",
+      defaultValue: current.toLocaleString("sv").slice(0, 16),
+      placeholder: "YYYY-MM-DD HH:MM",
+      confirmLabel: "Reschedule",
+      allowEmpty: false,
+    });
     if (!input) return;
     const when = new Date(input.replace(" ", "T"));
     if (isNaN(when.getTime())) {
@@ -82,7 +89,14 @@ export function PublishCalendar({ client, canEdit }: { client: Client; canEdit: 
   }
 
   async function cancel(item: CalendarItem) {
-    if (!window.confirm("Cancel this scheduled post?")) return;
+    const ok = await confirm({
+      title: "Cancel scheduled post",
+      description: "The post won't be published at its scheduled time.",
+      confirmLabel: "Cancel post",
+      cancelLabel: "Keep",
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy(item.id);
     setError("");
     try {

@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-react";
 import { api } from "../api";
 import type { Client, SocialAccount } from "../types";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
+import { useConfirm } from "@/components/ui/dialogs";
 
 const CONNECTABLE_ZERNIO = ["facebook", "instagram", "linkedin", "x", "tiktok", "youtube"];
 const CONNECTABLE_DIRECT = ["facebook", "instagram", "x", "linkedin"];
@@ -16,6 +17,7 @@ const STATUS_TAG: Record<string, string> = {
 };
 
 export function Channels({ client, canEdit }: { client: Client; canEdit: boolean }) {
+  const confirm = useConfirm();
   const [channels, setChannels] = useState<SocialAccount[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -99,7 +101,13 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
   }
 
   async function disconnect(id: string) {
-    if (!window.confirm("Remove this channel? You can reconnect it later.")) return;
+    const ok = await confirm({
+      title: "Remove channel",
+      description: "You can reconnect it later from the integrations settings.",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy(id);
     try {
       await api(`/clients/${client.id}/channels/${id}`, { method: "DELETE" });

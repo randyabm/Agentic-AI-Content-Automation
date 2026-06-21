@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { ArticleSource } from "../types";
+import { useConfirm } from "@/components/ui/dialogs";
 
 export function ArticleSources() {
+  const confirm = useConfirm();
   const [sources, setSources] = useState<ArticleSource[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -54,7 +56,13 @@ export function ArticleSources() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this auto-sync source? (Imported articles stay in the library.)")) return;
+    const ok = await confirm({
+      title: "Delete auto-sync source",
+      description: "Imported articles stay in the library; only the sync source is removed.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api(`/article-sources/${id}`, { method: "DELETE" });
       await load();

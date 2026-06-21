@@ -7,6 +7,8 @@ import { AutopilotModal } from "../components/AutopilotModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
+import { toast } from "sonner";
+import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { RATIO_PRIORITY } from "../ratios";
 import { useAuth } from "../auth";
 import type {
@@ -34,6 +36,7 @@ export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [models, setModels] = useState<ImageModel[]>([]);
@@ -92,8 +95,15 @@ export default function CampaignDetail() {
   }
 
   async function remove() {
-    if (!window.confirm("Delete this campaign permanently?")) return;
+    const ok = await confirm({
+      title: "Delete campaign",
+      description: "This permanently deletes the campaign and all its posts. This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     await api(`/campaigns/${campaign!.id}`, { method: "DELETE" });
+    toast.success("Campaign deleted");
     navigate("/campaigns");
   }
 
@@ -541,6 +551,8 @@ function CopyForm({
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const promptDialog = usePrompt();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
 
   const canReview =
@@ -558,13 +570,26 @@ function CopyForm({
 
   async function review(action: "submit" | "approve" | "reject") {
     let note = "";
-    if (action === "reject") note = window.prompt("Reason for rejection (optional):") ?? "";
+    if (action === "reject") {
+      const reason = await promptDialog({
+        title: "Reject post",
+        description: "Add an optional note explaining why (the author will see it).",
+        placeholder: "Reason for rejection (optional)",
+        confirmLabel: "Reject",
+        destructive: true,
+      });
+      if (reason === null) return; // cancelled
+      note = reason;
+    }
     setBusy(action === "submit" ? "Submitting…" : action === "approve" ? "Approving…" : "Rejecting…");
     try {
       await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, {
         method: "POST",
         body: action === "reject" ? { note } : {},
       });
+      toast.success(
+        action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected",
+      );
       await onChange();
     } finally {
       setBusy("");
@@ -572,7 +597,12 @@ function CopyForm({
   }
 
   async function publishNow() {
-    if (!window.confirm("Publish this post now?")) return;
+    const ok = await confirm({
+      title: "Publish now",
+      description: "This publishes the post to the connected channel immediately.",
+      confirmLabel: "Publish",
+    });
+    if (!ok) return;
     setBusy("Publishing…");
     setPubMsg("");
     try {

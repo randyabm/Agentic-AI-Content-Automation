@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ArticleSources } from "../components/ArticleSources";
 import { TextareaZoom } from "../components/TextareaZoom";
+import { useConfirm } from "@/components/ui/dialogs";
 import type {
   ImageModel,
   LLMConfig,
@@ -536,6 +537,7 @@ function ModelSelect({
 }
 
 function ProvidersSection() {
+  const confirm = useConfirm();
   const [creds, setCreds] = useState<ProviderCredential[]>([]);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -562,7 +564,13 @@ function ProvidersSection() {
   }
 
   async function removeKey(provider: string, label: string) {
-    if (!window.confirm(`Remove the API key for ${label}? Models using this provider will stop working.`)) return;
+    const ok = await confirm({
+      title: "Remove API key",
+      description: `Remove the API key for ${label}? Models using this provider will stop working.`,
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     setError("");
     setNotice("");
     try {
@@ -783,6 +791,7 @@ function LLMConfigSection() {
 const EMPTY_IMAGE_FORM = { display_name: "", provider: "openrouter", model_name: "", is_default: false };
 
 function ImageModelSection() {
+  const confirm = useConfirm();
   const [models, setModels] = useState<ImageModel[]>([]);
   const [form, setForm] = useState<typeof EMPTY_IMAGE_FORM>(EMPTY_IMAGE_FORM);
   const [showForm, setShowForm] = useState(false);
@@ -836,7 +845,13 @@ function ImageModelSection() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Remove this image model from the list?")) return;
+    const ok = await confirm({
+      title: "Remove image model",
+      description: "Remove this image model from the list?",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api(`/image-models/${id}`, { method: "DELETE" });
       setModels((prev) => prev.filter((m) => m.id !== id));
@@ -976,6 +991,7 @@ const EMPTY_VIDEO_FORM = {
 };
 
 function VideoModelSection() {
+  const confirm = useConfirm();
   const [models, setModels] = useState<VideoModel[]>([]);
   const [form, setForm] = useState<typeof EMPTY_VIDEO_FORM>(EMPTY_VIDEO_FORM);
   const [showForm, setShowForm] = useState(false);
@@ -1035,7 +1051,13 @@ function VideoModelSection() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Remove this video model from the list?")) return;
+    const ok = await confirm({
+      title: "Remove video model",
+      description: "Remove this video model from the list?",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api(`/video-models/${id}`, { method: "DELETE" });
       setModels((prev) => prev.filter((m) => m.id !== id));
