@@ -82,7 +82,9 @@ The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sq
 
 **Campaign domain model** (element-centric): a campaign's *elements* own the shared visuals (one image per aspect ratio); *posts* are per-platform copy that reference an element. Ratios are derived from the selected platforms automatically, with manual override (`frontend/src/ratios.ts`, `services/platforms.py`). Module 4 (article-to-content) reuses the same campaign pipeline in an article-driven mode.
 
-**Frontend** (`frontend/src/`) — React 18 + TypeScript + Vite, react-router, no state library or UI framework. `api.ts` is the single fetch wrapper (JWT from `auth.tsx`); `types.ts` mirrors backend schemas by hand — keep it in sync when changing `backend/app/schemas/`. Styling is plain CSS in `styles.css`.
+**Frontend** (`frontend/src/`) — React 18 + TypeScript + Vite 8 (Node 26), react-router, no state library. `api.ts` is the single fetch wrapper (JWT from `auth.tsx`); `types.ts` mirrors backend schemas by hand — keep it in sync when changing `backend/app/schemas/`.
+
+**UI design system** (in-progress migration): standardizing on **shadcn/ui + Tailwind CSS v4**. Base components live in `frontend/src/components/ui/` (Button, Input, Textarea, Label, Card, Badge, Tabs, Dialog, Select, Separator, Tooltip, DropdownMenu, Toaster). Add more with `npx shadcn@latest add <name>` (config in `components.json`). The brand palette (ThreadWeave indigo/amber/teal) is mapped to shadcn CSS variables in `src/index.css`. Class merging helper: `cn()` from `@/lib/utils`; `@` aliases `src/`. Toasts via `toast()` from `sonner` (host mounted in `main.tsx`). The legacy hand-written `styles.css` is imported into a lower `legacy` cascade layer so Tailwind utilities win — older screens still render unchanged until migrated. Prefer shadcn components for all **new** UI; migrate legacy screens opportunistically.
 
 ## Conventions
 

@@ -534,8 +534,6 @@ export interface Post {
 
 export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
 
-export type PublishStatus = "draft" | "scheduled" | "publishing" | "published" | "partial" | "failed";
-
 export interface PublishState {
   status: PublishStatus;
   published_url: string;

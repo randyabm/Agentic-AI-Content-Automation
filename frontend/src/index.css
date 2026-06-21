@@ -1,0 +1,96 @@
+/* Tailwind v4 + shadcn/ui foundation.
+ *
+ * NOTE: We import Tailwind WITHOUT preflight (the global reset) on purpose.
+ * The app still ships ~1.7k lines of hand-written CSS in styles.css that styles
+ * raw <button>/<input>/<table> elements directly. Loading preflight would reset
+ * all of those and break the legacy screens before we've migrated them. So we
+ * pull in only the theme tokens + utilities + animations, and add preflight back
+ * later once every screen uses shadcn components.
+ *
+ * To re-enable preflight in the future, replace the three @import lines below
+ * with a single:  @import "tailwindcss";
+ */
+@layer theme, base, legacy, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+/* The legacy hand-written stylesheet is pulled into its own cascade layer that
+ * sits BELOW Tailwind's utilities. This lets new shadcn components (which style
+ * via utility classes) win over the legacy element/class rules, while every
+ * not-yet-migrated screen keeps rendering exactly as before. */
+@import "./styles.css" layer(legacy);
+
+@custom-variant dark (&:is(.dark *));
+
+/* ThreadWeave design tokens (Indigo / Amber / Teal) expressed as the shadcn/ui
+ * variable contract, so shadcn components inherit the existing brand palette. */
+:root {
+  --radius: 0.75rem;
+
+  --background: #fafaf9;
+  --foreground: #1c1917;
+
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+
+  --primary: #4338ca;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f5f5f4;
+  --secondary-foreground: #1c1917;
+
+  --muted: #f5f5f4;
+  --muted-foreground: #78716c;
+
+  --accent: #eef2ff;
+  --accent-foreground: #3730a3;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  --border: #e7e5e4;
+  --input: #e7e5e4;
+  --ring: #4338ca;
+
+  /* Brand accents beyond the shadcn contract, available as utilities */
+  --tertiary: #0f766e;
+  --warning: #d97706;
+}
+
+/* Expose the variables above as Tailwind theme tokens (text-primary, bg-card,
+ * border-border, rounded-lg, etc.) used by the shadcn components. */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-tertiary: var(--tertiary);
+  --color-warning: var(--warning);
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-serif: "Crimson Text", Georgia, "Times New Roman", serif;
+}
