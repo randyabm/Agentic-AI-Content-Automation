@@ -495,7 +495,7 @@ function ElementModal({
             <div className="element-copy">
               {posts.length > 1 && (
                 <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="mb-3">
-                  <TabsList className="h-auto flex-wrap justify-start gap-1">
+                  <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
                     {posts.map((p) => (
                       <TabsTrigger key={p.id} value={p.platform} className="flex-none gap-1.5 px-3">
                         <PlatformIcon platform={p.platform} size={14} /> {platformLabel(p.platform)}
