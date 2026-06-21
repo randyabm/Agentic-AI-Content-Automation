@@ -1,6 +1,6 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
+import { ChevronRight, Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Upload as UploadIcon, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
 import { AutopilotModal } from "../components/AutopilotModal";
@@ -412,6 +412,61 @@ function makeDraft(p: Post): PreviewDraft {
   return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
 }
 
+/** Platform switcher: a single scrollable row with a right-edge gradient +
+ *  chevron shown only when more tabs are hidden off-screen. Clicking the
+ *  chevron scrolls the row forward. */
+function PlatformTabs({
+  posts,
+  value,
+  onValueChange,
+}: {
+  posts: Post[];
+  value: string;
+  onValueChange: (v: string) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showFade, setShowFade] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setShowFade(el.scrollWidth - el.scrollLeft - el.clientWidth > 4);
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [posts.length]);
+
+  return (
+    <div className="relative mb-3">
+      <div ref={scrollRef} className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <Tabs value={value} onValueChange={onValueChange}>
+          <TabsList className="h-auto w-max justify-start gap-1">
+            {posts.map((p) => (
+              <TabsTrigger key={p.id} value={p.platform} className="flex-none gap-1.5 px-3">
+                <PlatformIcon platform={p.platform} size={14} /> {platformLabel(p.platform)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+      {showFade && (
+        <button
+          type="button"
+          aria-label="Show more platforms"
+          onClick={() => scrollRef.current?.scrollBy({ left: 160, behavior: "smooth" })}
+          className="absolute right-0 top-0 bottom-0 flex w-12 items-center justify-end rounded-r-lg bg-gradient-to-l from-muted via-muted/85 to-transparent pr-1.5"
+        >
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ElementModal({
   campaignId,
   element,
@@ -466,7 +521,7 @@ function ElementModal({
           <div className="composer-editor">
             {element && (
               <div className="element-visuals">
-                <h3 className="small muted">Visual (shared across platforms)</h3>
+                <h3 className="composer-section-title">Visual (shared across platforms)</h3>
                 {element.images.length > 0 && (
                   <ElementVisual
                     campaignId={campaignId}
@@ -494,15 +549,7 @@ function ElementModal({
 
             <div className="element-copy">
               {posts.length > 1 && (
-                <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="mb-3">
-                  <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
-                    {posts.map((p) => (
-                      <TabsTrigger key={p.id} value={p.platform} className="flex-none gap-1.5 px-3">
-                        <PlatformIcon platform={p.platform} size={14} /> {platformLabel(p.platform)}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
+                <PlatformTabs posts={posts} value={tab} onValueChange={(v) => setTab(v as typeof tab)} />
               )}
               {activePost && (
                 <CopyForm
@@ -1002,7 +1049,7 @@ function ImageSlot({
   const [guidance, setGuidance] = useState(image.additional_guidance);
   const [modelId, setModelId] = useState(image.image_model_id ?? "");
   // Surface the prompt before the first generation so it can be tuned upfront.
-  const [showPrompt, setShowPrompt] = useState(!image.base_object_key);
+  // Generation prompts are always visible in the editor (no toggle).
   const [editorOpen, setEditorOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const [busy, setBusy] = useState("");
@@ -1139,9 +1186,6 @@ function ImageSlot({
             <Sparkles size={14} />
             {image.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : image.base_object_key ? "Regenerate" : "Generate"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setShowPrompt((v) => !v)}>
-            <Type size={14} /> Prompt
-          </Button>
           <Button asChild variant="ghost" size="sm" className={lockGenerate ? "pointer-events-none opacity-50" : ""}>
             <label className="file-btn">
               <UploadIcon size={14} /> Upload
@@ -1173,7 +1217,7 @@ function ImageSlot({
         </p>
       )}
 
-      {showPrompt && canEdit && (
+      {canEdit && (
         <div className="prompt-editor">
           <label className="small">
             Image prompt
@@ -1304,7 +1348,7 @@ function VideoSlot({
   const [negative, setNegative] = useState(video.negative_prompt);
   const [modelId, setModelId] = useState(video.video_model_id ?? "");
   // Surface the prompt before the first generation so it can be tuned upfront.
-  const [showPrompt, setShowPrompt] = useState(!video.base_object_key && video.status === "draft");
+  // Generation prompts are always visible in the editor (no toggle).
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -1434,9 +1478,6 @@ function VideoSlot({
                 <Sparkles size={14} />
                 {video.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : video.base_object_key ? "Regenerate" : "Generate"}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowPrompt((v) => !v)}>
-                <Type size={14} /> Prompt
-              </Button>
               {client?.logo_object_key && (
                 <Button
                   variant="ghost"
@@ -1478,7 +1519,7 @@ function VideoSlot({
         </div>
       )}
 
-      {showPrompt && canEdit && isPrimary && (
+      {canEdit && isPrimary && (
         <div className="prompt-editor">
           <label className="small">
             Video prompt
