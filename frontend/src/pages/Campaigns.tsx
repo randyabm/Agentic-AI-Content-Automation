@@ -7,6 +7,8 @@ import { ArticlePickerModal } from "../components/ArticlePickerModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { resolvePlatformRatios } from "../ratios";
 import type {
   ArticleListItem,
@@ -140,18 +142,18 @@ export default function Campaigns() {
       <div className="page-header">
         <h1>Campaigns</h1>
         <div className="competitor-actions">
-          <button
-            className={`btn ${mode === "campaign" ? "btn-ghost" : "btn-primary"}`}
+          <Button
+            variant={mode === "campaign" ? "ghost" : "default"}
             onClick={() => setMode((m) => (m === "campaign" ? "none" : "campaign"))}
           >
             {mode === "campaign" ? "Cancel" : "+ New campaign"}
-          </button>
-          <button
-            className="btn btn-ghost"
+          </Button>
+          <Button
+            variant="ghost"
             onClick={() => setMode((m) => (m === "article" ? "none" : "article"))}
           >
             {mode === "article" ? "Cancel" : "+ From article"}
-          </button>
+          </Button>
         </div>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
@@ -175,7 +177,7 @@ export default function Campaigns() {
       {/* Filter bar */}
       <div className="campaign-filter-bar">
         <div className="campaign-filter-search">
-          <input
+          <Input
             placeholder="Search campaigns…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -449,7 +451,7 @@ function CreateCampaign({
         </label>
         <label>
           Campaign name
-          <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Q3 brand push" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Q3 brand push" />
         </label>
         <label>
           Objective
@@ -463,7 +465,7 @@ function CreateCampaign({
         </label>
         <label>
           Content language
-          <input value={language} onChange={(e) => setLanguage(e.target.value)} />
+          <Input value={language} onChange={(e) => setLanguage(e.target.value)} />
         </label>
         <label>
           Creativity: {creativity}
@@ -509,7 +511,7 @@ function CreateCampaign({
         </label>
         <label>
           …or external article URL (optional)
-          <input value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="https://…" />
+          <Input value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="https://…" />
         </label>
       </div>
 
@@ -548,9 +550,9 @@ function CreateCampaign({
         <h3 style={{ margin: 0 }}>Campaign elements</h3>
         <div className="competitor-actions" style={{ margin: 0 }}>
           {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((t) => (
-            <button key={t} type="button" className="btn btn-ghost" onClick={() => addElement(t)}>
+            <Button key={t} type="button" variant="ghost" onClick={() => addElement(t)}>
               + {ELEMENT_LABELS[t]}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -631,7 +633,7 @@ function CreateCampaign({
                     <div className="platform-config-fields">
                       <label>
                         Hashtags
-                        <input
+                        <Input
                           type="number"
                           min={0}
                           max={30}
@@ -649,7 +651,7 @@ function CreateCampaign({
                       </label>
                       <label>
                         Tone (optional)
-                        <input value={d.tone} onChange={(e) => updateSettings(s.platform, { tone: e.target.value })} />
+                        <Input value={d.tone} onChange={(e) => updateSettings(s.platform, { tone: e.target.value })} />
                       </label>
                       <label className="checkbox-label">
                         <input
@@ -669,9 +671,9 @@ function CreateCampaign({
       )}
 
       <div className="form-actions">
-        <button className="btn btn-primary" disabled={submitting}>
+        <Button type="submit" disabled={submitting}>
           {submitting ? "Generating…" : "Generate campaign"}
-        </button>
+        </Button>
       </div>
 
       {confirmOpen && (
@@ -726,23 +728,24 @@ function ElementCard({
       <div className="card-header">
         <strong>{ELEMENT_LABELS[el.element_type]}</strong>
         <div className="competitor-actions">
-          <button type="button" className="btn btn-ghost small" onClick={onDuplicate}>Duplicate</button>
-          <button type="button" className="btn btn-ghost small danger" onClick={onRemove}>✕</button>
-          <button
+          <Button type="button" variant="ghost" size="sm" onClick={onDuplicate}>Duplicate</Button>
+          <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onRemove}>✕</Button>
+          <Button
             type="button"
-            className="btn btn-ghost small"
+            variant="ghost"
+            size="sm"
             onClick={() => setExpanded((v) => !v)}
             aria-label={expanded ? "Collapse" : "Expand"}
             title={expanded ? "Collapse details" : "Expand details"}
           >
             {expanded ? "▲" : "▼"}
-          </button>
+          </Button>
         </div>
       </div>
 
       <label className="small" style={{ marginTop: "0.4rem" }}>
         Concept / theme for this element (optional)
-        <input
+        <Input
           value={el.theme}
           onChange={(e) => onChange({ theme: e.target.value })}
           placeholder="e.g. product close-up with lifestyle background"
@@ -764,14 +767,14 @@ function ElementCard({
             {el.element_type === "carousel" && (
               <label>
                 Slides
-                <input type="number" min={2} max={10} value={el.carousel_slides}
+                <Input type="number" min={2} max={10} value={el.carousel_slides}
                   onChange={(e) => onChange({ carousel_slides: Number(e.target.value) })} />
               </label>
             )}
             {el.element_type === "video" && (
               <label>
                 Duration (s)
-                <input type="number" min={1} max={60} value={el.video_duration_seconds}
+                <Input type="number" min={1} max={60} value={el.video_duration_seconds}
                   onChange={(e) => onChange({ video_duration_seconds: Number(e.target.value) })} />
               </label>
             )}
@@ -798,9 +801,9 @@ function ElementCard({
                   <span key={r} className="tag" style={{ marginRight: "0.3rem" }}>{r}</span>
                 ))}
               </span>
-              <button type="button" className="btn btn-ghost small" onClick={() => setShowRatios((v) => !v)}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowRatios((v) => !v)}>
                 {showRatios ? "Hide ratios" : "Adjust ratios"}
-              </button>
+              </Button>
               {showRatios && (
                 <div className="platform-config-fields">
                   {el.platforms.map((p) => {
@@ -917,8 +920,8 @@ function CampaignConfirmModal({
         )}
 
         <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-          <button type="button" className="btn" onClick={onBack}>← Go back to edit</button>
-          <button type="button" className="btn btn-primary" onClick={onConfirm}>Confirm &amp; Generate</button>
+          <Button type="button" variant="secondary" onClick={onBack}>← Go back to edit</Button>
+          <Button type="button" onClick={onConfirm}>Confirm &amp; Generate</Button>
         </div>
       </div>
     </div>
