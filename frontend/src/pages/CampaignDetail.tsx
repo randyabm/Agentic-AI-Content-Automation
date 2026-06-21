@@ -773,7 +773,6 @@ function CopyForm({
         Hashtags
         <Input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
       </label>
-      {post.best_time && <p className="post-hint">⏰ <strong>Suggested:</strong> {post.best_time}</p>}
       {post.rationale && <p className="post-hint">💡 {post.rationale}</p>}
 
       <div className="approval-bar">
@@ -811,6 +810,10 @@ function CopyForm({
         {ps && <PublishBadge ps={ps} busy={!!busy} />}
         {pubMsg && <span className="char-over small">{pubMsg}</span>}
       </div>
+
+      {post.best_time && (
+        <p className="publish-suggestion">🕐 <strong>Suggested time:</strong> {post.best_time}</p>
+      )}
 
       {post.approval_status === "approved" && showSchedule && (
         <div className="schedule-row">
