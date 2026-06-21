@@ -5,12 +5,13 @@ import { api, apiBlob, downloadFile } from "../api";
 import { ImageEditor } from "../components/ImageEditor";
 import { AutopilotModal } from "../components/AutopilotModal";
 import { TextareaZoom } from "../components/TextareaZoom";
-import { PlatformIcon } from "../components/PlatformIcon";
+import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -493,17 +494,15 @@ function ElementModal({
 
             <div className="element-copy">
               {posts.length > 1 && (
-                <div className="tab-bar">
-                  {posts.map((p) => (
-                    <button
-                      key={p.id}
-                      className={`tab ${tab === p.platform ? "active" : ""}`}
-                      onClick={() => setTab(p.platform)}
-                    >
-                      <PlatformIcon platform={p.platform} size={14} /> {p.platform}
-                    </button>
-                  ))}
-                </div>
+                <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="mb-3">
+                  <TabsList className="h-auto flex-wrap justify-start gap-1">
+                    {posts.map((p) => (
+                      <TabsTrigger key={p.id} value={p.platform} className="flex-none gap-1.5 px-3">
+                        <PlatformIcon platform={p.platform} size={14} /> {platformLabel(p.platform)}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
               )}
               {activePost && (
                 <CopyForm
