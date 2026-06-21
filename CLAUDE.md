@@ -26,7 +26,7 @@ git commit && git push origin <branch>
 - Push to any other branch → deploys that branch (useful for testing from mobile)
 - If no branch can be detected, falls back to master
 
-`deploy.sh` does: `git pull origin <branch>` → `docker compose build api worker beat frontend` → `docker compose up -d`. nginx and cloudflared are always restarted after build — nginx caches container IPs which change on each rebuild.
+`deploy.sh` does: `git fetch origin <branch>` → `git checkout -f -B <branch> origin/<branch>` (force-switches the working tree to the pushed branch, so **any** branch push deploys that branch's exact code) → `docker compose build api worker beat frontend` → `docker compose up -d`. nginx and cloudflared are always restarted after build — nginx caches container IPs which change on each rebuild.
 
 Deploy logs land in `/tmp/deploy.log` on the server. Check them if something breaks:
 
