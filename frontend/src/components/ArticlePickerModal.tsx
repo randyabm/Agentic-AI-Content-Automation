@@ -97,7 +97,7 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
                     <div style={{ fontSize: "0.83rem", fontWeight: 600, color: "var(--text)", lineHeight: 1.3, marginBottom: "0.2rem" }}>
                       {a.title}
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                       {formatDate(a.publication_date ?? a.created_at)}
                       {a.author ? ` · ${a.author}` : ""}
                     </div>
@@ -117,7 +117,7 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
                     <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text)", lineHeight: 1.4, marginBottom: "0.3rem" }}>
                       {preview.title}
                     </div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
                       {formatDate(preview.publication_date ?? preview.created_at)}
                       {preview.author ? ` · ${preview.author}` : ""}
                     </div>
@@ -126,7 +126,7 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
                   {preview.tags.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
                       {preview.tags.map((t) => (
-                        <span key={t} style={{ fontSize: "0.72rem", padding: "2px 8px", borderRadius: "99px", background: "var(--surface-alt)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+                        <span key={t} style={{ fontSize: "0.72rem", padding: "2px 8px", borderRadius: "99px", background: "var(--surface-alt)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
                           {t}
                         </span>
                       ))}
@@ -134,7 +134,7 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
                   )}
 
                   {preview.summary && (
-                    <p style={{ fontSize: "0.82rem", color: "var(--muted)", lineHeight: 1.6, margin: 0 }}>
+                    <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
                       {preview.summary}
                     </p>
                   )}
