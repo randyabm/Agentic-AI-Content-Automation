@@ -16,8 +16,9 @@ in `backend/app/api/routes/campaigns.py`) and the existing drag-and-drop `Pipeli
 
 | Topic | Decision |
 |---|---|
-| Board columns | `Sin asignar / Borrador` → `En revisión` → `Aprobada` → `Programada` → `(Publicada)`. Generation happens inside Borrador (it's fast). |
-| Board unit | The **campaign** is the card. Its column is a **roll-up** of its posts' approval/scheduling state — it does not duplicate the post-level `PipelineBoard` (which stays per-post in the calendar). |
+| Board columns | `Borrador` → `En revisión` → `Aprobada` → `Programada` → `(Publicada)`. **Every new campaign starts in `Borrador`**, regardless of generation. |
+| Two state axes (important) | **Generation status ≠ workflow stage.** `CampaignStatus` (draft/generating/**ready**/failed) only means "has the content been generated?" — `ready` is a *generation* state, **not** "ready to publish". The board **columns are the workflow stage**; generation status is shown as a small **badge** on the card (generando / generada / falló). A freshly generated campaign is `ready`(generation) **and** `Borrador`(workflow) at the same time. |
+| Board unit | The **campaign** is the card. Its **workflow stage** is a roll-up of its posts'/media approval + scheduling state, defaulting to `Borrador` until someone submits it — generation never moves it out of `Borrador`. It does not duplicate the post-level `PipelineBoard` (which stays per-post in the calendar). |
 | Approval gates | **Two independent tracks per campaign: Copy and Media (images/videos).** Different people sign off each, in parallel. Campaign reaches `Aprobada` only when *both* are complete across all its posts. |
 | RBAC model | **Capability-based.** Capabilities are decoupled from roles; each of the **5 existing roles is an editable bundle** of capabilities. Granularity = **per-role** (no custom roles, no per-user overrides in v1). |
 | Who configures | The **Org Admin** edits the matrix and assigns one role per member. |
@@ -60,7 +61,7 @@ configure_permissions # edit this matrix
 | approve_copy | – | – | ✓ | – | ✓ |
 | approve_media | – | – | ✓ | – | ✓ |
 | schedule | – | – | – | ✓ | ✓ |
-| publish | – | – | – | – | ✓ |
+| publish | – | – | – | ✓ | ✓ |
 | manage_channels | – | – | – | ✓ | ✓ |
 | manage_members | – | – | – | – | ✓ |
 | configure_permissions | – | – | – | – | ✓ |
@@ -128,15 +129,19 @@ configure_permissions # edit this matrix
 
 ### 4.1 Columns & roll-up
 
-Column for a campaign is derived from its posts/media:
-- `Borrador` — generating, or not yet submitted.
-- `En revisión` — submitted; copy and/or media still pending.
+The **workflow stage** (the column) is independent of the generation status. It is a roll-up of the
+campaign's posts/media, defaulting to `Borrador`:
+- `Borrador` — default for any new campaign and until it is submitted. Holds campaigns that are still
+  generating, already generated (`ready`), or failed — the generation status shows as a card badge,
+  it does **not** change the column.
+- `En revisión` — submitted; copy and/or media still pending approval.
 - `Aprobada` — all copy approved **and** all media approved.
 - `Programada` — approved **and** at least one post scheduled (rolls up from `ScheduledPost`).
 - `Publicada` — all scheduled posts published.
 
-`Sin asignar` = the Borrador bucket (campaigns not yet in the workflow). (Optionally split a literal
-"unscheduled" lane later, mirroring `ScheduleablePostsSidebar`.)
+Implementation: an explicit `Campaign.workflow_stage` (default `borrador`) is the single source of truth
+for the column, advanced by the submit/approve/schedule/publish actions and the approval roll-up. Keep
+`CampaignStatus` untouched as the generation axis; surface it only as a badge on the card.
 
 ### 4.2 Drag rules (gated by capability)
 
@@ -164,17 +169,19 @@ Reuse `dnd-kit` and the column/drag scaffolding from `PipelineBoard.tsx`.
 ## 5. Migrations
 
 1. `role_permissions` table + backfill defaults for every existing org.
-2. Media approval column(s) on `post_images` / `post_videos` (default `draft`); backfill existing
-   `ready` media to `approved` so current campaigns stay publishable.
-3. No destructive changes; all additive (`IF NOT EXISTS`).
+2. `Campaign.workflow_stage` column (default `borrador`); **backfill ALL existing campaigns to
+   `borrador`** — their `ready` status is generation-only, not approval.
+3. Media approval column(s) on `post_images` / `post_videos` (default `draft`). **Do NOT auto-approve
+   existing media** — `ready` ≠ approved; existing campaigns go through review like any other.
+4. No destructive changes; all additive (`IF NOT EXISTS`).
 
 ---
 
 ## 6. Risks & open questions
 
 - **Route refactor risk** (2.4): broad surface. Mitigation: per-router, default matrix == current behavior.
-- Roll-up performance on the board: compute campaign column server-side (one query per board load).
-- Open: should `Analyst` get `publish` by default, or only `Org admin`? (Default table says Org admin only.)
-- Open: backfill — existing campaigns are all `ready`; do they land in `Aprobada` or `Borrador` on first
-  board load? (Proposal: treat `ready` media/copy as approved → `Aprobada`.)
+- Roll-up performance on the board: store `workflow_stage` explicitly (don't recompute per load).
+- **Resolved:** `publish` default = `Analyst` + `Org admin`.
+- **Resolved:** generation status ≠ workflow stage. New campaigns and all existing ones start in
+  `Borrador`; `ready` is generation-only and is shown as a card badge, never as a column.
 - Future (not v1): custom named roles, per-user overrides, a literal "unscheduled" lane.
