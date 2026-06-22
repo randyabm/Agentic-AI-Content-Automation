@@ -327,7 +327,8 @@ function CreateCampaign({
   const [objective, setObjective] = useState<CampaignObjective>("awareness");
   const [theme, setTheme] = useState("");
   const [creativity, setCreativity] = useState(5);
-  const [language, setLanguage] = useState("en");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [articleId, setArticleId] = useState("");
   const [articleUrl, setArticleUrl] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -410,7 +411,8 @@ function CreateCampaign({
         name,
         objective,
         central_theme: theme,
-        content_language: language,
+        start_date: startDate || null,
+        end_date: endDate || null,
         creativity_level: creativity,
         article_id: articleId || null,
         article_url: articleUrl,
@@ -447,247 +449,248 @@ function CreateCampaign({
     }
   }
 
-  return (
-    <form className="card" onSubmit={handleSubmit}>
-      <h2>New campaign</h2>
-      {error && <div className="alert alert-error">{error}</div>}
-      <div className="form-grid">
-        <label>
-          Client
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)} required>
-            <option value="">Select…</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.company_name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Campaign name
-          <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Q3 brand push" />
-        </label>
-        <label>
-          Objective
-          <select value={objective} onChange={(e) => setObjective(e.target.value as CampaignObjective)}>
-            {OBJECTIVES.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Content language
-          <Input value={language} onChange={(e) => setLanguage(e.target.value)} />
-        </label>
-        <label>
-          Creativity: {creativity}
-          <input
-            type="range"
-            min={1}
-            max={10}
-            value={creativity}
-            onChange={(e) => setCreativity(Number(e.target.value))}
-          />
-        </label>
-      </div>
-      <label>
-        Central theme / concept (optional)
-        <TextareaZoom label="Central theme / concept" rows={2} value={theme} onChange={setTheme} />
-      </label>
+  const cLabel = (s: string) => specs.find((p) => p.platform === s)?.label ?? s;
 
-      <div className="form-grid">
-        <label>
-          Reference article from library (optional)
-          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-            <button
-              type="button"
-              className="article-picker-trigger"
-              onClick={() => setPickerOpen(true)}
-            >
-              {articleId
-                ? (articles.find((a) => a.id === articleId)?.title ?? "Article selected")
-                : "Choose article…"}
-            </button>
-            {articleId && (
-              <button
-                type="button"
-                className="btn-icon"
-                onClick={() => setArticleId("")}
-                aria-label="Clear article"
-                title="Clear"
-              >
-                ✕
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {/* ===== TWO-COLUMN LAYOUT (CONCEPT UI) ===== */}
+      <div style={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: "1.5rem", alignItems: "start" }}>
+
+        {/* ===== LEFT COLUMN: Campaign Details ===== */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+
+          {/* Campaign Details card */}
+          <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: "0 0 1rem", color: "#141b2b" }}>Campaign Details</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {/* Client */}
+              <div>
+                <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.35rem" }}>Client</label>
+                <select value={clientId} onChange={(e) => setClientId(e.target.value)} required
+                  style={{ width: "100%", padding: "0.65rem 0.75rem", border: "1px solid #ccc3d7", borderRadius: "8px", fontSize: "0.85rem", background: "white", color: "#141b2b" }}>
+                  <option value="">Select…</option>
+                  {clients.map((c) => (<option key={c.id} value={c.id}>{c.company_name}</option>))}
+                </select>
+              </div>
+              {/* Campaign Name */}
+              <div>
+                <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.35rem" }}>Campaign Name</label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Summer Launch 2024" />
+              </div>
+              {/* Goal */}
+              <div>
+                <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.35rem" }}>Goal</label>
+                <select value={objective} onChange={(e) => setObjective(e.target.value as CampaignObjective)}
+                  style={{ width: "100%", padding: "0.65rem 0.75rem", border: "1px solid #ccc3d7", borderRadius: "8px", fontSize: "0.85rem", background: "white", color: "#141b2b" }}>
+                  {OBJECTIVES.map((o) => (<option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>))}
+                </select>
+              </div>
+              {/* Platforms */}
+              <div>
+                <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.35rem" }}>Platforms</label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.4rem" }}>
+                  {specs.map((s) => {
+                    const on = globalPlatforms.includes(s.platform);
+                    return (
+                      <button key={s.platform} type="button" onClick={() => toggleGlobalPlatform(s.platform, !on)}
+                        style={{
+                          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "0.4rem",
+                          padding: "0.6rem 0.25rem", borderRadius: "10px", border: on ? "2px solid #6d28d9" : "2px solid #ccc3d7",
+                          background: on ? "rgba(109,40,217,0.05)" : "white", cursor: "pointer", transition: "all 0.15s",
+                          fontWeight: on ? 700 : 500, color: on ? "#6d28d9" : "#4a4455",
+                        }}>
+                        <PlatformIcon platform={s.platform} size={16} color={on ? "#6d28d9" : "#4a4455"} />
+                        <span style={{ fontSize: "0.7rem" }}>{platformLabel(s.platform)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* Date Range */}
+              <div>
+                <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.35rem" }}>Date Range</label>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <span className="material-symbols-outlined" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#4a4455", fontSize: "16px" }}>calendar_today</span>
+                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+                      style={{ width: "100%", padding: "0.65rem 0.75rem 0.65rem 2.2rem", border: "1px solid #ccc3d7", borderRadius: "8px", fontSize: "0.85rem", background: "#f1f3ff", color: "#141b2b" }} />
+                  </div>
+                  <span style={{ color: "#4a4455", fontSize: "0.85rem" }}>to</span>
+                  <div style={{ position: "relative", flex: 1 }}>
+                    <span className="material-symbols-outlined" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#4a4455", fontSize: "16px" }}>calendar_today</span>
+                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+                      style={{ width: "100%", padding: "0.65rem 0.75rem 0.65rem 2.2rem", border: "1px solid #ccc3d7", borderRadius: "8px", fontSize: "0.85rem", background: "#f1f3ff", color: "#141b2b" }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Central Theme */}
+          <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+            <h4 style={{ fontSize: "0.85rem", fontWeight: 600, margin: "0 0 0.75rem", color: "#141b2b" }}>Central Theme / Concept <span style={{ fontWeight: 400, color: "#4a4455" }}>(optional)</span></h4>
+            <TextareaZoom label="Central theme / concept" rows={3} value={theme} onChange={setTheme} placeholder="e.g. Summer lifestyle campaign focused on outdoor adventures" />
+            <div style={{ marginTop: "0.75rem" }}>
+              <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.35rem" }}>Creativity: {creativity}/10</label>
+              <input type="range" min={1} max={10} value={creativity} onChange={(e) => setCreativity(Number(e.target.value))}
+                style={{ width: "100%" }} />
+            </div>
+          </div>
+
+          {/* Reference Article */}
+          <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+            <h4 style={{ fontSize: "0.85rem", fontWeight: 600, margin: "0 0 0.75rem", color: "#141b2b" }}>Reference Article <span style={{ fontWeight: 400, color: "#4a4455" }}>(optional)</span></h4>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", marginBottom: "0.6rem" }}>
+              <button type="button" onClick={() => setPickerOpen(true)}
+                style={{ padding: "0.5rem 0.75rem", background: "#f1f3ff", border: "1px solid #ccc3d7", borderRadius: "8px", fontSize: "0.8rem", cursor: "pointer", color: "#4a4455", flex: 1, textAlign: "left" }}>
+                {articleId ? (articles.find((a) => a.id === articleId)?.title ?? "Article selected") : "Choose article…"}
               </button>
+              {articleId && (
+                <button type="button" onClick={() => setArticleId("")} style={{ padding: "0.4rem", background: "none", border: "none", cursor: "pointer", color: "#dc2626" }}>✕</button>
+              )}
+            </div>
+            <Input value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="…or external article URL" />
+            {pickerOpen && (
+              <ArticlePickerModal articles={articles} onSelect={(a) => { setArticleId(a.id); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />
             )}
           </div>
-        </label>
-        <label>
-          …or external article URL (optional)
-          <Input value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="https://…" />
-        </label>
-      </div>
 
-      {pickerOpen && (
-        <ArticlePickerModal
-          articles={articles}
-          onSelect={(a) => {
-            setArticleId(a.id);
-            setPickerOpen(false);
-          }}
-          onClose={() => setPickerOpen(false)}
-        />
-      )}
-
-      <div className="global-platforms-selector">
-        <span className="global-platforms-label">Platforms</span>
-        <div className="global-platforms-pills">
-          {specs.map((s) => {
-            const on = globalPlatforms.includes(s.platform);
-            return (
-              <button
-                key={s.platform}
-                type="button"
-                className={`platform-pill${on ? " platform-pill-on" : ""}`}
-                onClick={() => toggleGlobalPlatform(s.platform, !on)}
-              >
-                <PlatformIcon platform={s.platform} size={13} color={on ? undefined : "currentColor"} />
-                {platformLabel(s.platform)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <h3 style={{ margin: 0 }}>Campaign elements</h3>
-        <div className="competitor-actions" style={{ margin: 0 }}>
-          {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((t) => (
-            <Button key={t} type="button" variant="ghost" onClick={() => addElement(t)}>
-              + {ELEMENT_LABELS[t]}
-            </Button>
-          ))}
-        </div>
-      </div>
-      <div className="element-zone">
-        {elements.length === 0 && (
-          <p className="muted" style={{ margin: 0, padding: "1.25rem", textAlign: "center" }}>
-            No elements yet — use the buttons above to add the first one.
-          </p>
-        )}
-        {elements.map((el) => (
-          <ElementCard
-            key={el.key}
-            el={el}
-            specs={specs}
-            onChange={(patch) => updateElement(el.key, patch)}
-            onRemove={() => removeElement(el.key)}
-            onDuplicate={() => duplicateElement(el)}
-          />
-        ))}
-      </div>
-
-      <div className="ref-images-section">
-        <div className="ref-images-header">
-          <span className="ref-images-title">Reference images <span className="muted small">(optional)</span></span>
-        </div>
-        <p className="muted small" style={{ margin: "0 0 0.6rem" }}>
-          Product photos used as visual reference so generated images match the real subject.
-        </p>
-        <div className="ref-images-row">
-          {refImages.map((file, i) => (
-            <div key={i} className="ref-thumb">
-              <img src={URL.createObjectURL(file)} alt={file.name} />
-              <button
-                type="button"
-                className="ref-thumb-remove"
-                onClick={() => setRefImages((prev) => prev.filter((_, j) => j !== i))}
-                aria-label="Remove"
-              >✕</button>
+          {/* Reference Images */}
+          <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+            <h4 style={{ fontSize: "0.85rem", fontWeight: 600, margin: "0 0 0.25rem", color: "#141b2b" }}>Reference Images <span style={{ fontWeight: 400, color: "#4a4455" }}>(optional)</span></h4>
+            <p style={{ fontSize: "0.75rem", color: "#4a4455", margin: "0 0 0.75rem" }}>Product photos so generated images match the real subject.</p>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              {refImages.map((file, i) => (
+                <div key={i} style={{ width: "4rem", height: "4rem", borderRadius: "8px", overflow: "hidden", position: "relative", border: "1px solid #e5e7eb" }}>
+                  <img src={URL.createObjectURL(file)} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <button type="button" onClick={() => setRefImages((prev) => prev.filter((_, j) => j !== i))}
+                    style={{ position: "absolute", top: "2px", right: "2px", width: "18px", height: "18px", borderRadius: "50%", background: "rgba(0,0,0,0.5)", color: "white", border: "none", fontSize: "10px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                </div>
+              ))}
+              <label style={{ width: "4rem", height: "4rem", borderRadius: "8px", border: "2px dashed #ccc3d7", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#4a4455", fontSize: "1.5rem" }}>
+                +<input type="file" accept="image/png,image/jpeg,image/webp" hidden multiple
+                  onChange={(e) => { const files = Array.from(e.target.files ?? []); setRefImages((prev) => [...prev, ...files]); e.target.value = ""; }} />
+              </label>
             </div>
-          ))}
-          <label className="ref-thumb ref-thumb-add" title="Add image">
-            +
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              hidden
-              multiple
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                setRefImages((prev) => [...prev, ...files]);
-                e.target.value = "";
-              }}
-            />
-          </label>
-        </div>
-      </div>
+          </div>
 
-      {usedPlatforms.length > 0 && (
-        <>
-          <button
-            type="button"
-            className="btn-link muted small"
-            onClick={() => setShowPlatformSettings((v) => !v)}
-            style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: "0.25rem" }}
-          >
-            ⚙ Advanced platform settings {showPlatformSettings ? "▲" : "▼"}
-          </button>
-          {showPlatformSettings && (
-            <div className="platform-config-list" style={{ marginTop: "0.5rem" }}>
-              {usedPlatforms.map((s) => {
-                const d = settingsFor(s.platform);
-                return (
-                  <div key={s.platform} className="platform-config enabled">
-                    <label className="checkbox-label">
-                      <strong>{s.label}</strong>
-                      <span className="muted small">({s.char_limit.toLocaleString()} chars)</span>
-                    </label>
-                    <div className="platform-config-fields">
-                      <label>
-                        Hashtags
-                        <Input
-                          type="number"
-                          min={0}
-                          max={30}
-                          value={d.hashtag_count}
-                          onChange={(e) => updateSettings(s.platform, { hashtag_count: Number(e.target.value) })}
-                        />
-                      </label>
-                      <label>
-                        Emojis
-                        <select value={d.emojis} onChange={(e) => updateSettings(s.platform, { emojis: e.target.value })}>
-                          <option value="none">None</option>
-                          <option value="moderate">Moderate</option>
-                          <option value="abundant">Abundant</option>
-                        </select>
-                      </label>
-                      <label>
-                        Tone (optional)
-                        <Input value={d.tone} onChange={(e) => updateSettings(s.platform, { tone: e.target.value })} />
-                      </label>
-                      <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={d.include_cta}
-                          onChange={(e) => updateSettings(s.platform, { include_cta: e.target.checked })}
-                        />
-                        CTA
-                      </label>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Advanced Platform Settings */}
+          {usedPlatforms.length > 0 && (
+            <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+              <button type="button" onClick={() => setShowPlatformSettings((v) => !v)}
+                style={{ display: "flex", alignItems: "center", gap: "0.3rem", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#4a4455", fontSize: "0.8rem", fontWeight: 600 }}>
+                ⚙ Advanced platform settings {showPlatformSettings ? "▲" : "▼"}
+              </button>
+              {showPlatformSettings && (
+                <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {usedPlatforms.map((s) => {
+                    const d = settingsFor(s.platform);
+                    return (
+                      <div key={s.platform} style={{ padding: "0.75rem", background: "#f9fafb", borderRadius: "8px" }}>
+                        <strong style={{ fontSize: "0.85rem", color: "#141b2b" }}>{s.label}</strong>
+                        <span style={{ fontSize: "0.75rem", color: "#4a4455" }}> ({s.char_limit.toLocaleString()} chars)</span>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginTop: "0.5rem" }}>
+                          <div>
+                            <label style={{ fontSize: "0.65rem", color: "#4a4455", display: "block" }}>Hashtags</label>
+                            <Input type="number" min={0} max={30} value={d.hashtag_count}
+                              onChange={(e) => updateSettings(s.platform, { hashtag_count: Number(e.target.value) })} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: "0.65rem", color: "#4a4455", display: "block" }}>Emojis</label>
+                            <select value={d.emojis} onChange={(e) => updateSettings(s.platform, { emojis: e.target.value })}
+                              style={{ width: "100%", padding: "0.5rem", border: "1px solid #e5e7eb", borderRadius: "6px", fontSize: "0.8rem", background: "white" }}>
+                              <option value="none">None</option>
+                              <option value="moderate">Moderate</option>
+                              <option value="abundant">Abundant</option>
+                            </select>
+                          </div>
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <label style={{ fontSize: "0.65rem", color: "#4a4455", display: "block" }}>Tone (optional)</label>
+                            <Input value={d.tone} onChange={(e) => updateSettings(s.platform, { tone: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "#4a4455", cursor: "pointer" }}>
+                              <input type="checkbox" checked={d.include_cta} onChange={(e) => updateSettings(s.platform, { include_cta: e.target.checked })} />
+                              Include CTA
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
-        </>
-      )}
+        </div>
 
-      <div className="form-actions">
-        <Button type="submit" disabled={submitting}>
-          {submitting ? "Generating…" : "Generate campaign"}
-        </Button>
+        {/* ===== RIGHT COLUMN: Campaign Elements ===== */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0, color: "#141b2b" }}>Campaign Elements ({elements.length})</h3>
+          </div>
+
+          {/* Element list */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginBottom: "0.75rem" }}>
+            {elements.length === 0 && (
+              <div style={{ background: "white", borderRadius: "12px", border: "2px dashed #ccc3d7", padding: "2rem", textAlign: "center" }}>
+                <div style={{ width: "3rem", height: "3rem", borderRadius: "50%", background: "#e1e8fd", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem", color: "#6d28d9" }}>
+                  <span className="material-symbols-outlined">post_add</span>
+                </div>
+                <h4 style={{ fontSize: "1rem", fontWeight: 600, margin: "0 0 0.25rem", color: "#141b2b" }}>Add your first element</h4>
+                <p style={{ fontSize: "0.8rem", color: "#4a4455", margin: 0 }}>Use the buttons below to add images, carousels, videos, or text.</p>
+              </div>
+            )}
+            {elements.map((el) => (
+              <div key={el.key} style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", background: "#f1f3ff" }}>
+                  <strong style={{ fontSize: "0.8rem", color: "#141b2b" }}>{ELEMENT_LABELS[el.element_type]}</strong>
+                  <div style={{ display: "flex", gap: "0.25rem" }}>
+                    <button type="button" onClick={() => duplicateElement(el)}
+                      style={{ padding: "0.2rem 0.5rem", background: "none", border: "none", cursor: "pointer", color: "#6d28d9", fontSize: "0.75rem", fontWeight: 600 }}>Duplicate</button>
+                    <button type="button" onClick={() => removeElement(el.key)}
+                      style={{ padding: "0.2rem 0.5rem", background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: "0.75rem", fontWeight: 600 }}>✕</button>
+                  </div>
+                </div>
+                <div style={{ padding: "1rem" }}>
+                  <ElementCard el={el} specs={specs} onChange={(patch) => updateElement(el.key, patch)} onRemove={(() => {}) as any} onDuplicate={(() => {}) as any} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add Element buttons */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
+            {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((t) => (
+              <button key={t} type="button" onClick={() => addElement(t)}
+                style={{
+                  padding: "0.5rem 0.75rem", borderRadius: "8px", border: "1px solid #ccc3d7", background: "white",
+                  cursor: "pointer", fontSize: "0.75rem", fontWeight: 600, color: "#4a4455",
+                  display: "flex", alignItems: "center", gap: "0.3rem", transition: "all 0.15s",
+                }}>
+                + {ELEMENT_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          {/* Generate button */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", paddingTop: "0.5rem" }}>
+            <button type="button" onClick={() => { setMode("none"); }}
+              style={{ padding: "0.65rem 1.5rem", borderRadius: "8px", border: "1px solid #ccc3d7", background: "white", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, color: "#4a4455" }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={submitting}
+              style={{
+                padding: "0.65rem 1.5rem", borderRadius: "8px", border: "none", background: "#6d28d9", color: "white",
+                cursor: submitting ? "not-allowed" : "pointer", fontSize: "0.85rem", fontWeight: 600, opacity: submitting ? 0.7 : 1,
+                boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
+              }}>
+              {submitting ? "Generating…" : "Generate Campaign"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {confirmOpen && (
@@ -695,7 +698,7 @@ function CreateCampaign({
           clientName={clients.find((c) => c.id === clientId)?.company_name ?? clientId}
           campaignName={name}
           objective={objective}
-          language={language}
+          language="en"
           creativity={creativity}
           theme={theme}
           elements={elements}
