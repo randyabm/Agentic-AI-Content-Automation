@@ -372,6 +372,14 @@ function CreateCampaign({
     setNextKey((k) => k + 1);
   }
 
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<ElementType>>(new Set());
+  const toggleType = (t: ElementType) =>
+    setCollapsedTypes((prev) => {
+      const next = new Set(prev);
+      next.has(t) ? next.delete(t) : next.add(t);
+      return next;
+    });
+
   const updateElement = (key: number, patch: Partial<ElementDraft>) =>
     setElements((prev) => prev.map((el) => (el.key === key ? { ...el, ...patch } : el)));
 
@@ -648,22 +656,40 @@ function CreateCampaign({
                 <p style={{ fontSize: "0.8rem", color: "#4a4455", margin: 0 }}>Use the buttons below to add images, carousels, videos, or text.</p>
               </div>
             )}
-            {elements.map((el) => (
-              <div key={el.key} style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", background: "#f1f3ff" }}>
-                  <strong style={{ fontSize: "0.8rem", color: "#141b2b" }}>{ELEMENT_LABELS[el.element_type]}</strong>
-                  <div style={{ display: "flex", gap: "0.25rem" }}>
-                    <button type="button" onClick={() => duplicateElement(el)}
-                      style={{ padding: "0.2rem 0.5rem", background: "none", border: "none", cursor: "pointer", color: "#6d28d9", fontSize: "0.75rem", fontWeight: 600 }}>Duplicate</button>
-                    <button type="button" onClick={() => removeElement(el.key)}
-                      style={{ padding: "0.2rem 0.5rem", background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: "0.75rem", fontWeight: 600 }}>✕</button>
-                  </div>
+            {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((type) => {
+              const group = elements.filter((el) => el.element_type === type);
+              if (group.length === 0) return null;
+              const collapsed = collapsedTypes.has(type);
+              return (
+                <div key={type} className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => toggleType(type)}
+                    className="flex w-full items-center justify-between bg-accent px-4 py-2.5 text-left"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      {ELEMENT_LABELS[type]}
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">{group.length}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">{collapsed ? "▶" : "▼"}</span>
+                  </button>
+                  {!collapsed && (
+                    <div className="flex flex-col gap-2 p-2">
+                      {group.map((el) => (
+                        <ElementCard
+                          key={el.key}
+                          el={el}
+                          specs={specs}
+                          onChange={(patch) => updateElement(el.key, patch)}
+                          onRemove={() => removeElement(el.key)}
+                          onDuplicate={() => duplicateElement(el)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div style={{ padding: "1rem" }}>
-                  <ElementCard el={el} specs={specs} onChange={(patch) => updateElement(el.key, patch)} onRemove={(() => {}) as any} onDuplicate={(() => {}) as any} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Add Element buttons */}
@@ -746,9 +772,22 @@ function ElementCard({
 
   return (
     <div className="platform-config enabled element-card">
-      {/* Always visible: header + concept */}
+      {/* Always visible: platform-icon summary + actions */}
       <div className="card-header">
-        <strong>{ELEMENT_LABELS[el.element_type]}</strong>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {el.platforms.length === 0 ? (
+            <span className="muted small">No platforms</span>
+          ) : (
+            el.platforms.map((p) => (
+              <span key={p} title={specs.find((s) => s.platform === p)?.label ?? p} className="inline-flex">
+                <PlatformIcon platform={p} size={16} color="#6d28d9" />
+              </span>
+            ))
+          )}
+          {el.element_type !== "text" && uniqueRatios.length > 0 && (
+            <span className="muted small">· {uniqueRatios.join(", ")}</span>
+          )}
+        </div>
         <div className="competitor-actions">
           <Button type="button" variant="ghost" size="sm" onClick={onDuplicate}>Duplicate</Button>
           <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onRemove}>✕</Button>
@@ -774,14 +813,6 @@ function ElementCard({
         />
       </label>
 
-      {/* Collapsed summary */}
-      {!expanded && el.platforms.length > 0 && (
-        <p className="muted small" style={{ margin: "0.35rem 0 0" }}>
-          {el.platforms.map((p) => specs.find((s) => s.platform === p)?.label ?? p).join(", ")}
-          {el.element_type !== "text" && uniqueRatios.length > 0 && ` · ${uniqueRatios.join(", ")}`}
-        </p>
-      )}
-
       {/* Expanded details */}
       {expanded && (
         <>
@@ -804,13 +835,13 @@ function ElementCard({
 
           <div className="element-platforms">
             {specs.map((s) => (
-              <label key={s.platform} className="checkbox-label">
+              <label key={s.platform} className="checkbox-label" title={s.label}>
                 <input
                   type="checkbox"
                   checked={el.platforms.includes(s.platform)}
                   onChange={(e) => togglePlatform(s.platform, e.target.checked)}
                 />
-                {s.label}
+                <PlatformIcon platform={s.platform} size={16} color={el.platforms.includes(s.platform) ? "#6d28d9" : "#4a4455"} />
               </label>
             ))}
           </div>
