@@ -7,7 +7,7 @@ import { WorkflowStepper } from "../components/WorkflowStepper";
 import { SendForApprovalModal } from "../components/SendForApprovalModal";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../auth";
-import type { CampaignDetail as Campaign, Post, PostImage } from "../types";
+import type { CampaignDetail as Campaign, CampaignElement, ElementType, Post, PostImage, PostVideo } from "../types";
 
 export default function CampaignPreview() {
   const { campaignId } = useParams();
@@ -46,11 +46,10 @@ export default function CampaignPreview() {
     user?.org_role === "reviewer" ||
     user?.org_role === "org_admin";
 
-  // Resolve each post's cover image from its element (posts don't carry images).
-  function coverFor(post: Post): PostImage | null {
+  // Resolve each post's element (posts don't carry images/videos directly).
+  function elFor(post: Post): CampaignElement | null {
     if (!post.element_id) return null;
-    const el = campaign!.elements.find((e) => e.id === post.element_id);
-    return el?.images.find((i) => i.base_object_key) ?? null;
+    return campaign!.elements.find((e) => e.id === post.element_id) ?? null;
   }
 
   return (
@@ -99,9 +98,19 @@ export default function CampaignPreview() {
 
       {/* Posts grid */}
       <div className="mb-6 grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
-        {posts.map((post) => (
-          <PostPreviewCard key={post.id} campaignId={campaign.id} post={post} cover={coverFor(post)} />
-        ))}
+        {posts.map((post) => {
+          const el = elFor(post);
+          return (
+            <PostPreviewCard
+              key={post.id}
+              campaignId={campaign.id}
+              post={post}
+              cover={el?.images.find((i) => i.base_object_key) ?? null}
+              coverVid={el?.videos.find((v) => v.base_object_key && v.status === "ready") ?? null}
+              elementType={el?.element_type}
+            />
+          );
+        })}
         {posts.length === 0 && <p className="text-muted-foreground">No posts in this campaign yet.</p>}
       </div>
 
@@ -140,12 +149,17 @@ function PostPreviewCard({
   campaignId,
   post,
   cover,
+  coverVid,
+  elementType,
 }: {
   campaignId: string;
   post: Post;
   cover: PostImage | null;
+  coverVid: PostVideo | null;
+  elementType?: ElementType;
 }) {
   const [imageUrl, setImageUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
 
   useEffect(() => {
     if (!cover?.base_object_key) return;
@@ -160,6 +174,19 @@ function PostPreviewCard({
     };
   }, [campaignId, cover?.id, cover?.base_object_key]);
 
+  useEffect(() => {
+    if (cover?.base_object_key || !coverVid?.base_object_key) return;
+    let active = true;
+    getBlobUrl(`/campaigns/${campaignId}/videos/${coverVid.id}/file?v=${coverVid.base_object_key}`)
+      .then((u) => {
+        if (active) setVideoUrl(u);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [campaignId, cover?.base_object_key, coverVid?.id, coverVid?.base_object_key]);
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <div className="flex items-center justify-between bg-accent px-4 py-3">
@@ -172,6 +199,19 @@ function PostPreviewCard({
       <div className="relative aspect-square overflow-hidden bg-muted">
         {imageUrl ? (
           <img src={imageUrl} alt="post" className="size-full object-cover" loading="lazy" />
+        ) : videoUrl ? (
+          <video src={videoUrl} muted playsInline preload="metadata" className="size-full object-cover" />
+        ) : elementType === "text" ? (
+          <div className="flex size-full items-center justify-center bg-accent p-5">
+            <p className="line-clamp-5 text-center text-sm font-medium leading-snug text-accent-foreground">
+              {post.headline || post.copy || "Text post"}
+            </p>
+          </div>
+        ) : elementType === "video" ? (
+          <div className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground/50">
+            <span className="material-symbols-outlined text-4xl">movie</span>
+            <span className="text-xs font-medium uppercase tracking-wider">Reel</span>
+          </div>
         ) : (
           <div className="flex size-full items-center justify-center text-muted-foreground/40">
             <span className="material-symbols-outlined text-4xl">image</span>
