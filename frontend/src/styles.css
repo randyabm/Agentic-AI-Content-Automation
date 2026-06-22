@@ -1886,3 +1886,8 @@ input:focus, select:focus, textarea:focus {
   flex-direction: column;
   gap: 0.4rem;
 }
+
+/* Concept UI — post card edit button appears on hover */
+.post-card:hover .post-edit-btn {
+  opacity: 1 !important;
+}

@@ -224,79 +224,92 @@ export default function CampaignDetail() {
     return m ? m.full_name : id;
   }
 
+  const isEditorMode = approvalStatus === "draft" || approvalStatus === "changes_requested";
+  const isLocked = approvalStatus === "pending_review";
+
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <Button variant="ghost" size="sm" onClick={() => navigate("/campaigns")}>
-            ← Campaigns
-          </Button>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
-            <h1 style={{ margin: 0 }}>{campaign.name}</h1>
-            <span
-              className="px-3 py-1 rounded-full text-label-md font-bold flex items-center gap-1.5"
-              style={{ background: APPR_BADGE[approvalStatus]?.bg ?? "#f3f4f6", color: APPR_BADGE[approvalStatus]?.text ?? "#6b7280" }}
-            >
-              {approvalStatus === "pending_review" && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#d97706" }} />}
-              {APPR_BADGE[approvalStatus]?.label ?? approvalStatus}
-            </span>
+      {/* ===== CONCEPT-UI HEADER ===== */}
+      <div style={{ marginBottom: "1.5rem" }}>
+        <nav style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: "#4a4455", marginBottom: "0.5rem" }}>
+          <button onClick={() => navigate("/campaigns")} style={{ background: "none", border: "none", cursor: "pointer", color: "#6d28d9", fontWeight: 600, fontSize: "0.75rem" }}>
+            Campaigns
+          </button>
+          <span className="material-symbols-outlined" style={{ fontSize: "14px", color: "#ccc3d7" }}>chevron_right</span>
+          <span style={{ fontWeight: 500, color: "#141b2b" }}>{campaign.name}</span>
+        </nav>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "1rem" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <h2 style={{ margin: 0, fontSize: "1.6rem", fontWeight: 700, letterSpacing: "-0.02em", color: "#141b2b" }}>{campaign.name}</h2>
+              <span
+                className="px-3 py-1 rounded-full text-label-md font-bold flex items-center gap-1.5"
+                style={{ background: APPR_BADGE[approvalStatus]?.bg ?? "#f3f4f6", color: APPR_BADGE[approvalStatus]?.text ?? "#6b7280", fontSize: "0.7rem" }}
+              >
+                {approvalStatus === "pending_review" && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#d97706" }} />}
+                {APPR_BADGE[approvalStatus]?.label ?? approvalStatus}
+              </span>
+            </div>
+            <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "#4a4455" }}>
+              {client?.company_name} · {campaign.objective} ·{" "}
+              <span className={`tag ${campaign.status === "ready" ? "tag-green" : campaign.status === "failed" ? "tag-red" : "tag"}`} style={{ fontSize: "0.7rem" }}>
+                {campaign.status}
+              </span>
+            </p>
           </div>
-          <p className="muted small" style={{ marginTop: 0 }}>
-            {client?.company_name} · {campaign.objective} ·{" "}
-            <span className={`tag ${campaign.status === "ready" ? "tag-green" : campaign.status === "failed" ? "tag-red" : "tag"}`}>
-              {campaign.status}
-            </span>
-          </p>
-        </div>
-        <div className="competitor-actions">
-          {/* Approval actions for reviewers */}
-          {canReview && approvalStatus === "pending_review" && (
-            <>
-              <Button size="sm" onClick={handleApprove} disabled={!!busyApproval} style={{ background: "#10B981" }}>
-                <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span> Approve
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handleRequestChanges} disabled={!!busyApproval}>
-                Request Changes
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleReject} disabled={!!busyApproval} className="text-destructive">
-                Reject
-              </Button>
-            </>
-          )}
-
-          {/* Cancel approval request (for submitters) */}
-          {canSubmit && approvalStatus === "pending_review" && (
-            <Button variant="ghost" size="sm" onClick={handleCancelRequest}>
-              Cancel Request
-            </Button>
-          )}
-
-          {/* Send for approval (when in draft/changes_requested/rejected state) */}
-          {canSubmit && (approvalStatus === "draft" || approvalStatus === "changes_requested" || approvalStatus === "rejected") && (
-            <Button size="sm" onClick={() => setShowApprovalModal(true)} style={{ background: "#6d28d9" }}>
-              <span className="material-symbols-outlined text-sm">send</span> Send for Approval
-            </Button>
-          )}
-
-          {/* Auto-schedule + regenerate + edit (shown when approved or draft) */}
-          {(approvalStatus === "approved" || approvalStatus === "draft") && campaign.status === "ready" && (
-            <Button size="sm" onClick={() => setShowAutopilot(true)} disabled={!!busy}>
-              <Sparkles size={14} /> AI auto-schedule
-            </Button>
-          )}
-          {(approvalStatus === "draft" || approvalStatus === "changes_requested") && (
-            <>
-              <Button variant="ghost" size="sm" onClick={() => navigate(`/campaigns/${campaign.id}/preview`)}>
-                <span className="material-symbols-outlined text-sm">visibility</span> Preview
-              </Button>
-              <Button variant="ghost" size="sm" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
-                Regenerate all
-              </Button>
-              <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={remove}>
-                Delete
-              </Button>
-            </>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            {/* Approval actions for reviewers */}
+            {canReview && approvalStatus === "pending_review" && (
+              <>
+                <button onClick={handleApprove} disabled={!!busyApproval}
+                  style={{ padding: "0.5rem 1.25rem", background: "#10B981", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>check_circle</span> Approve
+                </button>
+                <button onClick={handleRequestChanges} disabled={!!busyApproval}
+                  style={{ padding: "0.5rem 1.25rem", background: "#F59E0B", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" }}>
+                  Request Changes
+                </button>
+                <button onClick={handleReject} disabled={!!busyApproval}
+                  style={{ padding: "0.5rem 1.25rem", background: "#EF4444", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" }}>
+                  Reject
+                </button>
+              </>
+            )}
+            {canSubmit && approvalStatus === "pending_review" && (
+              <button onClick={handleCancelRequest}
+                style={{ padding: "0.5rem 1rem", background: "transparent", color: "#dc2626", border: "1px solid #e5e7eb", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" }}>
+                Cancel Request
+              </button>
+            )}
+            {canSubmit && isEditorMode && (
+              <button onClick={() => setShowApprovalModal(true)}
+                style={{ padding: "0.5rem 1.25rem", background: "#6d28d9", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.4rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>send</span> Send for Approval
+              </button>
+            )}
+            {(approvalStatus === "draft" || approvalStatus === "approved") && campaign.status === "ready" && (
+              <button onClick={() => setShowAutopilot(true)} disabled={!!busy}
+                style={{ padding: "0.5rem 1rem", background: "transparent", color: "#4a4455", border: "1px solid #ccc3d7", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                <Sparkles size={14} /> AI auto-schedule
+              </button>
+            )}
+            {isEditorMode && (
+              <>
+                <button onClick={() => navigate(`/campaigns/${campaign.id}/preview`)}
+                  style={{ padding: "0.5rem 1rem", background: "transparent", color: "#4a4455", border: "1px solid #ccc3d7", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>visibility</span> Preview
+                </button>
+                <button onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}
+                  style={{ padding: "0.5rem 1rem", background: "transparent", color: "#4a4455", border: "1px solid #ccc3d7", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" }}>
+                  Regenerate all
+                </button>
+                <button onClick={remove}
+                  style={{ padding: "0.5rem 1rem", background: "transparent", color: "#dc2626", border: "1px solid #e5e7eb", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" }}>
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -304,274 +317,295 @@ export default function CampaignDetail() {
       {campaign.status === "failed" && <div className="alert alert-error">{campaign.error}</div>}
       {busy && <div className="alert alert-success">{busy}</div>}
 
-      {/* Approved banner */}
+      {/* ===== APPROVAL BANNERS ===== */}
       {approvalStatus === "approved" && campaign.reviewed_by && (
-        <ApprovedBanner
-          reviewerName={approverName(campaign.reviewed_by)}
-          reviewedAt={campaign.reviewed_at ?? ""}
-          quote={campaign.review_note || "Looks great, proceed with the launch!"}
-        />
+        <ApprovedBanner reviewerName={approverName(campaign.reviewed_by)} reviewedAt={campaign.reviewed_at ?? ""} quote={campaign.review_note || "Looks great, proceed with the launch!"} />
       )}
-
-      {/* Edit warning (on approved campaigns) */}
       {approvalStatus === "approved" && (
-        <EditWarningDialog
-          visible={showEditWarning}
-          onCancel={() => setShowEditWarning(false)}
-          onConfirm={() => {
-            setShowEditWarning(false);
-            toast.info("Editing mode enabled — approval will be voided on save");
-          }}
-        />
+        <EditWarningDialog visible={showEditWarning} onCancel={() => setShowEditWarning(false)}
+          onConfirm={() => { setShowEditWarning(false); toast.info("Editing mode enabled — approval will be voided on save"); }} />
       )}
-
-      {/* Pending approval banner */}
       {approvalStatus === "pending_review" && campaign.assigned_approver_id && (
-        <div className="mb-lg p-md bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-4">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-600">
+        <div className="mb-lg p-md" style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "12px", display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+          <div className="w-10 h-10 rounded-full" style={{ background: "#fde68a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#d97706" }}>
             <span className="material-symbols-outlined">hourglass_top</span>
           </div>
           <div>
-            <h3 className="font-bold text-amber-800" style={{ fontSize: "0.95rem" }}>
-              Pending approval from {approverName(campaign.assigned_approver_id)}
-            </h3>
-            {campaign.approval_due_date && (
-              <p className="text-amber-700 opacity-90" style={{ fontSize: "0.85rem" }}>
-                Due by {new Date(campaign.approval_due_date).toLocaleDateString()}
-              </p>
-            )}
-            <p className="text-amber-700 opacity-80 mt-1" style={{ fontSize: "0.8rem" }}>
-              Changes are disabled until a decision is made or the request is cancelled.
-            </p>
+            <h3 style={{ fontWeight: 700, color: "#92400e", fontSize: "0.95rem", margin: 0 }}>Pending approval from {approverName(campaign.assigned_approver_id)}</h3>
+            {campaign.approval_due_date && <p style={{ color: "#b45309", fontSize: "0.85rem", margin: "0.25rem 0" }}>Due by {new Date(campaign.approval_due_date).toLocaleDateString()}</p>}
+            <p style={{ color: "#92400e", fontSize: "0.8rem", margin: "0.25rem 0 0", opacity: 0.8 }}>Changes are disabled until a decision is made or the request is cancelled.</p>
           </div>
         </div>
       )}
-
-      {/* Changes requested banner */}
       {approvalStatus === "changes_requested" && campaign.review_note && (
-        <div className="mb-lg p-md bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-4">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-600">
+        <div className="mb-lg p-md" style={{ background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "12px", display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+          <div className="w-10 h-10 rounded-full" style={{ background: "#fde68a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#d97706" }}>
             <span className="material-symbols-outlined">edit_note</span>
           </div>
           <div>
-            <h3 className="font-bold text-amber-800" style={{ fontSize: "0.95rem" }}>
-              Changes requested by {approverName(campaign.reviewed_by)}
-            </h3>
-            <p className="text-amber-700 opacity-90 mt-1" style={{ fontSize: "0.85rem" }}>
-              "{campaign.review_note}"
-            </p>
+            <h3 style={{ fontWeight: 700, color: "#92400e", fontSize: "0.95rem", margin: 0 }}>Changes requested by {approverName(campaign.reviewed_by)}</h3>
+            <p style={{ color: "#b45309", fontSize: "0.85rem", margin: "0.25rem 0 0" }}>"{campaign.review_note}"</p>
           </div>
         </div>
       )}
-
-      {/* Rejected banner */}
       {approvalStatus === "rejected" && (
-        <div className="mb-lg p-md bg-red-50 border border-red-200 rounded-xl flex items-start gap-4">
-          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 text-red-600">
+        <div className="mb-lg p-md" style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "12px", display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+          <div className="w-10 h-10 rounded-full" style={{ background: "#fecaca", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#dc2626" }}>
             <span className="material-symbols-outlined">cancel</span>
           </div>
           <div>
-            <h3 className="font-bold text-red-800" style={{ fontSize: "0.95rem" }}>
-              Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}
-            </h3>
-            {campaign.review_note && (
-              <p className="text-red-700 opacity-90 mt-1" style={{ fontSize: "0.85rem" }}>"{campaign.review_note}"</p>
-            )}
+            <h3 style={{ fontWeight: 700, color: "#991b1b", fontSize: "0.95rem", margin: 0 }}>Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}</h3>
+            {campaign.review_note && <p style={{ color: "#b91c1c", fontSize: "0.85rem", margin: "0.25rem 0 0" }}>"{campaign.review_note}"</p>}
           </div>
         </div>
       )}
 
+      {/* ===== GENERATING PROGRESS ===== */}
       {campaign.status === "generating" && (
         <div className="card progress-card">
           <strong>Generating campaign…</strong>
-          <div className="progress-bar">
-            <div className="progress-fill indeterminate" />
-          </div>
+          <div className="progress-bar"><div className="progress-fill indeterminate" /></div>
           <p className="muted small">The Editorial and Visual agents are working. This can take a minute.</p>
         </div>
       )}
 
-      {campaign.status === "ready" && (
-        <div className="card export-bar">
-          <strong>Export:</strong>
-          {(["zip", "pdf", "json", "csv"] as const).map((fmt) => (
-            <Button
-              key={fmt}
-              variant="ghost"
-              size="sm"
-              onClick={() => downloadFile(`/campaigns/${campaign.id}/export?format=${fmt}`, `campaign_${campaign.id}.${fmt}`)}
-            >
-              {fmt.toUpperCase()}
-            </Button>
-          ))}
-        </div>
-      )}
-
-
-      {/* Hide the element cards while the campaign is still generating — they'd
-          just show empty "No image yet" placeholders, which looks unfinished. */}
+      {/* ===== MAIN CONTENT: CONCEPT UI LAYOUT ===== */}
       {campaign.status !== "generating" && (
-        <div className="element-grid" style={{ position: "relative" }}>
-          {/* Locked overlay for pending review */}
-          {(approvalStatus === "pending_review") && (
-            <div
-              style={{
-                position: "absolute", inset: 0, zIndex: 10, pointerEvents: "none",
-                borderRadius: "0.75rem",
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute", inset: 0,
-                  background: "rgba(249,250,251,0.15)",
-                  backdropFilter: "blur(1px)",
-                  borderRadius: "0.75rem",
-                }}
-              />
+        <>
+          {/* Editor mode: two-column concept layout */}
+          {isEditorMode && (
+            <div style={{ display: "grid", gridTemplateColumns: "5fr 7fr", gap: "1.5rem" }}>
+              {/* LEFT COLUMN: Campaign Details + Smart Suggestion */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                  <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: "0 0 1rem", color: "#141b2b" }}>Campaign Details</h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    <div>
+                      <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.25rem" }}>Campaign Name</label>
+                      <div style={{ padding: "0.75rem", background: "#f1f3ff", borderRadius: "8px", fontSize: "0.875rem", color: "#141b2b" }}>{campaign.name}</div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.25rem" }}>Goal</label>
+                      <div style={{ padding: "0.75rem", background: "#f1f3ff", borderRadius: "8px", fontSize: "0.875rem", color: "#6d28d9", fontWeight: 600, textTransform: "capitalize" }}>{campaign.objective}</div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.25rem" }}>Platforms</label>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        {campaign.platforms.filter(p => p.is_active).map(p => (
+                          <span key={p.platform} style={{ padding: "0.25rem 0.75rem", background: "#6d28d9", color: "white", borderRadius: "8px", fontSize: "0.75rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                            <PlatformIcon platform={p.platform} size={12} /> {p.platform}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "#4a4455", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: "0.25rem" }}>Date Range</label>
+                      <div style={{ display: "flex", gap: "0.75rem" }}>
+                        <div style={{ flex: 1, padding: "0.75rem", background: "#f1f3ff", borderRadius: "8px", fontSize: "0.875rem" }}>
+                          {campaign.start_date ? new Date(campaign.start_date).toLocaleDateString() : "—"}
+                        </div>
+                        <span style={{ color: "#4a4455", alignSelf: "center" }}>to</span>
+                        <div style={{ flex: 1, padding: "0.75rem", background: "#f1f3ff", borderRadius: "8px", fontSize: "0.875rem" }}>
+                          {campaign.end_date ? new Date(campaign.end_date).toLocaleDateString() : "—"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Smart Suggestion */}
+                <div style={{ background: "#f1f3ff", borderRadius: "12px", border: "1px solid rgba(109,40,217,0.2)", padding: "1.5rem" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+                    <div style={{ padding: "0.5rem", background: "#6d28d9", color: "white", borderRadius: "8px" }}>
+                      <span className="material-symbols-outlined">lightbulb</span>
+                    </div>
+                    <div>
+                      <h4 style={{ fontWeight: 700, fontSize: "0.95rem", color: "#6d28d9", margin: "0 0 0.25rem" }}>Smart Suggestion</h4>
+                      <p style={{ fontSize: "0.8rem", color: "#4a4455", margin: 0 }}>
+                        Based on previous campaigns, we recommend scheduling posts mid-week for peak engagement.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Posts List */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+                  <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0, color: "#141b2b" }}>Campaign Posts ({campaign.posts.length})</h3>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {campaign.posts.length === 0 && <p style={{ color: "#4a4455", fontSize: "0.85rem" }}>No posts yet. Generate the campaign first.</p>}
+                  {campaign.posts.map((post) => {
+                    const el = campaign.elements.find(e => e.id === post.element_id);
+                    const cover = el?.images.find(i => i.base_object_key);
+                    return (
+                      <div key={post.id}
+                        className="post-card"
+                        onClick={() => { if (post.element_id) setOpenElementId(post.element_id); }}
+                        style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", overflow: "hidden", cursor: post.element_id ? "pointer" : "default", transition: "box-shadow 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
+                        onMouseEnter={e => { if (post.element_id) e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0,0,0,0.1)"; }}
+                        onMouseLeave={e => { if (post.element_id) e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.05)"; }}
+                      >
+                        <div style={{ display: "flex", height: "8rem" }}>
+                          <div style={{ width: "8rem", height: "100%", background: "#dce2f7", flexShrink: 0 }}>
+                            {cover ? (
+                              <PostThumbnail campaignId={campaign.id} image={cover} />
+                            ) : (
+                              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#4a4455", opacity: 0.4 }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: "2rem" }}>image</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, padding: "1rem", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                              <div>
+                                <p style={{ fontSize: "0.7rem", fontWeight: 700, color: "#6d28d9", margin: "0 0 0.25rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                  {post.platform.toUpperCase()} {el?.element_type === "video" ? "REEL" : el?.element_type === "carousel" ? "CAROUSEL" : "POST"}
+                                </p>
+                                <h4 style={{ fontSize: "0.9rem", fontWeight: 600, margin: 0, color: "#141b2b", lineClamp: 1 }}>{post.headline || "Untitled"}</h4>
+                              </div>
+                              {post.element_id && (
+                                <button style={{ padding: "0.25rem", background: "none", border: "none", cursor: "pointer", color: "#4a4455", opacity: 0, transition: "opacity 0.2s" }}
+                                  className="post-edit-btn">
+                                  <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>edit</span>
+                                </button>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "1rem", fontSize: "0.7rem", color: "#4a4455" }}>
+                              {post.best_time && (
+                                <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>schedule</span> {post.best_time}
+                                </span>
+                              )}
+                              {post.approval_status && (
+                                <span className={`tag approval-${post.approval_status}`} style={{ fontSize: "0.65rem" }}>
+                                  {post.approval_status === "approved" ? "Approved" : post.approval_status === "pending_review" ? "Pending" : post.approval_status === "rejected" ? "Rejected" : "Draft"}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
-          {[...campaign.elements]
-            .sort((a, b) => a.position - b.position)
-            .map((el) => (
-              <ElementCard
-                key={el.id}
-                campaignId={campaign.id}
-                element={el}
-                posts={campaign.posts.filter((p) => p.element_id === el.id)}
-                onOpen={() => setOpenElementId(el.id)}
-              />
-            ))}
-          {orphanPosts.map((post) => (
-            <div key={post.id} className="card element-card" onClick={() => setOpenElementId(`post:${post.id}`)}>
-              <div className="element-thumb">
-                <div className="image-empty">📝</div>
-              </div>
-              <div className="element-card-body">
-                <strong className="small">{post.headline || "Post"}</strong>
-                <div className="platform-chips">
-                  <span className="chip">
-                    <PlatformIcon platform={post.platform} size={12} /> {post.platform}
-                  </span>
+          {/* Non-editor mode (pending_review, approved, rejected) — show posts in a simpler layout */}
+          {!isEditorMode && (
+            <div style={{ position: "relative" }}>
+              {isLocked && (
+                <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: "none", borderRadius: "0.75rem" }}>
+                  <div style={{ position: "absolute", inset: 0, background: "rgba(249,250,251,0.15)", backdropFilter: "blur(1px)", borderRadius: "0.75rem" }} />
                 </div>
+              )}
+              <div className="element-grid">
+                {[...campaign.elements].sort((a, b) => a.position - b.position).map((el) => (
+                  <ElementCard key={el.id} campaignId={campaign.id} element={el}
+                    posts={campaign.posts.filter((p) => p.element_id === el.id)}
+                    onOpen={() => setOpenElementId(el.id)} />
+                ))}
+                {orphanPosts.map((post) => (
+                  <div key={post.id} className="card element-card" onClick={() => setOpenElementId(`post:${post.id}`)}>
+                    <div className="element-thumb"><div className="image-empty">📝</div></div>
+                    <div className="element-card-body">
+                      <strong className="small">{post.headline || "Post"}</strong>
+                      <div className="platform-chips"><span className="chip"><PlatformIcon platform={post.platform} size={12} /> {post.platform}</span></div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Approval info sidebar for pending_review */}
-      {approvalStatus === "pending_review" && campaign.assigned_approver_id && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
-          <div className="card p-md">
-            <h4 className="text-label-md font-bold text-[#6d28d9] uppercase tracking-widest mb-4" style={{ fontSize: "0.7rem" }}>Approval Details</h4>
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#dce2f7] flex items-center justify-center border border-[#ccc3d7] text-[#4a4455] font-bold text-sm">
-                  {approverName(campaign.assigned_approver_id).charAt(0)}
-                </div>
-                <div>
-                  <p className="font-bold" style={{ fontSize: "0.85rem" }}>{approverName(campaign.assigned_approver_id)}</p>
-                  <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Approver</p>
-                </div>
-              </div>
-              <div className="pt-4 border-t border-[#e5e7eb] flex justify-between">
-                <div>
-                  <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Due Date</p>
-                  <p className="font-semibold" style={{ fontSize: "0.85rem" }}>
-                    {campaign.approval_due_date ? new Date(campaign.approval_due_date).toLocaleDateString() : "—"}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Scope</p>
-                  <p className="font-semibold" style={{ fontSize: "0.85rem" }}>
-                    {campaign.approval_scope === "full_campaign" ? "Full Campaign" : "Individual Posts"}
-                  </p>
-                </div>
-              </div>
-              <div className="bg-[#e9edff] p-3 rounded-lg flex items-start gap-3">
-                <span className="material-symbols-outlined text-amber-600 text-[20px]">info</span>
-                <p className="text-label-sm leading-relaxed text-[#4a4455]" style={{ fontSize: "0.75rem" }}>
-                  Changes are disabled until a decision is made or the request is cancelled.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {campaign.review_note && (
-            <div className="card p-md">
-              <ApprovalTimeline
-                events={[
-                  {
-                    label: "Campaign created",
-                    description: `By ${approverName(campaign.created_by) || "Unknown"}`,
-                    timestamp: new Date(campaign.created_at).toLocaleString(),
-                    icon: "check_circle",
-                    color: "#6d28d9",
-                  },
-                  {
-                    label: "Submitted for approval",
-                    description: campaign.approval_message || "No message",
-                    timestamp: new Date(campaign.updated_at).toLocaleString(),
-                    icon: "send",
-                    color: "#6d28d9",
-                  },
-                  {
-                    label: "Pending review",
-                    description: `Waiting for ${approverName(campaign.assigned_approver_id)}`,
-                    timestamp: "",
-                    icon: "pending",
-                    color: "#f59e0b",
-                  },
-                ]}
-              />
             </div>
           )}
-        </div>
+
+          {/* Approval info sidebar for pending_review */}
+          {approvalStatus === "pending_review" && campaign.assigned_approver_id && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
+              <div className="card p-md">
+                <h4 className="text-label-md font-bold text-[#6d28d9] uppercase tracking-widest mb-4" style={{ fontSize: "0.7rem" }}>Approval Details</h4>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[#dce2f7] flex items-center justify-center border border-[#ccc3d7] text-[#4a4455] font-bold text-sm">
+                      {approverName(campaign.assigned_approver_id).charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-bold" style={{ fontSize: "0.85rem" }}>{approverName(campaign.assigned_approver_id)}</p>
+                      <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Approver</p>
+                    </div>
+                  </div>
+                  <div className="pt-4 border-t border-[#e5e7eb] flex justify-between">
+                    <div><p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Due Date</p><p className="font-semibold" style={{ fontSize: "0.85rem" }}>{campaign.approval_due_date ? new Date(campaign.approval_due_date).toLocaleDateString() : "—"}</p></div>
+                    <div className="text-right"><p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Scope</p><p className="font-semibold" style={{ fontSize: "0.85rem" }}>{campaign.approval_scope === "full_campaign" ? "Full Campaign" : "Individual Posts"}</p></div>
+                  </div>
+                  <div className="bg-[#e9edff] p-3 rounded-lg flex items-start gap-3">
+                    <span className="material-symbols-outlined text-amber-600 text-[20px]">info</span>
+                    <p className="text-label-sm leading-relaxed text-[#4a4455]" style={{ fontSize: "0.75rem" }}>Changes are disabled until a decision is made or the request is cancelled.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="card p-md">
+                <ApprovalTimeline events={[
+                  { label: "Campaign created", description: `By ${approverName(campaign.created_by) || "Unknown"}`, timestamp: new Date(campaign.created_at).toLocaleString(), icon: "check_circle", color: "#6d28d9" },
+                  { label: "Submitted for approval", description: campaign.approval_message || "No message", timestamp: new Date(campaign.updated_at).toLocaleString(), icon: "send", color: "#6d28d9" },
+                  { label: "Pending review", description: `Waiting for ${approverName(campaign.assigned_approver_id)}`, timestamp: "", icon: "pending", color: "#f59e0b" },
+                ]} />
+              </div>
+            </div>
+          )}
+
+          {/* Export bar for ready campaigns */}
+          {campaign.status === "ready" && !isEditorMode && (
+            <div className="card export-bar" style={{ marginTop: "1rem" }}>
+              <strong>Export:</strong>
+              {(["zip", "pdf", "json", "csv"] as const).map((fmt) => (
+                <Button key={fmt} variant="ghost" size="sm"
+                  onClick={() => downloadFile(`/campaigns/${campaign.id}/export?format=${fmt}`, `campaign_${campaign.id}.${fmt}`)}>
+                  {fmt.toUpperCase()}
+                </Button>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
+      {/* ===== MODALS ===== */}
       {openElement && (
-        <ElementModal
-          campaignId={campaign.id}
-          element={openElement}
+        <ElementModal campaignId={campaign.id} element={openElement}
           posts={campaign.posts.filter((p) => p.element_id === openElement.id)}
-          client={client}
-          models={models}
-          videoModels={videoModels}
+          client={client} models={models} videoModels={videoModels}
           canEdit={canEdit && campaign.status !== "generating"}
-          onChange={load}
-          onClose={() => setOpenElementId(null)}
-        />
+          onChange={load} onClose={() => setOpenElementId(null)} />
       )}
       {openOrphan && (
-        <ElementModal
-          campaignId={campaign.id}
-          element={null}
-          posts={[openOrphan]}
-          client={client}
-          models={models}
-          videoModels={videoModels}
+        <ElementModal campaignId={campaign.id} element={null} posts={[openOrphan]}
+          client={client} models={models} videoModels={videoModels}
           canEdit={canEdit && campaign.status !== "generating"}
-          onChange={load}
-          onClose={() => setOpenElementId(null)}
-        />
+          onChange={load} onClose={() => setOpenElementId(null)} />
       )}
       {showAutopilot && (
-        <AutopilotModal
-          campaignId={campaign.id}
-          onClose={() => setShowAutopilot(false)}
-          onDone={load}
-        />
+        <AutopilotModal campaignId={campaign.id} onClose={() => setShowAutopilot(false)} onDone={load} />
       )}
       {showApprovalModal && (
-        <SendForApprovalModal
-          campaignId={campaign.id}
-          onClose={() => setShowApprovalModal(false)}
-          onDone={load}
-        />
+        <SendForApprovalModal campaignId={campaign.id} onClose={() => setShowApprovalModal(false)} onDone={load} />
       )}
     </div>
   );
+}
+
+function PostThumbnail({ campaignId, image }: { campaignId: string; image: PostImage }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!image.base_object_key) return;
+    let active = true;
+    import("../lib/blobCache").then(({ getBlobUrl }) => {
+      getBlobUrl(`/campaigns/${campaignId}/images/${image.id}/display`).then((u) => { if (active) setUrl(u); });
+    });
+    return () => { active = false; };
+  }, [campaignId, image.id, image.base_object_key]);
+  return url ? <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" /> : null;
 }
 
 function ElementCard({
