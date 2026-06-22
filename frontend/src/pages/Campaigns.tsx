@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ArticleContentForm } from "../components/ArticleContentForm";
 import { TextareaZoom } from "../components/TextareaZoom";
@@ -62,6 +62,7 @@ const STATUS_TAG: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = { all: "All", ready: "Ready", generating: "Generating", failed: "Failed", draft: "Draft" };
 
 export default function Campaigns() {
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const initClient = params.get("client_id") ?? "";
   const fromArticle = params.get("from_article") ?? "";
@@ -162,7 +163,7 @@ export default function Campaigns() {
         <CreateCampaign
           clients={clients}
           defaultClient={initClient}
-          onCreated={(id) => { setMode("none"); window.location.assign(`/campaigns/${id}`); }}
+          onCreated={(id) => { setMode("none"); navigate(`/campaigns/${id}`); }}
         />
       )}
       {mode === "article" && (
@@ -170,7 +171,7 @@ export default function Campaigns() {
           clients={clients}
           defaultClient={initClient}
           initialArticleId={fromArticle}
-          onCreated={(id) => { setMode("none"); window.location.assign(`/campaigns/${id}`); }}
+          onCreated={(id) => { setMode("none"); navigate(`/campaigns/${id}`); }}
         />
       )}
 
