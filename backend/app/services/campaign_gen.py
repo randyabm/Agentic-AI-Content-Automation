@@ -411,47 +411,6 @@ def generate_platform_copy(
     return _parse_posts(raw, len(elements), pspec)
 
 
-def generate_all_platforms_copy(
-    db: Session,
-    client: Client,
-    campaign: Campaign,
-    platform_elements: list[tuple[CampaignPlatform, list[CampaignElement]]],
-    context: str,
-    article_meta: dict | None = None,
-    max_workers: int = 3,
-) -> dict[Platform, list[dict]]:
-    """Editorial Agent across every platform, concurrently.
-
-    Each platform is an independent LLM call sharing the same campaign ``context``.
-    The context is sent as a cached prefix (see :func:`complete_text`), so the
-    concurrent calls reuse the shared tokens instead of re-billing/re-processing them
-    — that is what keeps a fan-out of platforms within the 30k-tokens/min rate limit.
-
-    Returns ``{platform: [post_dict, ...]}``. All ORM/session access happens here on
-    the calling thread; the worker threads only do network I/O and pure parsing.
-    """
-    if not platform_elements:
-        return {}
-    cfg = _snapshot_cfg(get_llm_config(db, LLMFunction.editorial_agent))
-    temperature = creativity_to_temperature(campaign.creativity_level)
-    cache_prefix = f"CONTEXT:\n{context}"
-
-    # Build every prompt up front, while still on the session thread.
-    jobs = [
-        (cp.platform, _editorial_instructions(client, campaign, cp, els, article_meta), spec(cp.platform), len(els))
-        for cp, els in platform_elements
-    ]
-
-    def run(job):
-        platform, instructions, pspec, num = job
-        raw = complete_text(cfg, cfg.system_prompt, instructions, temperature, cache_prefix=cache_prefix)
-        return platform, _parse_posts(raw, num, pspec)
-
-    workers = max(1, min(max_workers, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        return dict(ex.map(run, jobs))
-
-
 # Quick "improve with AI" actions for a single copy field. Each maps to a short
 # instruction; no free-text input (the UI exposes these as chips).
 COPY_ACTIONS: dict[str, str] = {
@@ -513,39 +472,107 @@ def _slots_for(el: CampaignElement) -> int:
     return 1
 
 
-def generate_element_prompts(
-    db: Session, campaign: Campaign, elements: list[CampaignElement], context: str
-) -> list[list[dict]]:
-    """Visual Agent: per element, a list of {prompt, negative_prompt} slots.
+def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElement], context: str):
+    """Main-thread prep for the Visual Agent (db + ORM access happens here).
 
-    One call covers every visual element of the campaign; text elements get [].
-    The same prompts are reused for every aspect-ratio rendition of the element.
+    Returns ``(cfg, user_prompt, temperature, plan, order)`` or ``None`` when there is
+    nothing visual to generate. ``plan`` is ``[(element_id, slot_count), ...]`` for the
+    visual elements; ``order`` is every element id, so the parsed result aligns with
+    ``elements`` (text elements get ``[]``).
     """
     visual = [el for el in elements if _slots_for(el) > 0]
     if not visual:
-        return [[] for _ in elements]
-    cfg = get_llm_config(db, LLMFunction.visual_agent)
+        return None
+    cfg = _snapshot_cfg(get_llm_config(db, LLMFunction.visual_agent))
     lines = "\n".join(
         f"ELEMENT {i + 1}: {_element_descriptor(el)} — produce {_slots_for(el)} prompt(s)"
         for i, el in enumerate(visual)
     )
-    instructions = VISUAL_INSTRUCTIONS.format(element_lines=lines)
+    user_prompt = f"{VISUAL_INSTRUCTIONS.format(element_lines=lines)}\n\nCONTEXT:\n{context}"
     temperature = creativity_to_temperature(campaign.creativity_level)
-    raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
+    plan = [(el.id, _slots_for(el)) for el in visual]
+    order = [el.id for el in elements]
+    return cfg, user_prompt, temperature, plan, order
+
+
+def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> list[list[dict]]:
+    """Pure parse of the Visual Agent output into per-element prompt slots (thread-safe)."""
     results = parse_json_value(raw, opener="[", closer="]")
     if not isinstance(results, list):
         raise ExtractionError("The Visual Agent did not return element prompts")
-
     by_element: dict[str, list[dict]] = {}
-    for idx, el in enumerate(visual):
+    for idx, (el_id, n_slots) in enumerate(plan):
         item = results[idx] if idx < len(results) else {}
         prompts = item.get("prompts", item.get("images", [])) if isinstance(item, dict) else []
         slots: list[dict] = []
-        for slot in range(_slots_for(el)):
+        for slot in range(n_slots):
             p = prompts[slot] if slot < len(prompts) else {}
             slots.append({
                 "prompt": str(p.get("prompt", "")).strip(),
                 "negative_prompt": str(p.get("negative_prompt", "")).strip(),
             })
-        by_element[el.id] = slots
-    return [by_element.get(el.id, []) for el in elements]
+        by_element[el_id] = slots
+    return [by_element.get(eid, []) for eid in order]
+
+
+def generate_visuals_and_copy(
+    db: Session,
+    client: Client,
+    campaign: Campaign,
+    elements: list[CampaignElement],
+    platform_elements: list[tuple[CampaignPlatform, list[CampaignElement]]],
+    context: str,
+    article_meta: dict | None = None,
+    generate_images: bool = True,
+    max_workers: int = 4,
+) -> tuple[list[list[dict]], dict[Platform, list[dict]]]:
+    """Run the Visual Agent and every per-platform Editorial Agent concurrently.
+
+    These are all independent LLM calls over the same campaign ``context``, so fanning
+    them out as one batch hides the Visual Agent's round-trip under the editorial waves.
+    The shared editorial context is cached (see :func:`complete_text`) so the fan-out
+    stays within the rate limit. All db/ORM access happens up front on this thread; the
+    worker threads only do network I/O + pure parsing.
+
+    Returns ``(element_prompts, posts_by_platform)`` where ``element_prompts`` aligns
+    with ``elements`` (text elements get ``[]``).
+    """
+    # --- Main-thread prep (db + ORM) ---
+    visual_prep = _prepare_visual(db, campaign, elements, context) if generate_images else None
+    ed_cfg = _snapshot_cfg(get_llm_config(db, LLMFunction.editorial_agent)) if platform_elements else None
+    ed_temp = creativity_to_temperature(campaign.creativity_level)
+    ed_cache = f"CONTEXT:\n{context}"
+    ed_jobs = [
+        (cp.platform, _editorial_instructions(client, campaign, cp, els, article_meta), spec(cp.platform), len(els))
+        for cp, els in platform_elements
+    ]
+
+    # --- Build the concurrent task list: (key, zero-arg callable) ---
+    jobs: list[tuple] = []
+    if visual_prep is not None:
+        v_cfg, v_user, v_temp, _, _ = visual_prep
+        jobs.append(("visual", lambda c=v_cfg, u=v_user, t=v_temp: complete_text(c, c.system_prompt, u, t)))
+    for platform, instructions, pspec, num in ed_jobs:
+        jobs.append((
+            ("editorial", platform, pspec, num),
+            lambda i=instructions: complete_text(ed_cfg, ed_cfg.system_prompt, i, ed_temp, cache_prefix=ed_cache),
+        ))
+
+    element_prompts: list[list[dict]] = [[] for _ in elements]
+    posts_by_platform: dict[Platform, list[dict]] = {}
+    if not jobs:
+        return element_prompts, posts_by_platform
+
+    # --- Run every LLM call concurrently, then parse on this thread ---
+    workers = max(1, min(max_workers, len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        raws = list(ex.map(lambda job: (job[0], job[1]()), jobs))
+
+    for key, raw in raws:
+        if key == "visual":
+            _, _, _, plan, order = visual_prep
+            element_prompts = _parse_visual(raw, plan, order)
+        else:
+            _, platform, pspec, num = key
+            posts_by_platform[platform] = _parse_posts(raw, num, pspec)
+    return element_prompts, posts_by_platform
