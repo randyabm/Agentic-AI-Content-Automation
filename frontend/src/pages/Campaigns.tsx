@@ -183,8 +183,8 @@ export default function Campaigns() {
         />
       )}
 
-      {/* Hide list when in creation mode */}
       {mode === "none" && (
+        <>
       <div className="campaign-filter-bar">
         <div className="campaign-filter-search">
           <Input
@@ -225,7 +225,6 @@ export default function Campaigns() {
         </select>
       </div>
 
-      {/* Cards */}
       <div className="card-grid">
         {visible.map((c) => {
           const client = clients.find((cl) => cl.id === c.client_id) ?? null;
@@ -282,6 +281,7 @@ export default function Campaigns() {
           <p className="muted">No campaigns yet. Create your first one.</p>
         )}
       </div>
+        </>
       )}
 
       {deleteCandidate && (
