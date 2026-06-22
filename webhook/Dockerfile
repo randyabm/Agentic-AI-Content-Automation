@@ -3,7 +3,7 @@ FROM python:3.12-slim
 # deploy.sh runs INSIDE this container (the repo and docker.sock are mounted in),
 # so it needs git + the Docker CLI + the Compose v2 plugin available here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg git && \
+        ca-certificates curl gnupg git openssh-client && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
     chmod a+r /etc/apt/keyrings/docker.asc && \
