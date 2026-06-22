@@ -10,7 +10,6 @@ import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { AiAssist } from "../components/AiAssist";
 import { MediaSkeleton } from "../components/MediaSkeleton";
-import { SendForApprovalModal } from "../components/SendForApprovalModal";
 import { ApprovedBanner } from "../components/ApprovedBanner";
 import { EditWarningDialog } from "../components/EditWarningDialog";
 import { ApprovalTimeline, type TimelineEvent } from "../components/ApprovalTimeline";
@@ -67,7 +66,6 @@ export default function CampaignDetail() {
   const [busy, setBusy] = useState("");
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
-  const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [showEditWarning, setShowEditWarning] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
   const [busyApproval, setBusyApproval] = useState("");
@@ -328,9 +326,6 @@ export default function CampaignDetail() {
             )}
             {isEditorMode && (
               <>
-                <Button variant="outline" onClick={() => navigate(`/campaigns/${campaign.id}/preview`)}>
-                  <Eye className="mr-1 size-3.5" /> Preview
-                </Button>
                 <Button variant="outline" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
                   Regenerate all
                 </Button>
@@ -668,11 +663,11 @@ export default function CampaignDetail() {
           <div className="mt-6">
             <WorkflowStepper currentStep={workflowStep} />
           </div>
-          {canSubmit && isEditorMode && (
+          {isEditorMode && (
             <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
               <p className="text-xs text-muted-foreground">Draft mode</p>
-              <Button onClick={() => setShowApprovalModal(true)}>
-                <span className="material-symbols-outlined mr-1 text-base">send</span> Send for Approval
+              <Button onClick={() => navigate(`/campaigns/${campaign.id}/preview`)}>
+                <Eye className="mr-1 size-4" /> Preview
               </Button>
             </div>
           )}
@@ -695,9 +690,6 @@ export default function CampaignDetail() {
       )}
       {showAutopilot && (
         <AutopilotModal campaignId={campaign.id} onClose={() => setShowAutopilot(false)} onDone={load} />
-      )}
-      {showApprovalModal && (
-        <SendForApprovalModal campaignId={campaign.id} onClose={() => setShowApprovalModal(false)} onDone={load} />
       )}
     </div>
   );
