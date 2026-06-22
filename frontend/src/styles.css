@@ -1380,6 +1380,17 @@ input:focus, select:focus, textarea:focus {
   align-items: baseline;
   margin-bottom: 0.75rem;
 }
+.composer-preview-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.composer-preview-hint {
+  font-size: 0.78rem;
+  color: #57534e;
+}
 .live-preview-column { display: flex; flex-direction: column; gap: 1.1rem; }
 .live-preview-item {
   border-radius: 10px;
