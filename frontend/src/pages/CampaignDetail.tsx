@@ -289,7 +289,7 @@ export default function CampaignDetail() {
               <Button variant="ghost" size="sm" onClick={() => navigate(`/campaigns/${campaign.id}/preview`)}>
                 <span className="material-symbols-outlined text-sm">visibility</span> Preview
               </Button>
-              <Button variant="ghost" size="sm" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating">
+              <Button variant="ghost" size="sm" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
                 Regenerate all
               </Button>
               <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={remove}>
