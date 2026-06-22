@@ -75,6 +75,17 @@ class CampaignUpdate(BaseModel):
     end_date: date | None = None
 
 
+class CopyImproveRequest(BaseModel):
+    # The field being improved and the user's CURRENT (possibly unsaved) text.
+    field: str  # headline | copy | cta | hashtags
+    text: str
+    action: str  # improve | shorten | punchy | grammar | professional | casual | hashtags
+
+
+class CopyImproveResponse(BaseModel):
+    suggestion: str
+
+
 class PlatformConfigOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

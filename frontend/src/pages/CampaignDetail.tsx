@@ -7,6 +7,7 @@ import { AutopilotModal } from "../components/AutopilotModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
+import { AiAssist } from "../components/AiAssist";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { Button } from "@/components/ui/button";
@@ -755,22 +756,44 @@ function CopyForm({
   return (
     <div className="post-copy">
       <label className="small">
-        Headline
+        <span className="field-label-row">
+          <span>Headline</span>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline} onApply={(v) => mark(setHeadline)(v)} />
+          )}
+        </span>
         <Input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
       </label>
       <label className="small">
-        Copy{" "}
-        <span className={copy.length > limit ? "char-over" : "muted"}>
-          {copy.length}/{limit}
+        <span className="field-label-row">
+          <span>
+            Copy{" "}
+            <span className={copy.length > limit ? "char-over" : "muted"}>
+              {copy.length}/{limit}
+            </span>
+          </span>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy} onApply={(v) => mark(setCopy)(v)} />
+          )}
         </span>
         <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
       </label>
       <label className="small">
-        Call to action
+        <span className="field-label-row">
+          <span>Call to action</span>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta} onApply={(v) => mark(setCta)(v)} />
+          )}
+        </span>
         <Input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
       </label>
       <label className="small">
-        Hashtags
+        <span className="field-label-row">
+          <span>Hashtags</span>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags} onApply={(v) => mark(setHashtags)(v)} />
+          )}
+        </span>
         <Input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
       </label>
       {post.rationale && <p className="post-hint">💡 {post.rationale}</p>}

@@ -391,6 +391,59 @@ def generate_platform_copy(
     return generate_posts_copy(db, client, campaign, cp, elements, context)
 
 
+# Quick "improve with AI" actions for a single copy field. Each maps to a short
+# instruction; no free-text input (the UI exposes these as chips).
+COPY_ACTIONS: dict[str, str] = {
+    "improve": "Rewrite it to be clearer, more compelling and polished.",
+    "shorten": "Make it noticeably shorter and punchier while keeping the core message.",
+    "punchy": "Make it more punchy, energetic and attention-grabbing.",
+    "grammar": "Fix grammar, spelling and punctuation. Keep the meaning and style intact.",
+    "professional": "Rewrite it in a more professional, polished tone.",
+    "casual": "Rewrite it in a more casual, friendly, conversational tone.",
+    "hashtags": "Suggest an optimized set of relevant, high-value hashtags for this post and platform.",
+}
+
+
+def improve_copy(
+    db: Session,
+    client: Client,
+    campaign: Campaign,
+    platform: Platform,
+    field: str,
+    text: str,
+    action: str,
+) -> str:
+    """Improve ONE copy field with the editorial LLM and return the suggestion
+    (the caller decides whether to apply it — nothing is persisted here)."""
+    cfg = get_llm_config(db, LLMFunction.editorial_agent)
+    pspec = spec(platform)
+    instruction = COPY_ACTIONS.get(action, COPY_ACTIONS["improve"])
+    is_hashtags = field == "hashtags"
+
+    system = (
+        "You are an expert social media copy editor revising ONE field of a social post. "
+        "Return ONLY the revised text for that field — no preamble, no surrounding quotes, "
+        "no explanations, no markdown. "
+        + (
+            "Return hashtags as a single space-separated line, each starting with '#'."
+            if is_hashtags
+            else "Preserve the original language of the text."
+        )
+    )
+    limit_note = (
+        "" if is_hashtags else f"\nThe {platform.value} copy limit is {pspec.char_limit} characters — stay within it."
+    )
+    prompt = (
+        f"BRAND CONTEXT:\n{_client_context(client)}\n\n"
+        f"PLATFORM: {platform.value}{limit_note}\n\n"
+        f"FIELD: {field}\n"
+        f"INSTRUCTION: {instruction}\n\n"
+        f"CURRENT {field.upper()}:\n{text}"
+    )
+    raw = complete_text(cfg, system, prompt, temperature=0.7)
+    return raw.strip().strip('"').strip()
+
+
 def _slots_for(el: CampaignElement) -> int:
     if el.element_type == ElementType.text:
         return 0

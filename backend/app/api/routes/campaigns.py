@@ -38,6 +38,8 @@ from app.schemas.campaign import (
     CampaignOut,
     CampaignUpdate,
     CanvasUpdate,
+    CopyImproveRequest,
+    CopyImproveResponse,
     ElementOut,
     GenerateImageRequest,
     GenerateVideoRequest,
@@ -439,6 +441,35 @@ def regenerate_post(
     db.commit()
     db.refresh(post)
     return post
+
+
+@router.post("/{campaign_id}/posts/{post_id}/improve", response_model=CopyImproveResponse)
+def improve_post_copy(
+    campaign_id: str,
+    post_id: str,
+    body: CopyImproveRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Return an AI-improved version of a single copy field. Does not persist —
+    the client applies the suggestion and saves via the normal PATCH."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = db.get(Post, post_id)
+    if post is None or post.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
+    client = db.get(Client, campaign.client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Client not found")
+
+    from app.services.campaign_gen import improve_copy
+
+    try:
+        suggestion = improve_copy(
+            db, client, campaign, post.platform, body.field, body.text, body.action
+        )
+    except ExtractionError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
+    return CopyImproveResponse(suggestion=suggestion)
 
 
 # --- review / approval workflow (SOCIAL_PUBLISHING_PLAN.md Phase 4) ---
