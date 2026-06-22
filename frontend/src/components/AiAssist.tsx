@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -38,6 +39,7 @@ export function AiAssist({
   value,
   onApply,
   disabled,
+  className,
 }: {
   campaignId: string;
   postId: string;
@@ -45,6 +47,7 @@ export function AiAssist({
   value: string;
   onApply: (text: string) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
@@ -92,12 +95,17 @@ export function AiAssist({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon"
           disabled={disabled}
-          className="h-6 gap-1 px-2 text-xs text-primary hover:bg-primary/10"
+          // Stop the click from reaching the field underneath (e.g. opening the
+          // TextareaZoom editor on the Copy field).
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           title="Improve with AI"
+          aria-label="Improve with AI"
+          className={cn("size-7 text-primary hover:bg-primary/10", className)}
         >
-          <Sparkles size={13} /> AI
+          <Sparkles size={15} />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80">

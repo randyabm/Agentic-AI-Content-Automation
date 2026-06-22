@@ -755,47 +755,47 @@ function CopyForm({
 
   return (
     <div className="post-copy">
-      <label className="small">
-        <span className="field-label-row">
-          <span>Headline</span>
+      <div className="post-field">
+        <span className="field-label small">Headline</span>
+        <div className="relative">
+          <Input className="pr-9" value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
           {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline} onApply={(v) => mark(setHeadline)(v)} />
+            <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline} onApply={(v) => mark(setHeadline)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />
           )}
-        </span>
-        <Input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
-      </label>
-      <label className="small">
-        <span className="field-label-row">
-          <span>
-            Copy{" "}
-            <span className={copy.length > limit ? "char-over" : "muted"}>
-              {copy.length}/{limit}
-            </span>
+        </div>
+      </div>
+      <div className="post-field">
+        <span className="field-label small">
+          Copy{" "}
+          <span className={copy.length > limit ? "char-over" : "muted"}>
+            {copy.length}/{limit}
           </span>
-          {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy} onApply={(v) => mark(setCopy)(v)} />
-          )}
         </span>
-        <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
-      </label>
-      <label className="small">
-        <span className="field-label-row">
-          <span>Call to action</span>
+        <div className="relative">
+          <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
           {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta} onApply={(v) => mark(setCta)(v)} />
+            <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy} onApply={(v) => mark(setCopy)(v)} className="absolute right-2 top-2 z-10 border border-border bg-card shadow-sm" />
           )}
-        </span>
-        <Input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
-      </label>
-      <label className="small">
-        <span className="field-label-row">
-          <span>Hashtags</span>
+        </div>
+      </div>
+      <div className="post-field">
+        <span className="field-label small">Call to action</span>
+        <div className="relative">
+          <Input className="pr-9" value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
           {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags} onApply={(v) => mark(setHashtags)(v)} />
+            <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta} onApply={(v) => mark(setCta)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />
           )}
-        </span>
-        <Input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
-      </label>
+        </div>
+      </div>
+      <div className="post-field">
+        <span className="field-label small">Hashtags</span>
+        <div className="relative">
+          <Input className="pr-9" value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags} onApply={(v) => mark(setHashtags)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+          )}
+        </div>
+      </div>
       {post.rationale && <p className="post-hint">💡 {post.rationale}</p>}
 
       <div className="approval-bar">
