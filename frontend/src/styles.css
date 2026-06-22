@@ -1779,17 +1779,16 @@ input:focus, select:focus, textarea:focus {
 /* TextareaZoom trigger */
 .textarea-zoom-trigger {
   position: relative;
-  cursor: pointer;
   display: block;
 }
 .textarea-zoom-trigger textarea {
-  pointer-events: none;
-  cursor: pointer;
+  cursor: text;
   resize: none;
   width: 100%;
   box-sizing: border-box;
 }
-.textarea-zoom-trigger:hover textarea {
+.textarea-zoom-trigger:hover textarea,
+.textarea-zoom-trigger:focus-within textarea {
   border-color: var(--primary);
 }
 .textarea-zoom-icon {
@@ -1800,10 +1799,11 @@ input:focus, select:focus, textarea:focus {
   color: var(--primary);
   opacity: 0;
   transition: opacity 0.15s;
-  pointer-events: none;
+  cursor: pointer;
   line-height: 1;
 }
-.textarea-zoom-trigger:hover .textarea-zoom-icon { opacity: 1; }
+.textarea-zoom-trigger:hover .textarea-zoom-icon,
+.textarea-zoom-trigger:focus-within .textarea-zoom-icon { opacity: 1; }
 
 /* TextareaZoom mini-modal */
 .textarea-zoom-overlay {

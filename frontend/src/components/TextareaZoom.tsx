@@ -32,15 +32,26 @@ export function TextareaZoom({
 
   return (
     <>
-      <div className="textarea-zoom-trigger" onClick={() => setOpen(true)}>
+      {/* The inline field is editable in place; expand to the full-size modal
+       *  via double-click on the field or a click on the ⤢ icon. */}
+      <div className="textarea-zoom-trigger" onDoubleClick={() => setOpen(true)}>
         <textarea
           rows={rows ?? 2}
           value={value}
           placeholder={placeholder}
-          readOnly
-          tabIndex={-1}
+          readOnly={readOnly}
+          onChange={(e) => { if (!readOnly) onChange(e.target.value); }}
         />
-        <span className="textarea-zoom-icon" title="Click to expand">⤢</span>
+        <span
+          className="textarea-zoom-icon"
+          title="Expand"
+          role="button"
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setOpen(true)}
+        >
+          ⤢
+        </span>
       </div>
       {open && (
         <div
