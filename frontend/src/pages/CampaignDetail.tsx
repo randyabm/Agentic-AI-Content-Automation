@@ -463,6 +463,7 @@ export default function CampaignDetail() {
                   {campaign.posts.map((post) => {
                     const el = campaign.elements.find((e) => e.id === post.element_id);
                     const cover = el?.images.find((i) => i.base_object_key);
+                    const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
                     const typeLabel = el?.element_type === "video" ? "REEL" : el?.element_type === "carousel" ? "CAROUSEL" : "POST";
                     return (
                       <div
@@ -477,6 +478,19 @@ export default function CampaignDetail() {
                           <div className="size-32 flex-shrink-0 bg-muted">
                             {cover ? (
                               <PostThumbnail campaignId={campaign.id} image={cover} />
+                            ) : coverVid ? (
+                              <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
+                            ) : el?.element_type === "text" ? (
+                              <div className="flex size-full items-center justify-center bg-accent p-2">
+                                <p className="line-clamp-4 text-center text-[0.65rem] font-medium leading-snug text-accent-foreground">
+                                  {post.headline || post.copy || "Text post"}
+                                </p>
+                              </div>
+                            ) : el?.element_type === "video" ? (
+                              <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground/50">
+                                <span className="material-symbols-outlined text-3xl">movie</span>
+                                <span className="text-[0.6rem] font-medium uppercase tracking-wider">Reel</span>
+                              </div>
                             ) : (
                               <div className="flex size-full items-center justify-center text-muted-foreground/40">
                                 <span className="material-symbols-outlined text-3xl">image</span>
