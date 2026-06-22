@@ -7,6 +7,15 @@ set -e
 
 BRANCH=${1:-master}
 
+# Run from the repo root regardless of the caller's cwd. The GitHub webhook invokes
+# this from inside its own container (cwd=/webhook) with the repo mounted alongside
+# the script, so without this git would run in the wrong directory.
+cd "$(dirname "$0")"
+
+# Inside the webhook container git runs as root over a repo owned by deplyuser;
+# without this git refuses with "detected dubious ownership". Harmless on the host.
+git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+
 echo "=== Marketing AI Platform — Deploy ($BRANCH) ==="
 echo "$(date)"
 
