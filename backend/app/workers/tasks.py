@@ -37,9 +37,8 @@ from app.services.article_intel import (
 )
 from app.services.campaign_gen import (
     build_context,
-    generate_all_platforms_copy,
-    generate_element_prompts,
     generate_platform_copy,
+    generate_visuals_and_copy,
     resolve_article,
 )
 from app.services import storage
@@ -954,12 +953,27 @@ def generate_campaign(campaign_id: str) -> None:
             ).all()
         }
 
-        # Visual prompts: one Visual Agent pass over all elements, reused per ratio.
-        prompts = (
-            generate_element_prompts(db, campaign, elements, context)
-            if campaign.generate_images
-            else [[] for _ in elements]
+        # Visual Agent + per-platform Editorial Agents all run as one concurrent batch:
+        # they are independent LLM calls over the same context, so the Visual round-trip
+        # is hidden under the editorial waves. The shared editorial context is cached so
+        # the fan-out stays within the rate limit.
+        platforms_used = [p for p in Platform if any(p.value in (el.platforms or []) for el in elements)]
+        platform_elements: list[tuple] = []
+        els_by_platform: dict = {}
+        for platform in platforms_used:
+            cp = cp_by_platform.get(platform)
+            if cp is None:
+                continue
+            els = [el for el in elements if platform.value in (el.platforms or [])]
+            platform_elements.append((cp, els))
+            els_by_platform[platform] = els
+
+        prompts, posts_by_platform = generate_visuals_and_copy(
+            db, client, campaign, elements, platform_elements, context,
+            article_meta=article, generate_images=campaign.generate_images,
         )
+
+        # Visual prompts → media rows (one per aspect ratio, reused across platforms).
         for el, slots in zip(elements, prompts):
             ratios = list(dict.fromkeys((el.platform_ratios or {}).values()))
             if el.element_type == ElementType.video:
@@ -981,24 +995,8 @@ def generate_campaign(campaign_id: str) -> None:
                             prompt=slot["prompt"],
                             negative_prompt=slot["negative_prompt"],
                         ))
-        db.commit()
 
-        # Editorial copy: one Editorial Agent call per platform, run concurrently with the
-        # shared campaign context cached so the fan-out stays within the rate limit.
-        platforms_used = [p for p in Platform if any(p.value in (el.platforms or []) for el in elements)]
-        platform_elements: list[tuple] = []
-        els_by_platform: dict = {}
-        for platform in platforms_used:
-            cp = cp_by_platform.get(platform)
-            if cp is None:
-                continue
-            els = [el for el in elements if platform.value in (el.platforms or [])]
-            platform_elements.append((cp, els))
-            els_by_platform[platform] = els
-
-        posts_by_platform = generate_all_platforms_copy(
-            db, client, campaign, platform_elements, context, article
-        )
+        # Editorial copy → posts (one per element targeting each platform).
         for platform, posts_data in posts_by_platform.items():
             for position, (el, pdata) in enumerate(zip(els_by_platform[platform], posts_data)):
                 db.add(Post(
