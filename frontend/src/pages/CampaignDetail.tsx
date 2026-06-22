@@ -1175,6 +1175,9 @@ function ImageSlot({
           <MediaSkeleton loading label="Generating image…" />
         ) : url ? (
           <img src={url} alt="post" className="image-zoomable" onClick={() => setLightbox(true)} />
+        ) : image.base_object_key ? (
+          // Generated already — the blob is still downloading.
+          <MediaSkeleton loading label="Loading…" />
         ) : (
           <MediaSkeleton label="No image yet" />
         )}
@@ -1484,6 +1487,8 @@ function VideoSlot({
           <MediaSkeleton kind="video" loading label="Generating video…" />
         ) : url ? (
           <video src={url} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : video.base_object_key && video.status === "ready" ? (
+          <MediaSkeleton kind="video" loading label="Loading…" />
         ) : (
           <MediaSkeleton kind="video" label="No video yet" />
         )}

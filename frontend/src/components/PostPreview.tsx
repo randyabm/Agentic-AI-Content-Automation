@@ -118,19 +118,26 @@ function Media({
         {vidUrl ? (
           <video src={vidUrl} controls loop muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <MediaSkeleton kind="video" label="Video not generated yet" />
+          // We only have a videoPath once the video is ready, so an empty url
+          // here means it's still downloading — show a loading shimmer.
+          <MediaSkeleton kind="video" loading label="Loading…" />
         )}
       </div>
     );
   }
   if (images.length === 0) return null;
   const generating = current?.status === "generating";
+  // The image exists (was generated) but its blob hasn't downloaded yet.
+  const loadingExisting = !generating && !!current?.base_object_key;
   return (
     <div className="preview-media" style={{ aspectRatio: aspect }}>
       {imgUrl ? (
         <img src={imgUrl} alt="" />
       ) : (
-        <MediaSkeleton loading={generating} label={generating ? "Generating image…" : "Image not generated yet"} />
+        <MediaSkeleton
+          loading={generating || loadingExisting}
+          label={generating ? "Generating image…" : loadingExisting ? "Loading…" : "Image not generated yet"}
+        />
       )}
       {images.length > 1 && (
         <>
