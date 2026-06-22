@@ -9,6 +9,7 @@ import {
   startOfDay,
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "./PlatformIcon";
 import { cn } from "@/lib/utils";
@@ -29,9 +30,10 @@ const STATUS_BAR: Record<string, string> = {
 interface CalendarWeekViewProps {
   items: CalendarItem[];
   onSelectItem: (item: CalendarItem) => void;
+  onDropPost: (postId: string, campaignId: string, date: Date) => void;
 }
 
-export function CalendarWeekView({ items, onSelectItem }: CalendarWeekViewProps) {
+export function CalendarWeekView({ items, onSelectItem, onDropPost }: CalendarWeekViewProps) {
   const [currentWeek, setCurrentWeek] = useState(new Date());
 
   const weekDays = useMemo(() => {
@@ -74,7 +76,6 @@ export function CalendarWeekView({ items, onSelectItem }: CalendarWeekViewProps)
 
       <div className="rounded-xl border border-border overflow-hidden bg-card shadow-sm overflow-x-auto">
         <div className="grid grid-cols-[60px_repeat(7,1fr)] min-w-[900px]">
-          {/* Header row */}
           <div className="border-b border-border bg-muted/50" />
           {weekDays.map((day) => {
             const today = isToday(day);
@@ -96,14 +97,14 @@ export function CalendarWeekView({ items, onSelectItem }: CalendarWeekViewProps)
             );
           })}
 
-          {/* Hour rows */}
           {HOURS.map((hour) => (
-            <DayHourRow
+            <WeekHourRow
               key={hour}
               hour={hour}
               weekDays={weekDays}
               itemsByDayHour={itemsByDayHour}
               onSelectItem={onSelectItem}
+              onDropPost={onDropPost}
             />
           ))}
         </div>
@@ -112,16 +113,18 @@ export function CalendarWeekView({ items, onSelectItem }: CalendarWeekViewProps)
   );
 }
 
-function DayHourRow({
+function WeekHourRow({
   hour,
   weekDays,
   itemsByDayHour,
   onSelectItem,
+  onDropPost,
 }: {
   hour: number;
   weekDays: Date[];
   itemsByDayHour: Map<string, CalendarItem[]>;
   onSelectItem: (item: CalendarItem) => void;
+  onDropPost: (postId: string, campaignId: string, date: Date) => void;
 }) {
   return (
     <>
@@ -132,28 +135,71 @@ function DayHourRow({
         const dayKey = format(startOfDay(day), "yyyy-MM-dd");
         const key = `${dayKey}-${hour}`;
         const hourItems = itemsByDayHour.get(key) || [];
+        const dropDate = new Date(day);
+        dropDate.setHours(hour, 0, 0, 0);
         return (
-          <div key={key} className="border-b border-l border-border min-h-[56px] p-1 hover:bg-muted/20 transition-colors">
-            {hourItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => onSelectItem(item)}
-                className={cn(
-                  "w-full text-left text-xs px-2 py-1.5 rounded-md mb-1",
-                  "bg-muted/60 hover:bg-primary/10 hover:ring-1 hover:ring-primary/20",
-                  "transition-all flex items-center gap-1.5 group",
-                )}
-              >
-                <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
-                <PlatformIcon platform={item.platform} size={12} />
-                <span className="truncate flex-1 font-medium text-foreground/80 group-hover:text-foreground">
-                  {item.headline || item.preview || "Untitled"}
-                </span>
-              </button>
-            ))}
-          </div>
+          <HourCell
+            key={key}
+            dropId={key}
+            dropDate={dropDate}
+            hourItems={hourItems}
+            onSelectItem={onSelectItem}
+            onDropPost={onDropPost}
+          />
         );
       })}
     </>
+  );
+}
+
+function HourCell({
+  dropId,
+  dropDate,
+  hourItems,
+  onSelectItem,
+  onDropPost,
+}: {
+  dropId: string;
+  dropDate: Date;
+  hourItems: CalendarItem[];
+  onSelectItem: (item: CalendarItem) => void;
+  onDropPost: (postId: string, campaignId: string, date: Date) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `hour-${dropId}`,
+    data: { day: dropDate, type: "hour" },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "border-b border-l border-border min-h-[56px] p-1 hover:bg-muted/20 transition-colors",
+        isOver && "bg-primary/10 ring-2 ring-primary/40 ring-inset",
+      )}
+    >
+      {hourItems.map((item) => (
+        <button
+          key={item.id}
+          onClick={() => onSelectItem(item)}
+          className={cn(
+            "w-full text-left text-xs px-2 py-1.5 rounded-md mb-1",
+            "bg-muted/60 hover:bg-primary/10 hover:ring-1 hover:ring-primary/20",
+            "transition-all flex items-center gap-1.5 group",
+          )}
+        >
+          <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
+          <PlatformIcon platform={item.platform} size={12} />
+          <span className="truncate flex-1 font-medium text-foreground/80 group-hover:text-foreground">
+            {item.headline || item.preview || "Untitled"}
+          </span>
+        </button>
+      ))}
+      {isOver && hourItems.length === 0 && (
+        <div className="text-xs text-primary text-center py-1 font-medium">
+          Drop
+        </div>
+      )}
+    </div>
   );
 }

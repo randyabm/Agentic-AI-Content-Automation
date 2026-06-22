@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { CalendarDays, RefreshCw, CalendarRange, List, Kanban } from "lucide-react";
+import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { toast } from "sonner";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { toast } from "sonner";
-import type { CalendarItem, Client } from "../types";
+import type { CalendarItem, Client, ScheduleablePost } from "../types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CalendarFilters, ALL_FILTERS, type CalendarFiltersState } from "../components/CalendarFilters";
@@ -12,12 +13,14 @@ import { CalendarWeekView } from "../components/CalendarWeekView";
 import { CalendarListView } from "../components/CalendarListView";
 import { PipelineBoard } from "../components/PipelineBoard";
 import { PostDrawer } from "../components/PostDrawer";
+import { ScheduleablePostsSidebar } from "../components/ScheduleablePostsSidebar";
 
 type View = "month" | "week" | "list" | "board";
 
 export default function Calendar() {
   const { user } = useAuth();
   const [items, setItems] = useState<CalendarItem[]>([]);
+  const [scheduleable, setScheduleable] = useState<ScheduleablePost[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -29,13 +32,19 @@ export default function Calendar() {
   const canEdit = !user?.is_platform_admin;
   const canReview = user?.org_role === "reviewer" || user?.org_role === "org_admin" || !!user?.is_platform_admin;
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
+
   const load = useCallback(async () => {
     try {
-      const [calendarData, clientData] = await Promise.all([
+      const [calendarData, scheduleableData, clientData] = await Promise.all([
         api<CalendarItem[]>("/calendar"),
+        api<ScheduleablePost[]>("/scheduleable-posts"),
         api<Client[]>("/clients"),
       ]);
       setItems(calendarData);
+      setScheduleable(scheduleableData);
       setClients(clientData);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load calendar");
@@ -67,6 +76,51 @@ export default function Calendar() {
     setSelectedItem(item);
     setDrawerOpen(true);
   }
+
+  async function handleDropPost(postId: string, campaignId: string, date: Date) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const when = new Date(date);
+    // If the drop target was a day cell (not an hour), default to 9:00 AM
+    if (when.getHours() === 0 && when.getMinutes() === 0) {
+      when.setHours(9, 0, 0, 0);
+    }
+    // Ensure it's in the future
+    if (when <= new Date()) {
+      toast.error("Can't schedule in the past — pick a future date");
+      return;
+    }
+    try {
+      await api(`/campaigns/${campaignId}/posts/${postId}/schedule`, {
+        method: "POST",
+        body: { scheduled_at: when.toISOString(), timezone: tz },
+      });
+      toast.success(`Scheduled for ${when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Scheduling failed");
+    }
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+
+    // Draggable from sidebar has id "sched-{postId}"
+    const activeId = active.id as string;
+    if (!activeId.startsWith("sched-")) return;
+
+    const postId = activeId.replace("sched-", "");
+    const post = scheduleable.find((p) => p.post_id === postId);
+    if (!post) return;
+
+    // Determine the drop date from the droppable data
+    const overData = over.data.current;
+    if (!overData || !overData.day) return;
+
+    await handleDropPost(postId, post.campaign_id, overData.day as Date);
+  }
+
+  const sidebarFilters = { client: filters.client, platform: filters.platform };
 
   return (
     <div className="flex flex-col h-full" style={{ maxWidth: "none", margin: 0, padding: 0 }}>
@@ -120,40 +174,61 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* Content area */}
-      <div className="flex-1 overflow-auto p-6">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <RefreshCw size={24} className="animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Loading calendar…</p>
-          </div>
-        ) : filteredItems.length === 0 && items.length === 0 ? (
-          <EmptyState
-            title="Nothing scheduled yet"
-            description="Approve a post in a campaign and use Schedule to plan it here."
-          />
-        ) : filteredItems.length === 0 ? (
-          <EmptyState
-            title="No posts match your filters"
-            description="Try adjusting or clearing the filters above."
-          />
-        ) : (
-          <>
-            {view === "month" && <CalendarMonthGrid items={filteredItems} onSelectItem={handleSelectItem} />}
-            {view === "week" && <CalendarWeekView items={filteredItems} onSelectItem={handleSelectItem} />}
-            {view === "list" && <CalendarListView items={filteredItems} onSelectItem={handleSelectItem} />}
-            {view === "board" && (
-              <PipelineBoard
-                items={filteredItems}
-                onSelectItem={handleSelectItem}
-                canEdit={canEdit}
-                canReview={canReview}
-                onRefresh={load}
+      {/* Content area — sidebar + calendar */}
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+        <div className="flex-1 flex overflow-hidden">
+          {/* Sidebar with scheduleable posts (only for month & week views) */}
+          {(view === "month" || view === "week") && canEdit && (
+            <ScheduleablePostsSidebar posts={scheduleable} filters={sidebarFilters} />
+          )}
+
+          <div className="flex-1 overflow-auto p-6">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <RefreshCw size={24} className="animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading calendar…</p>
+              </div>
+            ) : filteredItems.length === 0 && items.length === 0 && scheduleable.length === 0 ? (
+              <EmptyState
+                title="Nothing scheduled yet"
+                description="Approve a post in a campaign and drag it here to schedule it."
               />
+            ) : filteredItems.length === 0 && scheduleable.length === 0 ? (
+              <EmptyState
+                title="No posts match your filters"
+                description="Try adjusting or clearing the filters above."
+              />
+            ) : (
+              <>
+                {view === "month" && (
+                  <CalendarMonthGrid
+                    items={filteredItems}
+                    onSelectItem={handleSelectItem}
+                    onDropPost={handleDropPost}
+                  />
+                )}
+                {view === "week" && (
+                  <CalendarWeekView
+                    items={filteredItems}
+                    onSelectItem={handleSelectItem}
+                    onDropPost={handleDropPost}
+                  />
+                )}
+                {view === "list" && <CalendarListView items={filteredItems} onSelectItem={handleSelectItem} />}
+                {view === "board" && (
+                  <PipelineBoard
+                    items={filteredItems}
+                    onSelectItem={handleSelectItem}
+                    canEdit={canEdit}
+                    canReview={canReview}
+                    onRefresh={load}
+                  />
+                )}
+              </>
             )}
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      </DndContext>
 
       {/* Post detail drawer */}
       <PostDrawer

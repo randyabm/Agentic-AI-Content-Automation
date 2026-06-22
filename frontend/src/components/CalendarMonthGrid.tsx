@@ -12,6 +12,7 @@ import {
   format,
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "./PlatformIcon";
 import { cn } from "@/lib/utils";
@@ -31,9 +32,10 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 interface CalendarMonthGridProps {
   items: CalendarItem[];
   onSelectItem: (item: CalendarItem) => void;
+  onDropPost: (postId: string, campaignId: string, date: Date) => void;
 }
 
-export function CalendarMonthGrid({ items, onSelectItem }: CalendarMonthGridProps) {
+export function CalendarMonthGrid({ items, onSelectItem, onDropPost }: CalendarMonthGridProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const days = useMemo(() => {
@@ -55,11 +57,8 @@ export function CalendarMonthGrid({ items, onSelectItem }: CalendarMonthGridProp
     return map;
   }, [items]);
 
-  const unscheduled = useMemo(() => items.filter((i) => !i.scheduled_at), [items]);
-
   return (
     <div className="space-y-4">
-      {/* Month navigation */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold tracking-tight">
           {format(currentMonth, "MMMM yyyy")}
@@ -77,9 +76,7 @@ export function CalendarMonthGrid({ items, onSelectItem }: CalendarMonthGridProp
         </div>
       </div>
 
-      {/* Calendar grid */}
       <div className="rounded-xl border border-border overflow-hidden bg-card shadow-sm">
-        {/* Weekday headers */}
         <div className="grid grid-cols-7 border-b border-border bg-muted/50">
           {WEEKDAYS.map((day) => (
             <div key={day} className="px-3 py-2 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -88,88 +85,99 @@ export function CalendarMonthGrid({ items, onSelectItem }: CalendarMonthGridProp
           ))}
         </div>
 
-        {/* Day cells */}
         <div className="grid grid-cols-7">
-          {days.map((day, i) => {
-            const dayItems = itemsByDay.get(format(day, "yyyy-MM-dd")) || [];
-            const inMonth = isSameMonth(day, currentMonth);
-            const today = isToday(day);
-            const isWeekend = i % 7 >= 5;
-
-            return (
-              <div
-                key={day.toISOString()}
-                className={cn(
-                  "min-h-[110px] p-2 border-r border-b border-border last:border-r-0",
-                  !inMonth && "bg-muted/20",
-                  isWeekend && inMonth && "bg-muted/10",
-                  today && "ring-2 ring-primary ring-inset z-10",
-                )}
-              >
-                <div className={cn(
-                  "text-xs mb-1.5 inline-flex items-center justify-center w-6 h-6 rounded-full font-medium",
-                  today ? "bg-primary text-primary-foreground" : "text-muted-foreground",
-                )}>
-                  {format(day, "d")}
-                </div>
-                <div className="space-y-1">
-                  {dayItems.slice(0, 3).map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => onSelectItem(item)}
-                      className={cn(
-                        "w-full text-left text-xs px-2 py-1.5 rounded-md",
-                        "bg-muted/60 hover:bg-primary/10 hover:ring-1 hover:ring-primary/20",
-                        "transition-all duration-150 flex items-center gap-1.5 group",
-                      )}
-                    >
-                      <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
-                      <PlatformIcon platform={item.platform} size={12} />
-                      <span className="truncate flex-1 font-medium text-foreground/80 group-hover:text-foreground">
-                        {item.scheduled_at && new Date(item.scheduled_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                        {" "}
-                        {item.headline || item.preview || "Untitled"}
-                      </span>
-                    </button>
-                  ))}
-                  {dayItems.length > 3 && (
-                    <button
-                      onClick={() => onSelectItem(dayItems[3])}
-                      className="text-xs text-muted-foreground hover:text-primary px-2 py-0.5 transition-colors font-medium"
-                    >
-                      +{dayItems.length - 3} more
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {days.map((day, i) => (
+            <DayCell
+              key={day.toISOString()}
+              day={day}
+              index={i}
+              inMonth={isSameMonth(day, currentMonth)}
+              today={isToday(day)}
+              dayItems={itemsByDay.get(format(day, "yyyy-MM-dd")) || []}
+              onSelectItem={onSelectItem}
+              onDropPost={onDropPost}
+            />
+          ))}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Unscheduled posts */}
-      {unscheduled.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-muted text-xs text-muted-foreground">
-              {unscheduled.length}
-            </span>
-            Unscheduled
-          </h4>
-          <div className="flex flex-wrap gap-2">
-            {unscheduled.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => onSelectItem(item)}
-                className="text-xs px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-primary/10 hover:ring-1 hover:ring-primary/20 transition-all flex items-center gap-1.5"
-              >
-                <PlatformIcon platform={item.platform} size={12} />
-                <span className="truncate max-w-[200px] font-medium">{item.headline || item.preview || "Untitled"}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+function DayCell({
+  day,
+  index,
+  inMonth,
+  today,
+  dayItems,
+  onSelectItem,
+  onDropPost,
+}: {
+  day: Date;
+  index: number;
+  inMonth: boolean;
+  today: boolean;
+  dayItems: CalendarItem[];
+  onSelectItem: (item: CalendarItem) => void;
+  onDropPost: (postId: string, campaignId: string, date: Date) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `day-${format(day, "yyyy-MM-dd")}`,
+    data: { day, type: "day" },
+  });
+  const isWeekend = index % 7 >= 5;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "min-h-[110px] p-2 border-r border-b border-border last:border-r-0 transition-colors",
+        !inMonth && "bg-muted/20",
+        isWeekend && inMonth && "bg-muted/10",
+        today && "ring-2 ring-primary ring-inset z-10",
+        isOver && "bg-primary/10 ring-2 ring-primary/40 ring-inset",
       )}
+    >
+      <div className={cn(
+        "text-xs mb-1.5 inline-flex items-center justify-center w-6 h-6 rounded-full font-medium",
+        today ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+      )}>
+        {format(day, "d")}
+      </div>
+      <div className="space-y-1">
+        {dayItems.slice(0, 3).map((item) => (
+          <button
+            key={item.id}
+            onClick={() => onSelectItem(item)}
+            className={cn(
+              "w-full text-left text-xs px-2 py-1.5 rounded-md",
+              "bg-muted/60 hover:bg-primary/10 hover:ring-1 hover:ring-primary/20",
+              "transition-all duration-150 flex items-center gap-1.5 group",
+            )}
+          >
+            <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
+            <PlatformIcon platform={item.platform} size={12} />
+            <span className="truncate flex-1 font-medium text-foreground/80 group-hover:text-foreground">
+              {item.scheduled_at && new Date(item.scheduled_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+              {" "}
+              {item.headline || item.preview || "Untitled"}
+            </span>
+          </button>
+        ))}
+        {dayItems.length > 3 && (
+          <button
+            onClick={() => onSelectItem(dayItems[3])}
+            className="text-xs text-muted-foreground hover:text-primary px-2 py-0.5 transition-colors font-medium"
+          >
+            +{dayItems.length - 3} more
+          </button>
+        )}
+        {isOver && dayItems.length === 0 && (
+          <div className="text-xs text-primary text-center py-2 font-medium">
+            Drop to schedule
+          </div>
+        )}
+      </div>
     </div>
   );
 }

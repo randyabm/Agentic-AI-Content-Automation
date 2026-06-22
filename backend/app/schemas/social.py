@@ -147,3 +147,20 @@ class CalendarItemOut(BaseModel):
     client_id: str = ""
     client_name: str = ""
     approval_status: str = ""
+
+
+class ScheduleablePostOut(BaseModel):
+    """An approved post that has no ScheduledPost yet — ready to be dragged
+    onto the calendar to be scheduled."""
+
+    post_id: str
+    campaign_id: str
+    campaign_name: str
+    client_id: str
+    client_name: str
+    platform: str
+    headline: str
+    preview: str
+    channel_id: str
+    channel_name: str
+    best_time: str = ""

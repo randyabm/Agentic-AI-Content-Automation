@@ -22,7 +22,7 @@ from app.models.campaign import ApprovalStatus, Campaign, Post
 from app.models.client import Client
 from app.models.social import PublishStatus, ScheduledPost, SocialAccount
 from app.models.user import User
-from app.schemas.social import CalendarItemOut, RescheduleRequest, ReviewQueueItem, ScheduledPostOut
+from app.schemas.social import CalendarItemOut, RescheduleRequest, ReviewQueueItem, ScheduleablePostOut, ScheduledPostOut
 from app.services import audit
 
 router = APIRouter(tags=["scheduling"])
@@ -139,6 +139,67 @@ def global_calendar(
         _to_item(sp, post, campaign, channels.get(sp.social_account_id), client)
         for sp, post, campaign, client in rows
     ]
+
+
+@router.get("/scheduleable-posts", response_model=list[ScheduleablePostOut])
+def scheduleable_posts(
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    """Approved posts that have no ScheduledPost yet — ready to be dragged onto
+    the calendar to be scheduled. Only posts with a connected channel are returned."""
+    from app.models.social import ChannelStatus
+
+    if actor.org_id is None:
+        return []
+    # Subquery: post_ids that already have a ScheduledPost
+    scheduled_post_ids = select(ScheduledPost.post_id).scalar_subquery()
+    rows = db.execute(
+        select(Post, Campaign, Client)
+        .join(Campaign, Campaign.id == Post.campaign_id)
+        .join(Client, Client.id == Campaign.client_id)
+        .where(
+            Client.org_id == actor.org_id,
+            Post.approval_status == ApprovalStatus.approved,
+            ~Post.id.in_(scheduled_post_ids),
+        )
+        .order_by(Post.updated_at.desc())
+    ).all()
+    if not rows:
+        return []
+    client_ids = {client.id for _, _, client in rows}
+    channels = {
+        c: ch
+        for ch in db.scalars(
+            select(SocialAccount).where(
+                SocialAccount.client_id.in_(client_ids),
+                SocialAccount.status == ChannelStatus.connected,
+            )
+        ).all()
+        for c in [ch.client_id + "|" + ch.platform.value]
+    }
+    out: list[ScheduleablePostOut] = []
+    for post, campaign, client in rows:
+        key = f"{client.id}|{post.platform.value}"
+        ch = channels.get(key)
+        if ch is None:
+            continue  # no connected channel — can't schedule
+        out.append(
+            ScheduleablePostOut(
+                post_id=post.id,
+                campaign_id=campaign.id,
+                campaign_name=campaign.name,
+                client_id=client.id,
+                client_name=client.company_name,
+                platform=post.platform.value,
+                headline=post.headline or "",
+                preview=_preview(post),
+                channel_id=ch.id,
+                channel_name=ch.display_name,
+                best_time=post.best_time or "",
+            )
+        )
+    return out
 
 
 # --- single scheduled-post management (reschedule / cancel) ---
