@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiBlob } from "../api";
 import { PlatformIcon } from "./PlatformIcon";
 import type { CampaignElement, Client, Post, PostImage } from "../types";
@@ -332,6 +332,18 @@ export function LivePreviewColumn({
       ? `/clients/${client.id}/logo`
       : "";
   const logoUrl = useBlobUrl(avatarPath);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // When the editor switches platform tab, scroll the matching preview card into
+  // view within the preview column so you always see what you're editing.
+  useEffect(() => {
+    if (!activePlatform) return;
+    const el = itemRefs.current[activePlatform];
+    const scroller = el?.closest(".composer-preview") as HTMLElement | null;
+    if (!el || !scroller) return;
+    const delta = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+    scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
+  }, [activePlatform]);
 
   // Show a card for every platform that has a post, in the element's order.
   const cards = element.platforms
@@ -349,7 +361,11 @@ export function LivePreviewColumn({
         const ratio = element.platform_ratios?.[platform] ?? "1:1";
         const isActive = platform === activePlatform;
         return (
-          <div key={platform} className={`live-preview-item ${isActive ? "active" : ""}`}>
+          <div
+            key={platform}
+            ref={(node) => { itemRefs.current[platform] = node; }}
+            className={`live-preview-item ${isActive ? "active" : ""}`}
+          >
             <div className="live-preview-label">
               <span className="live-preview-platform">
                 <PlatformIcon platform={platform} size={14} /> {PLATFORM_LABELS[platform] ?? platform}
