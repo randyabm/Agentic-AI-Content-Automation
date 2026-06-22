@@ -143,3 +143,7 @@ class CalendarItemOut(BaseModel):
     channel_id: str
     channel_name: str
     channel_avatar: str
+
+    client_id: str = ""
+    client_name: str = ""
+    approval_status: str = ""

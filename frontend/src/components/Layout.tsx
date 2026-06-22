@@ -27,6 +27,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {!user?.is_platform_admin && <NavLink to="/clients">Clients</NavLink>}
           {!user?.is_platform_admin && <NavLink to="/campaigns">Campaigns</NavLink>}
           {!user?.is_platform_admin && showArticleLibrary && <NavLink to="/articles">Article Library</NavLink>}
+          {!user?.is_platform_admin && <NavLink to="/calendar">Calendar</NavLink>}
           {(user?.org_role === "reviewer" || user?.org_role === "org_admin") && (
             <NavLink to="/review-queue">Review Queue</NavLink>
           )}

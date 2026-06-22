@@ -8,9 +8,11 @@ posts can be rescheduled or cancelled while still pending; the Celery Beat sweep
 Tenant isolation runs through the owning client's organization, like the rest of
 the brand-content routes.
 """
+import io
+import zipfile
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -60,7 +62,13 @@ def _preview(post: Post) -> str:
     return text[:140] + ("…" if len(text) > 140 else "")
 
 
-def _to_item(sp: ScheduledPost, post: Post, campaign: Campaign, channel: SocialAccount | None) -> CalendarItemOut:
+def _to_item(
+    sp: ScheduledPost,
+    post: Post,
+    campaign: Campaign,
+    channel: SocialAccount | None,
+    client: Client | None = None,
+) -> CalendarItemOut:
     return CalendarItemOut(
         id=sp.id,
         status=sp.status,
@@ -78,6 +86,9 @@ def _to_item(sp: ScheduledPost, post: Post, campaign: Campaign, channel: SocialA
         channel_id=channel.id if channel else "",
         channel_name=channel.display_name if channel else "",
         channel_avatar=channel.avatar_url if channel else "",
+        client_id=client.id if client else "",
+        client_name=client.company_name if client else "",
+        approval_status=post.approval_status.value if post.approval_status else "",
     )
 
 
@@ -97,7 +108,37 @@ def client_calendar(
         .order_by(ScheduledPost.scheduled_at.is_(None), ScheduledPost.scheduled_at, ScheduledPost.created_at)
     ).all()
     channels = {c.id: c for c in db.scalars(select(SocialAccount).where(SocialAccount.client_id == client.id)).all()}
-    return [_to_item(sp, post, campaign, channels.get(sp.social_account_id)) for sp, post, campaign in rows]
+    return [_to_item(sp, post, campaign, channels.get(sp.social_account_id), client) for sp, post, campaign in rows]
+
+
+@router.get("/calendar", response_model=list[CalendarItemOut])
+def global_calendar(
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    """Cross-client calendar: all scheduled/publishing/published posts across
+    the user's organization, enriched with client + campaign + channel context.
+    Platform super-admins get an empty list (they have no brand content)."""
+    if actor.org_id is None:
+        return []
+    rows = db.execute(
+        select(ScheduledPost, Post, Campaign, Client)
+        .join(Post, Post.id == ScheduledPost.post_id)
+        .join(Campaign, Campaign.id == Post.campaign_id)
+        .join(Client, Client.id == Campaign.client_id)
+        .where(Client.org_id == actor.org_id)
+        .order_by(ScheduledPost.scheduled_at.is_(None), ScheduledPost.scheduled_at, ScheduledPost.created_at)
+    ).all()
+    client_ids = {client.id for _, _, _, client in rows}
+    channels = (
+        {c.id: c for c in db.scalars(select(SocialAccount).where(SocialAccount.client_id.in_(client_ids))).all()}
+        if client_ids
+        else {}
+    )
+    return [
+        _to_item(sp, post, campaign, channels.get(sp.social_account_id), client)
+        for sp, post, campaign, client in rows
+    ]
 
 
 # --- single scheduled-post management (reschedule / cancel) ---
@@ -155,3 +196,114 @@ def cancel_scheduled(
     db.delete(sp)
     db.commit()
     audit.record(db, actor, "post.unschedule", "post", post.id, {"scheduled_post": sp_id})
+
+
+@router.get("/scheduled-posts/{sp_id}/export-pack")
+def export_scheduled_post_pack(
+    sp_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    """Download a ZIP with captions, media, and manual publishing instructions
+    for a scheduled post — useful when another team member will manually post."""
+    from app.models.campaign import CampaignElement, PostImage, PostVideo
+    from app.services import storage
+    from app.services.compositing import composite_post_image
+
+    sp, post, campaign = _load_scheduled(db, sp_id, actor)
+    client = db.get(Client, campaign.client_id)
+    channel = db.get(SocialAccount, sp.social_account_id) if sp.social_account_id else None
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Caption file
+        caption_lines = [post.headline or "", "", post.copy or ""]
+        if post.hashtags:
+            caption_lines.append("")
+            caption_lines.append(" ".join(post.hashtags))
+        if post.cta:
+            caption_lines.append("")
+            caption_lines.append(f"CTA: {post.cta}")
+        platform_name = post.platform.value
+        zf.writestr(
+            f"captions/{platform_name}.txt",
+            "\n".join(caption_lines),
+        )
+
+        # Summary CSV
+        import csv
+        csv_buf = io.StringIO()
+        writer = csv.writer(csv_buf)
+        writer.writerow(["Field", "Value"])
+        writer.writerow(["Platform", platform_name])
+        writer.writerow(["Client", client.company_name if client else ""])
+        writer.writerow(["Campaign", campaign.name])
+        writer.writerow(["Headline", post.headline or ""])
+        writer.writerow(["CTA", post.cta or ""])
+        writer.writerow(["Hashtags", " ".join(post.hashtags)])
+        writer.writerow(["Scheduled at", sp.scheduled_at.isoformat() if sp.scheduled_at else ""])
+        writer.writerow(["Timezone", sp.timezone])
+        writer.writerow(["Channel", channel.display_name if channel else ""])
+        zf.writestr("summary.csv", csv_buf.getvalue())
+
+        # Publishing instructions
+        instructions = f"""Manual Publishing Instructions
+================================
+
+Platform: {platform_name}
+Client: {client.company_name if client else ""}
+Campaign: {campaign.name}
+
+Steps:
+1. Open {platform_name} manually (or the mobile app).
+2. Copy the caption from captions/{platform_name}.txt.
+3. If there are media files in the media/ folder, download and upload them.
+4. Paste the caption and upload the media.
+5. Publish the post manually.
+6. Return to the platform and paste the live URL in the post's "Mark as published" form.
+
+Scheduled time: {sp.scheduled_at.strftime('%Y-%m-%d %H:%M %Z') if sp.scheduled_at else 'Not scheduled'}
+"""
+        zf.writestr("instructions/publishing_checklist.txt", instructions)
+
+        # Media — find the post's element and its images/videos
+        element = db.get(CampaignElement, post.element_id) if post.element_id else None
+        if element:
+            ratio = (element.platform_ratios or {}).get(post.platform.value)
+            images = [i for i in element.images if not ratio or i.aspect_ratio == ratio]
+            videos = [v for v in element.videos if not ratio or v.aspect_ratio == ratio]
+            for img in images:
+                # Prefer composite, then base
+                data = None
+                if img.composited_object_key:
+                    try:
+                        data = storage.get_object(img.composited_object_key)[0]
+                    except Exception:
+                        pass
+                if data is None and img.base_object_key:
+                    if img.canvas_state and client:
+                        try:
+                            data = composite_post_image(db, img, client)
+                        except Exception:
+                            pass
+                    if data is None:
+                        try:
+                            data = storage.get_object(img.base_object_key)[0]
+                        except Exception:
+                            pass
+                if data:
+                    zf.writestr(f"media/{platform_name}_image_{img.slot_index + 1}.png", data)
+            for vidx, vid in enumerate(videos):
+                if vid.base_object_key:
+                    try:
+                        vdata = storage.get_object(vid.base_object_key)[0]
+                        zf.writestr(f"media/{platform_name}_video_{vidx + 1}.mp4", vdata)
+                    except Exception:
+                        pass
+
+    zip_data = buf.getvalue()
+    return Response(
+        content=zip_data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="post-{sp.id[:8]}-export.zip"'},
+    )

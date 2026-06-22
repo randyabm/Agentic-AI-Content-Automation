@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Layout } from "./components/Layout";
 import Articles from "./pages/Articles";
+import Calendar from "./pages/Calendar";
 import CampaignDetail from "./pages/CampaignDetail";
 import Campaigns from "./pages/Campaigns";
 import ClientDetail from "./pages/ClientDetail";
@@ -53,6 +54,7 @@ export default function App() {
       <Route path="/campaigns" element={<Protected orgOnly><Campaigns /></Protected>} />
       <Route path="/campaigns/:campaignId" element={<Protected orgOnly><CampaignDetail /></Protected>} />
       <Route path="/articles" element={<Protected orgOnly><Articles /></Protected>} />
+      <Route path="/calendar" element={<Protected orgOnly><Calendar /></Protected>} />
       <Route path="/review-queue" element={<Protected orgOnly><ReviewQueue /></Protected>} />
       <Route path="/team" element={<Protected orgAdminOnly><Team /></Protected>} />
       <Route path="/organizations" element={<Protected platformOnly><Organizations /></Protected>} />
