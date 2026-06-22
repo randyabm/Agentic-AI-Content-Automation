@@ -37,6 +37,7 @@ from app.services.article_intel import (
 )
 from app.services.campaign_gen import (
     build_context,
+    generate_all_platforms_copy,
     generate_element_prompts,
     generate_platform_copy,
     resolve_article,
@@ -982,15 +983,24 @@ def generate_campaign(campaign_id: str) -> None:
                         ))
         db.commit()
 
-        # Editorial copy: per platform, one post per element targeting it.
+        # Editorial copy: one Editorial Agent call per platform, run concurrently with the
+        # shared campaign context cached so the fan-out stays within the rate limit.
         platforms_used = [p for p in Platform if any(p.value in (el.platforms or []) for el in elements)]
+        platform_elements: list[tuple] = []
+        els_by_platform: dict = {}
         for platform in platforms_used:
             cp = cp_by_platform.get(platform)
             if cp is None:
                 continue
             els = [el for el in elements if platform.value in (el.platforms or [])]
-            posts_data = generate_platform_copy(db, client, campaign, cp, els, context, article)
-            for position, (el, pdata) in enumerate(zip(els, posts_data)):
+            platform_elements.append((cp, els))
+            els_by_platform[platform] = els
+
+        posts_by_platform = generate_all_platforms_copy(
+            db, client, campaign, platform_elements, context, article
+        )
+        for platform, posts_data in posts_by_platform.items():
+            for position, (el, pdata) in enumerate(zip(els_by_platform[platform], posts_data)):
                 db.add(Post(
                     campaign_id=campaign.id,
                     element_id=el.id,
@@ -1004,7 +1014,7 @@ def generate_campaign(campaign_id: str) -> None:
                     rationale=pdata["rationale"],
                     status=PostStatus.ready,
                 ))
-            db.commit()
+        db.commit()
 
         campaign.status = CampaignStatus.ready
         db.commit()
