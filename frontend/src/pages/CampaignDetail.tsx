@@ -15,6 +15,7 @@ import { ApprovedBanner } from "../components/ApprovedBanner";
 import { EditWarningDialog } from "../components/EditWarningDialog";
 import { ApprovalTimeline, type TimelineEvent } from "../components/ApprovalTimeline";
 import { ApprovalBadge } from "../components/ApprovalBadge";
+import { WorkflowStepper } from "../components/WorkflowStepper";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { cn } from "@/lib/utils";
@@ -213,6 +214,8 @@ export default function CampaignDetail() {
   const isEditorMode = approvalStatus === "draft" || approvalStatus === "changes_requested";
   const isLocked = approvalStatus === "pending_review";
   const activePlatforms = campaign.platforms.filter((p) => p.is_active);
+  const workflowStep: "draft" | "preview" | "approval" | "live" =
+    approvalStatus === "pending_review" ? "approval" : approvalStatus === "approved" ? "live" : "draft";
 
   // Real activity timeline derived from the campaign's approval fields.
   function buildTimeline(c: Campaign): TimelineEvent[] {
@@ -311,11 +314,6 @@ export default function CampaignDetail() {
             {canSubmit && approvalStatus === "pending_review" && (
               <Button variant="outline" className="text-destructive" onClick={handleCancelRequest}>
                 Cancel Request
-              </Button>
-            )}
-            {canSubmit && isEditorMode && (
-              <Button onClick={() => setShowApprovalModal(true)}>
-                <span className="material-symbols-outlined mr-1 text-base">send</span> Send for Approval
               </Button>
             )}
             {approvalStatus === "approved" && (
@@ -663,6 +661,19 @@ export default function CampaignDetail() {
                   {fmt.toUpperCase()}
                 </Button>
               ))}
+            </div>
+          )}
+
+          {/* ===== APPROVAL WORKFLOW ===== */}
+          <div className="mt-6">
+            <WorkflowStepper currentStep={workflowStep} />
+          </div>
+          {canSubmit && isEditorMode && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
+              <p className="text-xs text-muted-foreground">Draft mode</p>
+              <Button onClick={() => setShowApprovalModal(true)}>
+                <span className="material-symbols-outlined mr-1 text-base">send</span> Send for Approval
+              </Button>
             </div>
           )}
         </>
