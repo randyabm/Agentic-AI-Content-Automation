@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Client } from "../types";
+import { getBlobUrl } from "../lib/blobCache";
 
-/** Fetch a protected image endpoint as an object URL (with auth header, revoked on cleanup). */
+/** Fetch a protected image endpoint as an object URL (cached at module level). */
 export function useProtectedImage(path: string, enabled: boolean) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
@@ -9,20 +10,12 @@ export function useProtectedImage(path: string, enabled: boolean) {
       setSrc(null);
       return;
     }
-    let revoked: string | null = null;
-    const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-    fetch(`${apiUrl}${path}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
-    })
-      .then((r) => (r.ok ? r.blob() : null))
-      .then((blob) => {
-        if (blob) {
-          revoked = URL.createObjectURL(blob);
-          setSrc(revoked);
-        }
-      });
+    let active = true;
+    getBlobUrl(path).then((url) => {
+      if (active) setSrc(url || null);
+    });
     return () => {
-      if (revoked) URL.revokeObjectURL(revoked);
+      active = false;
     };
   }, [path, enabled]);
   return src;
@@ -30,9 +23,11 @@ export function useProtectedImage(path: string, enabled: boolean) {
 
 /** Round brand avatar — the client's profile photo, falling back to its initial. */
 export function ClientAvatar({ client, large }: { client: Client; large?: boolean }) {
-  const src = useProtectedImage(`/clients/${client.id}/avatar`, !!client.avatar_object_key);
+  const avatarVersion = client.avatar_object_key || "";
+  const path = avatarVersion ? `/clients/${client.id}/avatar?v=${avatarVersion}` : "";
+  const src = useProtectedImage(path, !!avatarVersion);
   const cls = `client-avatar${large ? " lg" : ""}`;
-  if (src) return <img src={src} alt="" className={cls} />;
+  if (src) return <img src={src} alt="" className={cls} loading="lazy" />;
   return (
     <div className={`${cls} placeholder`}>
       {(client.company_name[0] ?? "?").toUpperCase()}

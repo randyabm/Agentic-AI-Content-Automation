@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -173,12 +173,12 @@ def upload_logo(
 
 
 @router.get("/{client_id}/logo")
-def get_logo(client_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_logo(client_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _get_client_or_404(db, client_id, user)
     if not client.logo_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no logo")
     data, content_type = storage.get_object(client.logo_object_key)
-    return Response(content=data, media_type=content_type)
+    return storage.image_response(data, content_type, storage.make_etag(client.logo_object_key), request)
 
 
 @router.post("/{client_id}/avatar", response_model=ClientOut)
@@ -201,12 +201,12 @@ def upload_avatar(
 
 
 @router.get("/{client_id}/avatar")
-def get_avatar(client_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_avatar(client_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     client = _get_client_or_404(db, client_id, user)
     if not client.avatar_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This client has no profile photo")
     data, content_type = storage.get_object(client.avatar_object_key)
-    return Response(content=data, media_type=content_type)
+    return storage.image_response(data, content_type, storage.make_etag(client.avatar_object_key), request)
 
 
 # --- Brand Memory (PRD §5.3.3) ---

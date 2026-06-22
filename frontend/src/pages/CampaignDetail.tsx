@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChevronRight, Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Upload as UploadIcon, X } from "lucide-react";
-import { api, apiBlob, downloadFile } from "../api";
+import { api, downloadFile } from "../api";
+import { getBlobUrl, hashKey } from "../lib/blobCache";
 import { ImageEditor } from "../components/ImageEditor";
 import { AutopilotModal } from "../components/AutopilotModal";
 import { TextareaZoom } from "../components/TextareaZoom";
@@ -349,17 +350,11 @@ function ElementVideoThumb({ campaignId, video }: { campaignId: string; video: P
   const [url, setUrl] = useState("");
   useEffect(() => {
     let active = true;
-    let objectUrl = "";
-    apiBlob(`/campaigns/${campaignId}/videos/${video.id}/file`)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
+    getBlobUrl(`/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`).then((u) => {
+      if (active) setUrl(u);
+    });
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [campaignId, video.id, video.base_object_key]);
   return url ? (
@@ -370,14 +365,17 @@ function ElementVideoThumb({ campaignId, video }: { campaignId: string; video: P
 }
 
 function ElementThumb({ campaignId, image }: { campaignId: string; image: PostImage }) {
-  const url = useImageUrl(campaignId, image);
-  return url ? <img src={url} alt="element" /> : <div className="image-empty">…</div>;
+  const { preview } = useImageUrl(campaignId, image);
+  return preview ? <img src={preview} alt="element" loading="lazy" /> : <div className="image-empty">…</div>;
 }
 
-// Resolve the preview blob URL for an image, preferring the composite when the
-// canvas has visible layers (composited_object_key is cleared after each edit).
-function useImageUrl(campaignId: string, image: PostImage): string {
-  const [url, setUrl] = useState("");
+// Resolve blob URLs for an image: a small WebP preview (≤800px) and a larger
+// WebP for the lightbox (≤1600px). Both go through the /display route which
+// serves the appropriate variant (composite or base) and falls back to the
+// full-res base for legacy images without display variants.
+function useImageUrl(campaignId: string, image: PostImage): { preview: string; full: string } {
+  const [preview, setPreview] = useState("");
+  const [full, setFull] = useState("");
   const state = image.canvas_state || {};
   const hasLayers =
     (state.logo?.visible !== false && !!state.logo) ||
@@ -385,29 +383,29 @@ function useImageUrl(campaignId: string, image: PostImage): string {
     (state.texts || []).some((t) => t.visible !== false);
   useEffect(() => {
     if (!image.base_object_key) {
-      setUrl("");
+      setPreview("");
+      setFull("");
       return;
     }
     let active = true;
-    let objectUrl = "";
-    const path =
-      image.composited_object_key || hasLayers
-        ? `/campaigns/${campaignId}/images/${image.id}/composite`
-        : `/campaigns/${campaignId}/images/${image.id}/base`;
-    apiBlob(path)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
+    const isComposite = image.composited_object_key || hasLayers;
+    const version = isComposite
+      ? hashKey(`${image.base_object_key}|${JSON.stringify(image.canvas_state || {})}`)
+      : image.base_object_key;
+    const previewPath = `/campaigns/${campaignId}/images/${image.id}/display?v=${version}`;
+    const fullPath = `/campaigns/${campaignId}/images/${image.id}/display?v=${version}&w=1600`;
+    getBlobUrl(previewPath).then((u) => {
+      if (active) setPreview(u);
+    });
+    getBlobUrl(fullPath).then((u) => {
+      if (active) setFull(u);
+    });
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, image.id, image.base_object_key, image.composited_object_key, hasLayers, image.canvas_state]);
-  return url;
+  return { preview, full };
 }
 
 function makeDraft(p: Post): PreviewDraft {
@@ -1094,7 +1092,7 @@ function ImageSlot({
   const [lightbox, setLightbox] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const url = useImageUrl(campaignId, image);
+  const { preview, full } = useImageUrl(campaignId, image);
 
   async function savePrompt() {
     await api(`/campaigns/${campaignId}/images/${image.id}/prompt`, {
@@ -1173,15 +1171,15 @@ function ImageSlot({
       <div className="image-thumb" style={{ aspectRatio: image.aspect_ratio.replace(":", "/") }}>
         {image.status === "generating" ? (
           <MediaSkeleton loading label="Generating image…" />
-        ) : url ? (
-          <img src={url} alt="post" className="image-zoomable" onClick={() => setLightbox(true)} />
+        ) : preview ? (
+          <img src={preview} alt="post" className="image-zoomable" onClick={() => setLightbox(true)} />
         ) : image.base_object_key ? (
           // Generated already — the blob is still downloading.
           <MediaSkeleton loading label="Loading…" />
         ) : (
           <MediaSkeleton label="No image yet" />
         )}
-        {url && image.status !== "generating" && (
+        {preview && image.status !== "generating" && (
           <div className="image-overlay">
             <button className="icon-btn" title="View full size" onClick={() => setLightbox(true)}>
               <Maximize2 size={18} />
@@ -1198,12 +1196,12 @@ function ImageSlot({
         )}
         {busy && <div className="image-busy">{busy}</div>}
       </div>
-      {lightbox && url && (
+      {lightbox && preview && (
         <div className="lightbox" onClick={() => setLightbox(false)}>
           <button className="lightbox-close icon-btn" title="Close" onClick={() => setLightbox(false)}>
             <X size={20} />
           </button>
-          <img src={url} alt="full size" className="lightbox-img" onClick={(e) => e.stopPropagation()} />
+          <img src={full || preview} alt="full size" className="lightbox-img" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
       <div className="image-meta small muted">
@@ -1402,17 +1400,11 @@ function VideoSlot({
       return;
     }
     let active = true;
-    let objectUrl = "";
-    apiBlob(`/campaigns/${campaignId}/videos/${video.id}/file`)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
+    getBlobUrl(`/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`).then((u) => {
+      if (active) setUrl(u);
+    });
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [campaignId, video.id, video.base_object_key, video.status]);
 

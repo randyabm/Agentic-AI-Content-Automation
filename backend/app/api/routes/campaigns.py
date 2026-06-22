@@ -1,7 +1,7 @@
 """Social Media Campaign Generation API (PRD §5 — Module 3)."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -789,6 +789,8 @@ def upload_slot_image(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Image must be 10 MB or smaller")
     key = f"campaigns/{campaign_id}/images/{image_id}/uploaded.png"
     storage.upload_object(key, data, file.content_type)
+    from app.services.display_variants import generate_display_variants
+    generate_display_variants(data, f"campaigns/{campaign_id}/images/{image_id}/display_base")
     image.base_object_key = key
     image.is_uploaded = True
     image.composited_object_key = ""
@@ -801,22 +803,26 @@ def upload_slot_image(
 
 @router.get("/{campaign_id}/images/{image_id}/base")
 def get_base_image(
-    campaign_id: str, image_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
+    campaign_id: str, image_id: str, request: Request, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     image = _get_image_or_404(db, campaign_id, image_id, actor)
     if not image.base_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No image generated yet")
     data, content_type = storage.get_object(image.base_object_key)
-    return Response(content=data, media_type=content_type)
+    return storage.image_response(data, content_type, storage.make_etag(image.base_object_key), request)
 
 
 @router.get("/{campaign_id}/images/{image_id}/composite")
 def get_composite_image(
-    campaign_id: str, image_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
+    campaign_id: str, image_id: str, request: Request, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     image = _get_image_or_404(db, campaign_id, image_id, actor)
     if not image.base_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No image generated yet")
+    import json
+    etag = storage.make_etag(f"{image.base_object_key}|{json.dumps(image.canvas_state, sort_keys=True)}")
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=0, must-revalidate"})
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     client = db.get(Client, campaign.client_id)
     try:
@@ -825,9 +831,56 @@ def get_composite_image(
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Compositing failed: {exc}")
     key = f"campaigns/{campaign_id}/images/{image_id}/composite.png"
     storage.upload_object(key, data, "image/png")
+    from app.services.display_variants import generate_display_variants
+    generate_display_variants(data, f"campaigns/{campaign_id}/images/{image_id}/display_composite")
     image.composited_object_key = key
     db.commit()
-    return Response(content=data, media_type="image/png")
+    return storage.image_response(data, "image/png", etag, request, immutable=False)
+
+
+@router.get("/{campaign_id}/images/{image_id}/display")
+def get_display_image(
+    campaign_id: str,
+    image_id: str,
+    request: Request,
+    w: int = 800,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    """Serve a WebP display variant (≤800px or ≤1600px with ?w=1600).
+
+    Falls back to the full-res base if the variant doesn't exist (legacy images
+    generated before the display-variant pipeline was added).
+    """
+    from app.services.display_variants import display_key
+    from botocore.exceptions import ClientError
+
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
+    if not image.base_object_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No image generated yet")
+    import json
+    state = image.canvas_state or {}
+    has_layers = (
+        (state.get("logo") and state["logo"].get("visible", True))
+        or any(a.get("visible", True) for a in state.get("assets", []))
+        or any(t.get("visible", True) for t in state.get("texts", []))
+    )
+    is_composite = bool(image.composited_object_key) or has_layers
+    two_x = w >= 1600
+    dkey = display_key(campaign_id, image_id, composite=is_composite, two_x=two_x)
+    version = (
+        f"{image.base_object_key}|{json.dumps(state, sort_keys=True)}"
+        if is_composite
+        else image.base_object_key
+    )
+    etag = storage.make_etag(f"{dkey}|{version}")
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=86400, immutable"})
+    try:
+        data, content_type = storage.get_object(dkey)
+    except (ClientError, Exception):  # noqa: BLE001 — legacy images: fall back to base
+        data, content_type = storage.get_object(image.base_object_key)
+    return storage.image_response(data, content_type, etag, request)
 
 
 @router.put("/{campaign_id}/images/{image_id}/canvas", response_model=PostImageOut)
@@ -1026,13 +1079,13 @@ def upload_slot_video(
 
 @router.get("/{campaign_id}/videos/{video_id}/file")
 def get_video_file(
-    campaign_id: str, video_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
+    campaign_id: str, video_id: str, request: Request, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     video = _get_video_or_404(db, campaign_id, video_id, actor)
     if not video.base_object_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No video generated yet")
     data, content_type = storage.get_object(video.base_object_key)
-    return Response(content=data, media_type=content_type)
+    return storage.image_response(data, content_type, storage.make_etag(video.base_object_key), request)
 
 
 @router.delete("/{campaign_id}/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1084,13 +1137,13 @@ def upload_asset(
 
 @router.get("/{campaign_id}/assets/{asset_id}/file")
 def get_asset_file(
-    campaign_id: str, asset_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
+    campaign_id: str, asset_id: str, request: Request, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     asset = db.get(PostAsset, asset_id)
     if asset is None or asset.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
     data, content_type = storage.get_object(asset.object_key)
-    return Response(content=data, media_type=content_type)
+    return storage.image_response(data, content_type, storage.make_etag(asset.object_key), request)
 
 
 @router.delete("/{campaign_id}/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1145,13 +1198,13 @@ def upload_reference(
 
 @router.get("/{campaign_id}/references/{reference_id}/file")
 def get_reference_file(
-    campaign_id: str, reference_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
+    campaign_id: str, reference_id: str, request: Request, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
 ):
     ref = db.get(ReferenceImage, reference_id)
     if ref is None or ref.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reference not found")
     data, content_type = storage.get_object(ref.object_key)
-    return Response(content=data, media_type=content_type)
+    return storage.image_response(data, content_type, storage.make_etag(ref.object_key), request)
 
 
 @router.delete("/{campaign_id}/references/{reference_id}", status_code=status.HTTP_204_NO_CONTENT)

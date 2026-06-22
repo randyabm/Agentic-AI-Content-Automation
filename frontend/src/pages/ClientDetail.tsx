@@ -434,7 +434,7 @@ export default function ClientDetail() {
             <h2>Logo</h2>
             <div className="logo-box">
               {client.logo_object_key ? (
-                <LogoPreview clientId={client.id} />
+                <LogoPreview clientId={client.id} logoObjectKey={client.logo_object_key} />
               ) : (
                 <p className="muted">No logo uploaded.</p>
               )}
@@ -1138,8 +1138,8 @@ function Area({
   );
 }
 
-function LogoPreview({ clientId }: { clientId: string }) {
-  const src = useProtectedImage(`/clients/${clientId}/logo`, true);
+function LogoPreview({ clientId, logoObjectKey }: { clientId: string; logoObjectKey: string }) {
+  const src = useProtectedImage(`/clients/${clientId}/logo?v=${logoObjectKey}`, true);
   if (!src) return <p className="muted">Loading logo…</p>;
-  return <img src={src} alt="Client logo" className="logo-preview" />;
+  return <img src={src} alt="Client logo" className="logo-preview" loading="lazy" />;
 }

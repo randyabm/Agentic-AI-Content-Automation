@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiBlob } from "../api";
+import { getBlobUrl, hashKey } from "../lib/blobCache";
 import { PlatformIcon } from "./PlatformIcon";
 import { MediaSkeleton } from "./MediaSkeleton";
 import type { CampaignElement, Client, Post, PostImage } from "../types";
@@ -32,7 +32,7 @@ function draftFromPost(p: Post): PreviewDraft {
   return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
 }
 
-/** Load a protected binary as an object URL (revoked on cleanup). */
+/** Load a protected binary as an object URL (cached at module level). */
 function useBlobUrl(path: string) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -41,17 +41,11 @@ function useBlobUrl(path: string) {
       return;
     }
     let active = true;
-    let objectUrl = "";
-    apiBlob(path)
-      .then((b) => {
-        if (!active) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
+    getBlobUrl(path).then((u) => {
+      if (active) setUrl(u);
+    });
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [path]);
   return url;
@@ -64,9 +58,11 @@ function imagePath(campaignId: string, img: PostImage): string {
     (!!state.logo && state.logo.visible !== false) ||
     (state.assets || []).some((a) => a.visible !== false) ||
     (state.texts || []).some((t) => t.visible !== false);
-  return img.composited_object_key || hasLayers
-    ? `/campaigns/${campaignId}/images/${img.id}/composite`
-    : `/campaigns/${campaignId}/images/${img.id}/base`;
+  const isComposite = img.composited_object_key || hasLayers;
+  const version = isComposite
+    ? hashKey(`${img.base_object_key}|${JSON.stringify(img.canvas_state || {})}`)
+    : img.base_object_key;
+  return `/campaigns/${campaignId}/images/${img.id}/display?v=${version}`;
 }
 
 function handleOf(name: string): string {
@@ -75,7 +71,7 @@ function handleOf(name: string): string {
 
 function Avatar({ url, name, square }: { url: string; name: string; square?: boolean }) {
   const cls = `preview-avatar ${square ? "square" : ""}`;
-  if (url) return <img className={cls} src={url} alt="" />;
+  if (url) return <img className={cls} src={url} alt="" loading="lazy" />;
   return <div className={cls}>{(name[0] ?? "?").toUpperCase()}</div>;
 }
 
@@ -132,7 +128,7 @@ function Media({
   return (
     <div className="preview-media" style={{ aspectRatio: aspect }}>
       {imgUrl ? (
-        <img src={imgUrl} alt="" />
+        <img src={imgUrl} alt="" loading="lazy" />
       ) : (
         <MediaSkeleton
           loading={generating || loadingExisting}
@@ -187,7 +183,7 @@ export function PostPreviewCard({
   const video = element.videos.find((v) => v.aspect_ratio === ratio) ?? element.videos[0];
   const videoPath =
     element.element_type === "video" && video?.base_object_key && video.status === "ready"
-      ? `/campaigns/${campaignId}/videos/${video.id}/file`
+      ? `/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`
       : "";
 
   const name = client.company_name;
@@ -340,9 +336,9 @@ export function LivePreviewColumn({
 }) {
   // Prefer the client's profile photo as the author avatar; fall back to the logo.
   const avatarPath = client.avatar_object_key
-    ? `/clients/${client.id}/avatar`
+    ? `/clients/${client.id}/avatar?v=${client.avatar_object_key}`
     : client.logo_object_key
-      ? `/clients/${client.id}/logo`
+      ? `/clients/${client.id}/logo?v=${client.logo_object_key}`
       : "";
   const logoUrl = useBlobUrl(avatarPath);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});

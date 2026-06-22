@@ -1156,6 +1156,8 @@ def run_image_generation(image_id: str, image_model_id: str | None = None) -> No
         version = len(image.generation_history) + 1
         key = f"campaigns/{campaign_id}/images/{image.id}/v{version}.png"
         storage.upload_object(key, data, content_type)
+        from app.services.display_variants import generate_display_variants
+        generate_display_variants(data, f"campaigns/{campaign_id}/images/{image.id}/display_base")
 
         history = list(image.generation_history)
         history.append({
@@ -1352,6 +1354,8 @@ def derive_element_ratios(source_image_id: str, image_model_id: str | None = Non
                 version = len(sib.generation_history) + 1
                 key = f"campaigns/{element.campaign_id}/images/{sib.id}/v{version}.png"
                 storage.upload_object(key, data, ct)
+                from app.services.display_variants import generate_display_variants
+                generate_display_variants(data, f"campaigns/{element.campaign_id}/images/{sib.id}/display_base")
                 history = list(sib.generation_history)
                 history.append({
                     "object_key": key,
