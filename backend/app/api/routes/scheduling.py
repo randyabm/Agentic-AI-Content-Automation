@@ -168,16 +168,15 @@ def scheduleable_posts(
     if not rows:
         return []
     client_ids = {client.id for _, _, client in rows}
-    channels = {
-        c: ch
-        for ch in db.scalars(
-            select(SocialAccount).where(
-                SocialAccount.client_id.in_(client_ids),
-                SocialAccount.status == ChannelStatus.connected,
-            )
-        ).all()
-        for c in [ch.client_id + "|" + ch.platform.value]
-    }
+    connected = db.scalars(
+        select(SocialAccount).where(
+            SocialAccount.client_id.in_(client_ids),
+            SocialAccount.status == ChannelStatus.connected,
+        )
+    ).all()
+    channels: dict[str, SocialAccount] = {}
+    for ch in connected:
+        channels[f"{ch.client_id}|{ch.platform}"] = ch
     out: list[ScheduleablePostOut] = []
     for post, campaign, client in rows:
         key = f"{client.id}|{post.platform.value}"
