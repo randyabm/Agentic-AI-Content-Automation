@@ -116,6 +116,23 @@ export interface CalendarItem {
   channel_id: string;
   channel_name: string;
   channel_avatar: string;
+  client_id: string;
+  client_name: string;
+  approval_status: string;
+}
+
+export interface ScheduleablePost {
+  post_id: string;
+  campaign_id: string;
+  campaign_name: string;
+  client_id: string;
+  client_name: string;
+  platform: string;
+  headline: string;
+  preview: string;
+  channel_id: string;
+  channel_name: string;
+  best_time: string;
 }
 
 export interface Client {

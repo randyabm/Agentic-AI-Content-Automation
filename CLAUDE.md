@@ -54,6 +54,8 @@ Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPT
 - There is no test suite, linter config, or CI at present.
 - The Celery worker does not hot-reload — `deploy.sh` rebuilds and restarts it automatically.
 - Frontend changes: `deploy.sh` rebuilds the frontend container.
+- Frontend build: `cd frontend && npm run build` (runs `tsc -b && vite build`). Install deps: `npm install`.
+- When adding shadcn components: `npx shadcn@latest add <name>` (answer `n` to overwrite prompts for existing files). Config in `components.json`.
 
 ## Schema changes
 
@@ -74,19 +76,91 @@ The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sq
 **Backend** (`backend/app/`) — FastAPI + SQLAlchemy 2 + Celery:
 - `api/routes/*` — thin route handlers; RBAC enforced server-side via `api/deps.py`. All routers registered in `api/router.py`.
 - `models/` — one file per domain; **every new model must be imported in `models/__init__.py`** or create_all won't see it.
-- `services/` — the business logic. Key ones: `extraction.py` / `competitor_intel.py` / `article_intel.py` (Claude-driven analysis), `campaign_gen.py` (Editorial + Visual agents), `image_gen.py` / `video_gen.py` (provider-abstracted generation), `compositing.py` (logo/layer compositing with Pillow), `export.py` (ZIP/PDF/JSON/CSV), `platforms.py` (per-platform specs: ratios, char limits, link handling), `crawler.py`, `storage.py` (MinIO/S3).
-- `workers/tasks.py` — all Celery tasks (crawling, generation, video). Long-running AI work goes through Celery, never inline in a request.
+- `services/` — the business logic. Key ones: `extraction.py` / `competitor_intel.py` / `article_intel.py` (Claude-driven analysis), `campaign_gen.py` (Editorial + Visual agents), `image_gen.py` / `video_gen.py` (provider-abstracted generation), `compositing.py` (logo/layer compositing with Pillow), `export.py` (ZIP/PDF/JSON/CSV), `platforms.py` (per-platform specs: ratios, char limits, link handling), `crawler.py`, `storage.py` (MinIO/S3), `display_variants.py` (WebP display variant generation), `publishing.py` + `autopilot.py` (social scheduling/publishing), `direct_social.py` (Facebook/Instagram direct API publishing), `media_links.py` (signed JWT media URLs).
+- `workers/tasks.py` — all Celery tasks (crawling, generation, video, publishing). Long-running AI work goes through Celery, never inline in a request.
 - `core/crypto.py` — AES-256-GCM for stored API keys; DB never holds plaintext keys and the UI only shows masked hints.
+- `scripts/` — one-off maintenance scripts (e.g. `backfill_display_variants.py`). Run via `docker exec app-api-1 python -m scripts.<name>`.
 
 **LLM provider abstraction**: text functions are configurable per-function (Anthropic Claude default, or OpenAI/OpenRouter) via the `llm` model/config rows; image and video models are admin-curated lists (System Settings) where each entry carries its own provider + encrypted API key. Competitor identification is Anthropic-only (relies on the server-side web search tool). The Anthropic org is rate-limited to 30k input tokens/min — keep prompt corpora ≤100k chars and retry on 429.
 
 **Campaign domain model** (element-centric): a campaign's *elements* own the shared visuals (one image per aspect ratio); *posts* are per-platform copy that reference an element. Ratios are derived from the selected platforms automatically, with manual override (`frontend/src/ratios.ts`, `services/platforms.py`). Module 4 (article-to-content) reuses the same campaign pipeline in an article-driven mode.
 
+**Provider credentials** (one key per provider): `ProviderCredential` model (`models/llm.py`), unique by canonical provider: `anthropic | openai | openrouter | google | fal | replicate`. `services/providers.py` is the registry: `credential_provider()` normalizes a per-domain provider string to its canonical key, `resolve_api_key()` returns the credential key, `list_models()` proxies each provider's model-list API so the UI offers a dropdown instead of a typed model ID. `seed.py::_seed_provider_credentials` migrates existing keys into central credentials on boot.
+
+**System Settings UI** (`pages/SystemSettings.tsx`): tabbed — Providers & Keys · LLM Functions · Image Models · Video Models · Article Sources · Global. LLM functions and image/video models are edited with a provider dropdown + auto-fetched model dropdown (`ModelSelect`, with a manual fallback). No per-row API key fields.
+
+## Image pipeline (element-centric, one visual per element)
+
+Per `CampaignElement`, `PostImage` rows exist for each `(slot_index, aspect_ratio)` — carousel slides are `slot_index`, ratio variants are `aspect_ratio`.
+
+- **Base ratio + auto-derived ratios.** Within a slide, the highest-priority ratio (`_RATIO_PRIORITY` in `workers/tasks.py`, mirrors `frontend/src/ratios.ts`; 1:1 first) is the base. Generating it auto-triggers `derive_element_ratios`, which recreates the *other ratios of the same slide only* (never other slides) via AI image-to-image reframe (`image_gen.generate_image_from`), falling back to `image_gen.reframe_local` (keeps the full image centred, fills the extension with a blurred zoomed copy — **never crops**).
+- **Logo baked into generation.** When generating, the client logo bytes are passed to the model (`generate_image(logo_bytes=...)`) as the last input image with an instruction to render it small/undistorted in a corner. The AI draws the logo in. `canvas_state.logo_enabled` (default true) is the per-image toggle. If the image-to-image endpoint fails (OpenAI 520s), generation falls back to plain text-to-image and the logo is **composited as an overlay** instead (`logo_placement.compute_logo_geom` = Claude vision picks the spot; `compositing.py` burns it in, with optional scrim). Derived ratios copy the base's logo treatment so all ratios stay consistent.
+- **Reference images.** `reference_images` table (campaign-scoped); uploaded via the Reference images panel and passed to `generate_image(reference_bytes=...)` so visuals match a real product. Only the direct/base generation uses references.
+- **Safe margins.** `_SAFE_MARGINS` is appended to every image prompt so text/logos don't get clipped at the edges.
+- **Frontend:** `ElementVisual` renders one image with Slide tabs (carousel) then ratio pills; `ImageSlot` remounts per image (`key`) so each shows its own prompt. Click an image → lightbox; hover → edit/download/expand icons. While any ratio of a slide is generating, generation is locked on all of them.
+
+## Video pipeline (same presentation, manual variants)
+
+Mirrors images but variants are **manual** (cost). Requires **ffmpeg** (installed in `backend/Dockerfile`).
+
+- `services/video_edit.py`: `extract_first_frame`, `overlay_logo` (logo burned in at the vision-decided spot), `reframe_video` (blurred-extend, no crop).
+- `run_video_generation` overlays the logo after generation; `PostVideo.logo_enabled` (column added via manual `ALTER TABLE`) toggles it.
+- Other ratios are NOT auto-derived. The user clicks "Generate other ratios" → `POST .../videos/{id}/derive-ratios` → `derive_video_ratios` reframes the base clip locally with ffmpeg. References are not used for video.
+- **Frontend:** `VideoVisual` groups videos by ratio with the same pill switcher.
+
+## Robustness
+
+- OpenAI image endpoints retry transient 5xx (Cloudflare **520** on `/images/edits`) via `image_gen._openai_image_post` (6 attempts, backoff). On final failure, base generation falls back to text-to-image (+ overlaid logo) rather than failing.
+- Campaign list exposes `visuals_generating` so the list shows "Generating visuals…" while a `ready` campaign still renders images/videos; element cards and the campaign detail hide stale visuals while regenerating.
+
 **Frontend** (`frontend/src/`) — React 18 + TypeScript + Vite 8 (Node 26), react-router, no state library. `api.ts` is the single fetch wrapper (JWT from `auth.tsx`); `types.ts` mirrors backend schemas by hand — keep it in sync when changing `backend/app/schemas/`.
 
-**UI design system** (in-progress migration): standardizing on **shadcn/ui + Tailwind CSS v4**. Base components live in `frontend/src/components/ui/` (Button, Input, Textarea, Label, Card, Badge, Tabs, Dialog, Select, Separator, Tooltip, DropdownMenu, Toaster). Add more with `npx shadcn@latest add <name>` (config in `components.json`). The brand palette (ThreadWeave indigo/amber/teal) is mapped to shadcn CSS variables in `src/index.css`. Class merging helper: `cn()` from `@/lib/utils`; `@` aliases `src/`. Toasts via `toast()` from `sonner` (host mounted in `main.tsx`). Confirm/prompt dialogs via `useConfirm()`/`usePrompt()` from `@/components/ui/dialogs` (never use native `window.confirm`/`prompt`/`alert`). The legacy hand-written `styles.css` is imported into a lower `legacy` cascade layer so Tailwind utilities win — older screens still render unchanged until migrated. Prefer shadcn components for all **new** UI; migrate legacy screens opportunistically.
+**UI design system** (in-progress migration): standardizing on **shadcn/ui + Tailwind CSS v4**. Base components live in `frontend/src/components/ui/` (Button, Input, Textarea, Label, Card, Badge, Tabs, Dialog, Select, Separator, Tooltip, DropdownMenu, Popover, Toaster, Calendar, Sheet, ScrollArea, Table, DateTimePicker). Add more with `npx shadcn@latest add <name>` (config in `components.json`). The brand palette (ThreadWeave indigo/amber/teal) is mapped to shadcn CSS variables in `src/index.css`. Class merging helper: `cn()` from `@/lib/utils`; `@` aliases `src/`. Toasts via `toast()` from `sonner` (host mounted in `main.tsx`). Confirm/prompt dialogs via `useConfirm()`/`usePrompt()` from `@/components/ui/dialogs` (never use native `window.confirm`/`prompt`/`alert`). The legacy hand-written `styles.css` is imported into a lower `legacy` cascade layer so Tailwind utilities win — older screens still render unchanged until migrated. **Prefer shadcn components for all new UI; migrate legacy screens opportunistically. Avoid legacy CSS classes (`page-container`, `page-header`, `card`, `btn`, `muted`, `alert`, `tag`, `modal`) in new components — use Tailwind utilities + shadcn components instead.**
 
 **Contrast rule (always):** every text must have a visible contrast against its background — never font and background the same/near colour. Note the token trap: shadcn's `--muted` (`#f5f5f4`) is a **background** token; legacy *muted text* uses **`--text-muted`** (`#57534e`). Don't use `var(--muted)` for text (it resolves to the near-white background colour and disappears). shadcn secondary text uses `--muted-foreground` (`#57534e`).
+
+## Image loading performance (optimization layer)
+
+Images served via authenticated FastAPI routes that read from MinIO (S3). Optimizations applied:
+
+- **Browser cache headers**: All authenticated image routes (`/base`, `/composite`, `/display`, `/assets/*/file`, `/references/*/file`, `/videos/*/file`, `/clients/*/logo`, `/clients/*/avatar`) return `Cache-Control: private, max-age=86400, immutable` + `ETag`. The `If-None-Match` header is checked → returns `304 Not Modified` without re-reading from S3. Helper: `storage.image_response()` in `services/storage.py`.
+- **Composite short-circuit**: The `/composite` route computes an ETag from `base_object_key + canvas_state`. If the ETag matches (canvas unchanged), returns 304 without recomputing PIL compositing.
+- **WebP display variants**: `services/display_variants.py` generates 800px + 1600px WebP variants (`quality=85`) after every base upload, derived ratio, manual upload, and composite. Stored under separate keys (`display_base.webp`, `display_composite.webp`) — the original PNG/JPEG `base_object_key` and `composited_object_key` are **never touched** (social publishing reads those keys and Instagram/Facebook don't accept WebP).
+- **Display route**: `GET /campaigns/{id}/images/{id}/display?w=800|1600` serves the WebP variant, falling back to the full-res base for legacy images. Frontend preview uses 800px; lightbox uses 1600px.
+- **Backfill**: `scripts/backfill_display_variants.py` generates display variants for existing images. Run: `docker exec app-api-1 python -m scripts.backfill_display_variants`.
+- **Frontend blob cache**: `frontend/src/lib/blobCache.ts` — module-level `Map<path, Promise<blobUrl>>` with LRU eviction (200 entries). Dedupes concurrent and repeat fetches; no re-download on component remount (tab switch, ratio change). `getBlobUrl(path)` is the entry point; `invalidateBlobUrl(path)` clears a specific entry; `clearBlobCache()` clears all (for logout). All image hooks (`useImageUrl`, `useBlobUrl`, `useProtectedImage`) use it.
+- **`loading="lazy"`** on all non-critical `<img>` (thumbnails, avatars, preview images).
+
+## Publishing calendar & scheduling
+
+**Route**: `/calendar` (global nav item in sidebar, visible to all org users). Replaces the old per-client Calendar tab (removed from `ClientDetail`).
+
+**Backend endpoints** (`api/routes/scheduling.py`):
+- `GET /calendar` — cross-client calendar (org-scoped, all `ScheduledPost` rows enriched with client/campaign/channel context).
+- `GET /scheduleable-posts` — approved posts without a `ScheduledPost` yet, filtered to only those with a connected channel. Used by the drag-to-schedule sidebar.
+- `GET /clients/{id}/calendar` — single-client calendar (still available).
+- `GET /scheduled-posts/{id}/export-pack` — ZIP with captions, media, publishing instructions.
+- `PATCH /scheduled-posts/{id}` — reschedule.
+- `DELETE /scheduled-posts/{id}` — cancel.
+
+**Frontend** (`pages/Calendar.tsx`):
+- **4 views** via shadcn Tabs: Month grid, Week view, List/Agenda, Pipeline board (Kanban).
+- **Month grid** (`CalendarMonthGrid.tsx`): 7×6 grid with post cards per day, `date-fns` for calculations, today highlight with ring, weekend shading, unscheduled posts section. Day cells are **droppable** — drop a post onto a day to schedule at 9:00 AM.
+- **Week view** (`CalendarWeekView.tsx`): 7 columns × 14 hour rows (8am–9pm). Hour cells are **droppable** — drop onto a specific hour for exact-time scheduling.
+- **List view** (`CalendarListView.tsx`): day-grouped agenda with Today/Tomorrow labels, overdue highlighting, shadcn Badge for status.
+- **Pipeline board** (`PipelineBoard.tsx`): Kanban with 5 columns (Draft → Needs Approval → Approved → Scheduled → Published). **Drag-and-drop via @dnd-kit** — drag cards between columns to submit/approve/reject. Column headers are color-coded (slate/blue/violet/amber/emerald).
+- **Post drawer** (`PostDrawer.tsx`): shadcn Sheet (right side panel) opened by clicking any post card. Shows: headline, caption, hashtags, status/approval badges, quick actions (copy caption, download media, export pack, view live post, open campaign), reschedule via DateTimePicker, cancel schedule, approval actions (submit/approve/reject).
+- **Scheduleable posts sidebar** (`ScheduleablePostsSidebar.tsx`): left panel with draggable cards of approved-but-unscheduled posts. Shows platform, client, headline, and AI `best_time` hint. Drag onto month/week grid to schedule. Filters apply.
+- **Filters** (`CalendarFilters.tsx`): shadcn Select dropdowns for client, platform, status. Apply to all views + sidebar.
+- **DateTimePicker** (`components/ui/date-picker.tsx`): Popover + shadcn Calendar + time input. Replaces the old text-prompt `YYYY-MM-DD HH:MM` reschedule UX.
+- **Autopilot modal** (`AutopilotModal.tsx`): migrated to shadcn Dialog + DateTimePicker + Badge. Uses `local_label` from the API. Skeleton loader with spinner.
+- **Dependencies**: `date-fns`, `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`. shadcn components: `calendar`, `sheet`, `scroll-area`, `table`.
+
+**All calendar components use only shadcn/Tailwind — zero legacy CSS classes.**
+
+**Approval workflow**: posts go draft → pending_review → approved → scheduled → published. Approval actions available in: the PostDrawer, the Pipeline board (drag), the inline approval bar in `CampaignDetail.tsx`, and the Review Queue page (`/review-queue`).
+
+**Autopilot** (`services/autopilot.py`): deterministic best-time engine (no live LLM). Uses per-platform engagement windows (`BEST_WINDOWS`), respects weekday-only platforms (LinkedIn), campaign date range, per-day spacing. Seeded by editorial agent `best_time` hints. Frontend: "AI auto-schedule" button on ready campaigns → AutopilotModal.
 
 ## Conventions
 
@@ -114,6 +188,8 @@ OAuth app credentials stored encrypted in `ProviderCredential` rows (`provider='
 PUBLIC_BASE_URL=https://marketingaidev.randybeltran.xyz/api
 ```
 Used to build signed media URLs that platforms fetch asynchronously. If missing, defaults to `http://localhost:8000` (unreachable) → publishing fails with image/auth errors.
+
+**Publishing flow**: `publishing._image_key()` resolves to `composited_object_key` or `base_object_key` → `media_links.public_media_url(key)` → `GET /media/public/{token}` → `storage.get_object(key)` → returns the **exact stored bytes** (PNG/JPEG) with the stored `Content-Type`. **The display WebP variants are never used for publishing** — they live under separate keys. Instagram/Facebook receive PNG/JPEG as expected.
 
 ### Facebook Setup
 

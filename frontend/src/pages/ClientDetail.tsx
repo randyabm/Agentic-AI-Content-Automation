@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BookOpen, CalendarDays, ExternalLink, FileText, Search, Share2, Users } from "lucide-react";
+import { BookOpen, ExternalLink, FileText, Search, Share2, Users } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ArticleModal } from "../components/ArticleModal";
@@ -9,7 +9,6 @@ import { BrandMemory } from "../components/BrandMemory";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { ClientAvatar, useProtectedImage } from "../components/ClientAvatar";
 import { Channels } from "../components/Channels";
-import { PublishCalendar } from "../components/PublishCalendar";
 import { Competitors } from "../components/Competitors";
 import { PlatformIcon, platformFromUrl } from "../components/PlatformIcon";
 import { Button } from "@/components/ui/button";
@@ -28,7 +27,7 @@ export default function ClientDetail() {
   const [draft, setDraft] = useState<ExtractionDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<"profile" | "articles" | "competitors" | "channels" | "calendar">("profile");
+  const [tab, setTab] = useState<"profile" | "articles" | "competitors" | "channels">("profile");
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
@@ -253,19 +252,11 @@ export default function ClientDetail() {
         >
           <Share2 size={15} /> Channels
         </button>
-        <button
-          className={`client-tab${tab === "calendar" ? " client-tab-active" : ""}`}
-          onClick={() => setTab("calendar")}
-        >
-          <CalendarDays size={15} /> Calendar
-        </button>
       </div>
 
       {tab === "competitors" && <Competitors client={client} onboardingRunning={onboardingStatus === "running"} />}
 
       {tab === "channels" && <Channels client={client} canEdit={canEdit} />}
-
-      {tab === "calendar" && <PublishCalendar client={client} canEdit={canEdit} />}
 
       {tab === "articles" && (
         <ClientArticles
