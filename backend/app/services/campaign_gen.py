@@ -6,6 +6,8 @@ negative prompt for every image slot. Both agents are grounded in the client
 profile, competitive context, and the client's Brand Memory (§5.3.3).
 """
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -173,7 +175,7 @@ object(s), each with exactly these keys:
   }},
   ...
 ]
-Write all content in {language}. Ground everything in the context below.
+Write all content in {language}. Ground everything in the provided context.
 """
 
 VISUAL_INSTRUCTIONS = """\
@@ -233,23 +235,17 @@ def _parse_posts(raw: str, num_posts: int, pspec) -> list[dict]:
     return posts
 
 
-def generate_posts_copy(
-    db: Session,
-    client: Client,
-    campaign: Campaign,
-    cp: CampaignPlatform,
-    elements: list[CampaignElement],
-    context: str,
-) -> list[dict]:
-    """Editorial Agent: one post per element for the given platform."""
-    cfg = get_llm_config(db, LLMFunction.editorial_agent)
+def _normal_instructions(
+    client: Client, campaign: Campaign, cp: CampaignPlatform, elements: list[CampaignElement]
+) -> str:
+    """Format the standard (non-article) editorial instructions for one platform."""
     pspec = spec(cp.platform)
     cta_rule = (
         f"include a call to action ({cp.cta_text})" if cp.include_cta and cp.cta_text
         else "include a call to action" if cp.include_cta
         else "do not include a call to action"
     )
-    instructions = EDITORIAL_INSTRUCTIONS.format(
+    return EDITORIAL_INSTRUCTIONS.format(
         num_posts=len(elements),
         platform=pspec.label,
         objective=campaign.objective.value,
@@ -262,14 +258,11 @@ def generate_posts_copy(
         tone=cp.tone or client.communication_tone or "match the brand voice",
         language=campaign.content_language,
     )
-    temperature = creativity_to_temperature(campaign.creativity_level)
-    raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
-    return _parse_posts(raw, len(elements), pspec)
 
 
 ARTICLE_EDITORIAL_INSTRUCTIONS = """\
 You are the Editorial Agent in Article-to-Content mode. Generate {num_posts} {platform}
-post(s) that reference or promote the SOURCE ARTICLE below, with a {angle} angle.
+post(s) that reference or promote the SOURCE ARTICLE provided in the context, with a {angle} angle.
 
 Each post accompanies one campaign element (its visual). Write copy that matches that
 element's type and concept:
@@ -339,19 +332,16 @@ def _link_behavior(
     return " ".join(parts) if parts else "No special link handling required."
 
 
-def generate_article_posts_copy(
-    db: Session,
+def _article_instructions(
     client: Client,
     campaign: Campaign,
     cp: CampaignPlatform,
     elements: list[CampaignElement],
-    context: str,
     article_meta: dict,
-) -> list[dict]:
-    """Editorial Agent (Article-to-Content mode, PRD §6) for one platform."""
-    cfg = get_llm_config(db, LLMFunction.editorial_agent)
+) -> str:
+    """Format the Article-to-Content editorial instructions for one platform (PRD §6)."""
     pspec = spec(cp.platform)
-    instructions = ARTICLE_EDITORIAL_INSTRUCTIONS.format(
+    return ARTICLE_EDITORIAL_INSTRUCTIONS.format(
         num_posts=len(elements),
         platform=pspec.label,
         element_lines=_element_lines(elements),
@@ -371,9 +361,36 @@ def generate_article_posts_copy(
             article_meta.get("author", ""),
         ),
     )
-    temperature = creativity_to_temperature(campaign.creativity_level)
-    raw = complete_text(cfg, cfg.system_prompt, f"{instructions}\n\nCONTEXT:\n{context}", temperature)
-    return _parse_posts(raw, len(elements), pspec)
+
+
+def _editorial_instructions(
+    client: Client,
+    campaign: Campaign,
+    cp: CampaignPlatform,
+    elements: list[CampaignElement],
+    article_meta: dict | None = None,
+) -> str:
+    """Per-platform editorial instructions, mode-aware. Pure string work (no db/LLM)."""
+    if campaign.generation_mode == "article":
+        return _article_instructions(client, campaign, cp, elements, article_meta or {})
+    return _normal_instructions(client, campaign, cp, elements)
+
+
+def _snapshot_cfg(src) -> SimpleNamespace:
+    """Detach the LLM config into a plain object safe to read from worker threads.
+
+    Worker threads must never touch the SQLAlchemy session (not thread-safe; a commit
+    on the session thread expires ORM attributes, forcing a lazy reload off-thread).
+    """
+    return SimpleNamespace(
+        provider=src.provider,
+        model_name=src.model_name,
+        max_tokens=src.max_tokens,
+        temperature=src.temperature,
+        resolved_api_key=getattr(src, "resolved_api_key", ""),
+        api_key_encrypted=src.api_key_encrypted,
+        system_prompt=src.system_prompt,
+    )
 
 
 def generate_platform_copy(
@@ -386,9 +403,53 @@ def generate_platform_copy(
     article_meta: dict | None = None,
 ) -> list[dict]:
     """Editorial copy for one platform: one post per element, mode-aware."""
-    if campaign.generation_mode == "article":
-        return generate_article_posts_copy(db, client, campaign, cp, elements, context, article_meta or {})
-    return generate_posts_copy(db, client, campaign, cp, elements, context)
+    cfg = get_llm_config(db, LLMFunction.editorial_agent)
+    pspec = spec(cp.platform)
+    instructions = _editorial_instructions(client, campaign, cp, elements, article_meta)
+    temperature = creativity_to_temperature(campaign.creativity_level)
+    raw = complete_text(cfg, cfg.system_prompt, instructions, temperature, cache_prefix=f"CONTEXT:\n{context}")
+    return _parse_posts(raw, len(elements), pspec)
+
+
+def generate_all_platforms_copy(
+    db: Session,
+    client: Client,
+    campaign: Campaign,
+    platform_elements: list[tuple[CampaignPlatform, list[CampaignElement]]],
+    context: str,
+    article_meta: dict | None = None,
+    max_workers: int = 3,
+) -> dict[Platform, list[dict]]:
+    """Editorial Agent across every platform, concurrently.
+
+    Each platform is an independent LLM call sharing the same campaign ``context``.
+    The context is sent as a cached prefix (see :func:`complete_text`), so the
+    concurrent calls reuse the shared tokens instead of re-billing/re-processing them
+    — that is what keeps a fan-out of platforms within the 30k-tokens/min rate limit.
+
+    Returns ``{platform: [post_dict, ...]}``. All ORM/session access happens here on
+    the calling thread; the worker threads only do network I/O and pure parsing.
+    """
+    if not platform_elements:
+        return {}
+    cfg = _snapshot_cfg(get_llm_config(db, LLMFunction.editorial_agent))
+    temperature = creativity_to_temperature(campaign.creativity_level)
+    cache_prefix = f"CONTEXT:\n{context}"
+
+    # Build every prompt up front, while still on the session thread.
+    jobs = [
+        (cp.platform, _editorial_instructions(client, campaign, cp, els, article_meta), spec(cp.platform), len(els))
+        for cp, els in platform_elements
+    ]
+
+    def run(job):
+        platform, instructions, pspec, num = job
+        raw = complete_text(cfg, cfg.system_prompt, instructions, temperature, cache_prefix=cache_prefix)
+        return platform, _parse_posts(raw, num, pspec)
+
+    workers = max(1, min(max_workers, len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return dict(ex.map(run, jobs))
 
 
 # Quick "improve with AI" actions for a single copy field. Each maps to a short

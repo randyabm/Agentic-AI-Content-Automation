@@ -79,30 +79,56 @@ def build_corpus(pages: list[CrawledPage]) -> str:
 
 
 def complete_text(
-    cfg: LLMConfig, system_prompt: str, user_prompt: str, temperature: float | None = None
+    cfg: LLMConfig,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float | None = None,
+    *,
+    cache_prefix: str | None = None,
 ) -> str:
+    """Run a single text completion.
+
+    When ``cache_prefix`` is given it is treated as a large shared block that
+    precedes ``user_prompt``. For Anthropic it is sent as a cacheable content
+    block (along with the system prompt) so repeated calls that share the same
+    prefix — e.g. one editorial pass per platform over the same campaign context —
+    reuse the cached tokens instead of re-billing and re-processing them. For other
+    providers the prefix is simply prepended (OpenAI caches identical prefixes on
+    its own).
+    """
     api_key = getattr(cfg, "resolved_api_key", "") or decrypt_secret(cfg.api_key_encrypted)
     temp = cfg.temperature if temperature is None else temperature
     if cfg.provider == "anthropic":
         # Retries with backoff absorb per-minute token rate limits (429s).
         client = anthropic.Anthropic(api_key=api_key, max_retries=5)
+        if cache_prefix is not None:
+            # Cache the system prompt + shared prefix; only the per-call instructions vary.
+            system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+            content = [
+                {"type": "text", "text": cache_prefix, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": user_prompt},
+            ]
+        else:
+            system = system_prompt
+            content = user_prompt
         message = client.messages.create(
             model=cfg.model_name,
             max_tokens=cfg.max_tokens,
             temperature=min(temp, 1.0),
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            system=system,
+            messages=[{"role": "user", "content": content}],
         )
         return "".join(block.text for block in message.content if block.type == "text")
     if cfg.provider in ("openrouter", "openai"):
         # Both speak the OpenAI chat-completions dialect; only the base URL differs.
         base = "https://openrouter.ai/api/v1" if cfg.provider == "openrouter" else "https://api.openai.com/v1"
+        user_content = f"{cache_prefix}\n\n{user_prompt}" if cache_prefix is not None else user_prompt
         payload: dict = {
             "model": cfg.model_name,
             "temperature": temp,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": user_content},
             ],
         }
         # OpenAI reasoning models (o-series, gpt-5*) reject max_tokens and fixed
