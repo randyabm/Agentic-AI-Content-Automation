@@ -98,9 +98,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/deplyuser/app:/app
-      # deploy.sh runs git here; the repo's remote is SSH, so it needs deplyuser's
-      # deploy key + known_hosts (read-only). git runs as root → key lands at /root/.ssh.
-      - /home/deplyuser/.ssh:/root/.ssh:ro
+      # deploy.sh runs git (SSH remote) as root in here. Mount deplyuser's key +
+      # known_hosts read-only; the entrypoint copies them into a root-owned ~/.ssh
+      # (ssh rejects mounting them at /root/.ssh directly — wrong owner/perms).
+      - /home/deplyuser/.ssh:/ssh-src:ro
 
   cloudflared:
     image: cloudflare/cloudflared:latest
