@@ -12,7 +12,8 @@ log = logging.getLogger("webhook")
 
 SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "").encode()
 def deploy_cmd(branch: str) -> list[str]:
-    return ["/bin/bash", "/app/deploy.sh", branch]
+    # The repo is mounted at its real host path so `docker compose` bind mounts resolve.
+    return ["/bin/bash", "/home/deplyuser/app/deploy.sh", branch]
 
 
 class Handler(BaseHTTPRequestHandler):
