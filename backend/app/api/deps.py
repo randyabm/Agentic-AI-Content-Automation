@@ -107,6 +107,27 @@ require_reviewer = require_org_roles_or_platform(OrgRole.reviewer)
 require_contributor = require_org_roles_or_platform(OrgRole.analyst, OrgRole.creative, OrgRole.reviewer)
 
 
+def require_capability(*capabilities):
+    """Require ANY of the given capabilities, resolved through the org's permission
+    matrix. Platform admin and org_admin always pass. The capability set is configured
+    per-org by the Org Admin (see `services/permissions.py`)."""
+    from app.models.permission import Capability  # local import avoids a model cycle
+    from app.services.permissions import capabilities_for
+
+    wanted = {c.value if isinstance(c, Capability) else str(c) for c in capabilities}
+
+    def checker(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+        if user.is_platform_admin:
+            return user
+        if user.org_id is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of any organization")
+        if wanted & capabilities_for(db, user):
+            return user
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions")
+
+    return checker
+
+
 def assert_client_access(user: User, client: Client) -> None:
     """Raise 404 if `user` may not access `client`. Client/brand data belongs to
     org members only — the platform super-admin manages system configuration, not

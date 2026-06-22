@@ -14,7 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_client, require_editor
+from app.api.deps import get_current_user, require_capability, require_client
+from app.models.permission import Capability
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.social import ChannelStatus, SocialAccount
@@ -91,7 +92,7 @@ def connect_channel(
     platform: str,
     client: Client = Depends(require_client),
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.manage_channels)),
 ):
     """Return the OAuth authorization URL for the given platform.
 
@@ -127,7 +128,7 @@ def connect_channel(
 def sync_channels(
     client: Client = Depends(require_client),
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.manage_channels)),
 ):
     """Sync / verify all channels for this client.
 
@@ -162,7 +163,7 @@ def verify_channel(
     channel_id: str,
     client: Client = Depends(require_client),
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.manage_channels)),
 ):
     """Re-check a single channel's token health."""
     channel = db.get(SocialAccount, channel_id)
@@ -203,7 +204,7 @@ def disconnect_channel(
     channel_id: str,
     client: Client = Depends(require_client),
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.manage_channels)),
 ):
     """Remove the channel locally. The user revokes platform access separately."""
     channel = db.get(SocialAccount, channel_id)

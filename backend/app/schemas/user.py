@@ -32,3 +32,5 @@ class UserOut(BaseModel):
     is_platform_admin: bool = False
     org_id: str | None = None
     org_role: OrgRole | None = None
+    # Resolved capability keys for this user (drives frontend gating). Set by /me.
+    capabilities: list[str] = []

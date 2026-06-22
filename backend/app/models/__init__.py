@@ -15,6 +15,7 @@ from app.models.competitor import Competitor, CompetitorSearchJob
 from app.models.llm import ImageModel, LLMConfig, ProviderCredential, VideoModel
 from app.models.onboarding import OnboardingJob
 from app.models.org import Organization
+from app.models.permission import Capability, RolePermission
 from app.models.setting import Setting
 from app.models.social import ScheduledPost, SocialAccount
 from app.models.user import PasswordResetToken, RefreshToken, User
@@ -33,9 +34,11 @@ __all__ = [
     "ExtractionJob",
     "ImageModel",
     "LLMConfig",
+    "Capability",
     "OnboardingJob",
     "Organization",
     "Post",
+    "RolePermission",
     "PostAsset",
     "PostImage",
     "PostVideo",

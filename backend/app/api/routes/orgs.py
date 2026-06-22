@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_org_admin, require_platform_admin
+from app.api.deps import get_current_user, require_capability, require_org_admin, require_platform_admin
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.org import Organization
+from app.models.permission import Capability
 from app.models.user import OrgRole, User, UserRole
 from app.schemas.org import (
     OrganizationCreate,
@@ -21,8 +22,15 @@ from app.schemas.org import (
     OrgMemberCreate,
     OrgMemberUpdate,
 )
+from app.schemas.permission import CapabilityInfo, PermissionMatrixOut, PermissionUpdate
 from app.schemas.user import UserOut
 from app.services import audit
+from app.services.permissions import (
+    CAPABILITY_CATALOG,
+    MATRIX_ROLES,
+    effective_matrix,
+    set_permission,
+)
 
 router = APIRouter(prefix="/orgs", tags=["organizations"])
 
@@ -162,3 +170,38 @@ def update_member(
     db.commit()
     audit.record(db, actor, "org.member_update", "user", member.id, {k: str(v) for k, v in changes.items()})
     return member
+
+
+# --- Permission matrix (configure_permissions; org_admin by default) ---
+
+
+def _matrix_out(db: Session, org_id: str) -> PermissionMatrixOut:
+    matrix = effective_matrix(db, org_id)
+    grid = {role: {cap: (cap in caps) for cap in Capability} for role, caps in matrix.items()}
+    capabilities = [CapabilityInfo(key=cap, label=label, group=group) for cap, label, group in CAPABILITY_CATALOG]
+    return PermissionMatrixOut(roles=MATRIX_ROLES, capabilities=capabilities, grid=grid)
+
+
+@router.get("/{org_id}/permissions", response_model=PermissionMatrixOut)
+def get_permissions(
+    org_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.configure_permissions)),
+):
+    _require_org(db, org_id, actor)
+    return _matrix_out(db, org_id)
+
+
+@router.put("/{org_id}/permissions", response_model=PermissionMatrixOut)
+def update_permissions(
+    org_id: str,
+    body: PermissionUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.configure_permissions)),
+):
+    _require_org(db, org_id, actor)
+    for cell in body.updates:
+        set_permission(db, org_id, cell.role, cell.capability, cell.allowed)
+    db.commit()
+    audit.record(db, actor, "org.permissions_update", "organization", org_id, {"cells": len(body.updates)})
+    return _matrix_out(db, org_id)

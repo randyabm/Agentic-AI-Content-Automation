@@ -9,10 +9,10 @@ from app.api.deps import (
     assert_client_access,
     get_current_user,
     org_client_filter,
-    require_contributor,
+    require_capability,
     require_editor,
-    require_reviewer,
 )
+from app.models.permission import Capability
 from app.db.session import get_db
 from app.models.campaign import (
     Campaign,
@@ -484,7 +484,8 @@ def _get_post_or_404(db: Session, campaign_id: str, post_id: str) -> Post:
 
 @router.post("/{campaign_id}/posts/{post_id}/submit", response_model=PostOut)
 def submit_post(
-    campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_contributor)
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.submit_review)),
 ):
     """Contributor submits a post for review (draft/rejected → pending_review)."""
     _get_campaign_or_404(db, campaign_id, actor)
@@ -499,7 +500,8 @@ def submit_post(
 
 @router.post("/{campaign_id}/posts/{post_id}/approve", response_model=PostOut)
 def approve_post(
-    campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_reviewer)
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_copy)),
 ):
     """Reviewer approves a post — only approved posts may be scheduled/published."""
     _get_campaign_or_404(db, campaign_id, actor)
@@ -519,7 +521,7 @@ def reject_post(
     post_id: str,
     body: ReviewReject,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_reviewer),
+    actor: User = Depends(require_capability(Capability.approve_copy)),
 ):
     """Reviewer rejects a post with an optional note for the contributor."""
     _get_campaign_or_404(db, campaign_id, actor)
@@ -561,7 +563,8 @@ def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialA
 
 @router.post("/{campaign_id}/posts/{post_id}/publish", response_model=ScheduledPostOut)
 def publish_post_now(
-    campaign_id: str, post_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.publish)),
 ):
     """Publish an approved post immediately to its platform's connected channel."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
@@ -583,7 +586,7 @@ def schedule_post_for_later(
     post_id: str,
     body: ScheduleRequest,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.schedule)),
 ):
     """Schedule an approved post to publish at a future time (the Beat sweep sends it)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)

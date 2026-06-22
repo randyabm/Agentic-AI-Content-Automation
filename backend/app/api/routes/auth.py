@@ -76,8 +76,12 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserOut)
-def me(user: User = Depends(get_current_user)):
-    return user
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.services.permissions import capabilities_for
+
+    out = UserOut.model_validate(user)
+    out.capabilities = sorted(capabilities_for(db, user))
+    return out
 
 
 @router.post("/forgot-password")

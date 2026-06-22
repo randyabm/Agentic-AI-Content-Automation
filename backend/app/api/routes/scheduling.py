@@ -16,7 +16,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import assert_client_access, get_current_user, require_client, require_editor, require_reviewer
+from app.api.deps import assert_client_access, get_current_user, require_capability, require_client
+from app.models.permission import Capability
 from app.db.session import get_db
 from app.models.campaign import ApprovalStatus, Campaign, Post
 from app.models.client import Client
@@ -29,7 +30,7 @@ router = APIRouter(tags=["scheduling"])
 
 
 @router.get("/review-queue", response_model=list[ReviewQueueItem])
-def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_reviewer)):
+def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_capability(Capability.approve_copy))):
     """Posts awaiting review across the reviewer's organization (newest first)."""
     if actor.org_id is None:  # platform admin has no brand content
         return []
@@ -223,7 +224,7 @@ def reschedule(
     sp_id: str,
     body: RescheduleRequest,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.schedule)),
 ):
     """Move a still-pending scheduled post to a new future time."""
     sp, post, _ = _load_scheduled(db, sp_id, actor)
@@ -247,7 +248,7 @@ def reschedule(
 def cancel_scheduled(
     sp_id: str,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_editor),
+    actor: User = Depends(require_capability(Capability.schedule)),
 ):
     """Cancel a still-pending scheduled post (removes it from the calendar)."""
     sp, post, _ = _load_scheduled(db, sp_id, actor)
