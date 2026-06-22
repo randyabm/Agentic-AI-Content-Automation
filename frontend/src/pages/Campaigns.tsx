@@ -372,13 +372,7 @@ function CreateCampaign({
     setNextKey((k) => k + 1);
   }
 
-  const [collapsedTypes, setCollapsedTypes] = useState<Set<ElementType>>(new Set());
-  const toggleType = (t: ElementType) =>
-    setCollapsedTypes((prev) => {
-      const next = new Set(prev);
-      next.has(t) ? next.delete(t) : next.add(t);
-      return next;
-    });
+  const [activeType, setActiveType] = useState<ElementType>("image");
 
   const updateElement = (key: number, patch: Partial<ElementDraft>) =>
     setElements((prev) => prev.map((el) => (el.key === key ? { ...el, ...patch } : el)));
@@ -656,40 +650,58 @@ function CreateCampaign({
                 <p style={{ fontSize: "0.8rem", color: "#4a4455", margin: 0 }}>Use the buttons below to add images, carousels, videos, or text.</p>
               </div>
             )}
-            {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((type) => {
-              const group = elements.filter((el) => el.element_type === type);
-              if (group.length === 0) return null;
-              const collapsed = collapsedTypes.has(type);
+            {elements.length > 0 && (() => {
+              const presentTypes = (Object.keys(ELEMENT_LABELS) as ElementType[]).filter((t) =>
+                elements.some((el) => el.element_type === t),
+              );
+              const current = presentTypes.includes(activeType) ? activeType : presentTypes[0];
+              const rows = elements.filter((el) => el.element_type === current);
               return (
-                <div key={type} className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => toggleType(type)}
-                    className="flex w-full items-center justify-between bg-accent px-4 py-2.5 text-left"
-                  >
-                    <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                      {ELEMENT_LABELS[type]}
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">{group.length}</span>
-                    </span>
-                    <span className="text-xs text-muted-foreground">{collapsed ? "▶" : "▼"}</span>
-                  </button>
-                  {!collapsed && (
-                    <div className="flex flex-col gap-2 p-2">
-                      {group.map((el) => (
-                        <ElementCard
-                          key={el.key}
-                          el={el}
-                          specs={specs}
-                          onChange={(patch) => updateElement(el.key, patch)}
-                          onRemove={() => removeElement(el.key)}
-                          onDuplicate={() => duplicateElement(el)}
-                        />
-                      ))}
-                    </div>
-                  )}
+                <div>
+                  {/* Type tabs */}
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {presentTypes.map((t) => {
+                      const on = current === t;
+                      const count = elements.filter((el) => el.element_type === t).length;
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setActiveType(t)}
+                          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            on
+                              ? "border-transparent bg-primary text-primary-foreground"
+                              : "border-border bg-card text-muted-foreground hover:bg-accent"
+                          }`}
+                        >
+                          {ELEMENT_LABELS[t]}
+                          <span
+                            className={`rounded-full px-1.5 text-[0.65rem] font-bold ${
+                              on ? "bg-white/20 text-primary-foreground" : "bg-primary/10 text-primary"
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Active type rows */}
+                  <div className="flex flex-col gap-2">
+                    {rows.map((el) => (
+                      <ElementCard
+                        key={el.key}
+                        el={el}
+                        specs={specs}
+                        onChange={(patch) => updateElement(el.key, patch)}
+                        onRemove={() => removeElement(el.key)}
+                        onDuplicate={() => duplicateElement(el)}
+                      />
+                    ))}
+                  </div>
                 </div>
               );
-            })}
+            })()}
           </div>
 
           {/* Add Element buttons */}
