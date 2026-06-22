@@ -771,12 +771,25 @@ function CopyForm({
             {copy.length}/{limit}
           </span>
         </span>
-        <div className="relative">
-          <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
-          {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy} onApply={(v) => mark(setCopy)(v)} className="absolute right-2 top-2 z-10 border border-border bg-card shadow-sm" />
-          )}
-        </div>
+        <TextareaZoom
+          label="Copy"
+          rows={6}
+          value={copy}
+          onChange={(v) => mark(setCopy)(v)}
+          readOnly={!canEdit}
+          footerSlot={
+            canEdit ? (
+              <AiAssist
+                campaignId={campaignId}
+                postId={post.id}
+                field="copy"
+                value={copy}
+                onApply={(v) => mark(setCopy)(v)}
+                label="Improve with AI"
+              />
+            ) : undefined
+          }
+        />
       </div>
       <div className="post-field">
         <span className="field-label small">Call to action</span>

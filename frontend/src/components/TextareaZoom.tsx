@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import type { ReactNode } from "react";
 
 export function TextareaZoom({
   label,
@@ -7,6 +8,7 @@ export function TextareaZoom({
   placeholder,
   rows,
   readOnly,
+  footerSlot,
 }: {
   label: string;
   value: string;
@@ -14,6 +16,8 @@ export function TextareaZoom({
   placeholder?: string;
   rows?: number;
   readOnly?: boolean;
+  /** Optional content rendered in the expand-modal footer, left of "Done". */
+  footerSlot?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -57,6 +61,7 @@ export function TextareaZoom({
               readOnly={readOnly}
             />
             <div className="textarea-zoom-footer">
+              <div className="textarea-zoom-footer-left">{footerSlot}</div>
               <button type="button" className="btn btn-primary" onClick={() => setOpen(false)}>Done</button>
             </div>
           </div>

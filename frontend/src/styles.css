@@ -1814,7 +1814,9 @@ input:focus, select:focus, textarea:focus {
 }
 .textarea-zoom-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
 }
 .brand-memory-modal-body input:not([type="color"]),
 .brand-memory-modal-body textarea {

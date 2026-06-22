@@ -40,6 +40,7 @@ export function AiAssist({
   onApply,
   disabled,
   className,
+  label,
 }: {
   campaignId: string;
   postId: string;
@@ -48,6 +49,8 @@ export function AiAssist({
   onApply: (text: string) => void;
   disabled?: boolean;
   className?: string;
+  /** When set, render a labelled button (icon + text) instead of icon-only. */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
@@ -92,21 +95,36 @@ export function AiAssist({
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={disabled}
-          // Stop the click from reaching the field underneath (e.g. opening the
-          // TextareaZoom editor on the Copy field).
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-          title="Improve with AI"
-          aria-label="Improve with AI"
-          className={cn("size-7 text-primary hover:bg-primary/10", className)}
-        >
-          <Sparkles size={15} />
-        </Button>
+        {label ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            title="Improve with AI"
+            className={cn("gap-1.5 text-primary", className)}
+          >
+            <Sparkles size={14} /> {label}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={disabled}
+            // Stop the click from reaching the field underneath (e.g. opening the
+            // TextareaZoom editor on the Copy field).
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            title="Improve with AI"
+            aria-label="Improve with AI"
+            className={cn("size-7 text-primary hover:bg-primary/10", className)}
+          >
+            <Sparkles size={15} />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80">
         <div className="flex flex-col gap-3">
