@@ -1,3 +1,5 @@
+import { cn } from "@/lib/utils";
+
 export function WorkflowStepper({ currentStep }: { currentStep: "draft" | "preview" | "approval" | "live" }) {
   const steps = [
     { key: "draft", label: "Draft", icon: "check_circle" },
@@ -9,40 +11,45 @@ export function WorkflowStepper({ currentStep }: { currentStep: "draft" | "previ
   const currentIndex = steps.findIndex((s) => s.key === currentStep);
 
   return (
-    <div className="tonal-card rounded-xl p-lg space-y-md">
-      <h3 className="font-headline-md text-headline-md" style={{ fontSize: "1.1rem", fontWeight: 600 }}>Approval Workflow</h3>
-      <div className="flex items-center gap-0 w-full">
+    <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4">
+      <h3 className="text-lg font-semibold tracking-tight">Approval Workflow</h3>
+      <div className="flex w-full items-center gap-0">
         {steps.map((step, i) => {
           const isCompleted = i < currentIndex;
           const isCurrent = i === currentIndex;
-          const isUpcoming = i > currentIndex;
 
-          let circleClass = "bg-surface-container-high text-on-surface-variant";
-          let lineClass = "bg-outline-variant";
-          let labelClass = "text-on-surface-variant";
-          let icon: React.ReactNode = <span className="material-symbols-outlined text-sm">{step.icon}</span>;
-
-          if (isCompleted) {
-            circleClass = "bg-[#6d28d9] text-white";
-            lineClass = "bg-[#6d28d9]";
-            labelClass = "font-bold text-[#5300b7]";
-            icon = <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>;
-          }
-          if (isCurrent) {
-            circleClass = "bg-[#6d28d9] text-white";
-            lineClass = "bg-outline-variant";
-            labelClass = "font-bold text-[#5300b7]";
-            icon = <div className="w-2 h-2 rounded-full bg-white animate-pulse" />;
-          }
+          const reached = isCompleted || isCurrent;
+          const icon: React.ReactNode = isCurrent ? (
+            <div className="size-2 animate-pulse rounded-full bg-primary-foreground" />
+          ) : (
+            <span className="material-symbols-outlined text-sm" style={isCompleted ? { fontVariationSettings: "'FILL' 1" } : undefined}>
+              {isCompleted ? "check_circle" : step.icon}
+            </span>
+          );
 
           return (
-            <div key={step.key} className="flex flex-col items-center flex-1 relative">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center z-10 border-4 border-[#f9fafb] ${circleClass}`}>
+            <div key={step.key} className="relative flex flex-1 flex-col items-center">
+              <div
+                className={cn(
+                  "z-10 flex size-8 items-center justify-center rounded-full border-4 border-background",
+                  reached ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                )}
+              >
                 {icon}
               </div>
-              <span className={`text-label-md mt-2 ${labelClass}`} style={{ fontSize: "0.7rem", whiteSpace: "nowrap" }}>{step.label}</span>
+              <span
+                className={cn(
+                  "mt-2 whitespace-nowrap text-xs",
+                  reached ? "font-bold text-accent-foreground" : "text-muted-foreground",
+                )}
+              >
+                {step.label}
+              </span>
               {i < steps.length - 1 && (
-                <div className={`absolute top-4 left-1/2 w-full h-[2px] ${lineClass}`} style={{ zIndex: 0 }} />
+                <div
+                  className={cn("absolute top-4 left-1/2 h-0.5 w-full", isCompleted ? "bg-primary" : "bg-border")}
+                  style={{ zIndex: 0 }}
+                />
               )}
             </div>
           );

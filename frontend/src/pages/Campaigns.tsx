@@ -172,6 +172,7 @@ export default function Campaigns() {
           clients={clients}
           defaultClient={initClient}
           onCreated={(id) => { setMode("none"); navigate(`/campaigns/${id}`); }}
+          onCancel={() => setMode("none")}
         />
       )}
       {mode === "article" && (
@@ -317,10 +318,12 @@ function CreateCampaign({
   clients,
   defaultClient,
   onCreated,
+  onCancel,
 }: {
   clients: Client[];
   defaultClient: string;
   onCreated: (id: string) => void;
+  onCancel: () => void;
 }) {
   const [specs, setSpecs] = useState<PlatformSpec[]>([]);
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
@@ -679,7 +682,7 @@ function CreateCampaign({
 
           {/* Generate button */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", paddingTop: "0.5rem" }}>
-            <button type="button" onClick={() => { setMode("none"); }}
+            <button type="button" onClick={onCancel}
               style={{ padding: "0.65rem 1.5rem", borderRadius: "8px", border: "1px solid #ccc3d7", background: "white", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, color: "#4a4455" }}>
               Cancel
             </button>
