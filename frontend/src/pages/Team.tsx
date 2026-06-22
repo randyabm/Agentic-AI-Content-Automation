@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import type { OrgRole, User } from "../types";
+import type { Capability, OrgRole, PermissionMatrix, User } from "../types";
 
 const ORG_ROLES: OrgRole[] = ["org_admin", "analyst", "creative", "reviewer", "viewer"];
 
@@ -21,11 +21,30 @@ export default function Team() {
   const [form, setForm] = useState({ email: "", full_name: "", password: "", org_role: "creative" as OrgRole });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [matrix, setMatrix] = useState<PermissionMatrix | null>(null);
+  const [permError, setPermError] = useState("");
 
   useEffect(() => {
     if (!orgId) return;
     api<User[]>(`/orgs/${orgId}/members`).then(setMembers).catch((e) => setError(e.message));
+    api<PermissionMatrix>(`/orgs/${orgId}/permissions`).then(setMatrix).catch(() => setMatrix(null));
   }, [orgId]);
+
+  async function toggleCap(role: OrgRole, capability: Capability, allowed: boolean) {
+    if (role === "org_admin" || !matrix) return;
+    setPermError("");
+    setMatrix({ ...matrix, grid: { ...matrix.grid, [role]: { ...matrix.grid[role], [capability]: allowed } } });
+    try {
+      const updated = await api<PermissionMatrix>(`/orgs/${orgId}/permissions`, {
+        method: "PUT",
+        body: { updates: [{ role, capability, allowed }] },
+      });
+      setMatrix(updated);
+    } catch (err) {
+      setPermError(err instanceof Error ? err.message : "Could not update permissions");
+      api<PermissionMatrix>(`/orgs/${orgId}/permissions`).then(setMatrix).catch(() => {});
+    }
+  }
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
@@ -149,6 +168,60 @@ export default function Team() {
           </tbody>
         </table>
       </div>
+
+      {matrix && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <div className="page-header" style={{ marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>Permissions</h2>
+          </div>
+          <p className="muted" style={{ marginTop: 0 }}>
+            What each role can do. The Org admin always has full access (locked).
+          </p>
+          {permError && <div className="alert alert-error">{permError}</div>}
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Capability</th>
+                {matrix.roles.map((r) => (
+                  <th key={r} style={{ textAlign: "center", textTransform: "capitalize" }}>
+                    {r.replace("_", " ")}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.capabilities.map((cap, i) => {
+                const prevGroup = i > 0 ? matrix.capabilities[i - 1].group : null;
+                return (
+                  <Fragment key={cap.key}>
+                    {cap.group !== prevGroup && (
+                      <tr>
+                        <td colSpan={matrix.roles.length + 1} className="muted" style={{ paddingTop: 14, fontWeight: 500 }}>
+                          {cap.group}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td>{cap.label}</td>
+                      {matrix.roles.map((r) => (
+                        <td key={r} style={{ textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={matrix.grid[r]?.[cap.key] ?? false}
+                            disabled={r === "org_admin"}
+                            title={r === "org_admin" ? "Org admin always has every capability" : undefined}
+                            onChange={(e) => toggleCap(r, cap.key, e.target.checked)}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

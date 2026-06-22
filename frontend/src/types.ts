@@ -12,6 +12,26 @@ export interface User {
   is_platform_admin: boolean;
   org_id: string | null;
   org_role: OrgRole | null;
+  // Resolved capability keys (RBAC) — drives UI gating. From /auth/me.
+  capabilities?: Capability[];
+}
+
+export type Capability =
+  | "view_content" | "edit_campaign" | "edit_copy" | "edit_media"
+  | "submit_review" | "approve_copy" | "approve_media"
+  | "schedule" | "publish" | "manage_channels"
+  | "manage_members" | "configure_permissions";
+
+export interface CapabilityInfo {
+  key: Capability;
+  label: string;
+  group: string;
+}
+
+export interface PermissionMatrix {
+  roles: OrgRole[];
+  capabilities: CapabilityInfo[];
+  grid: Record<OrgRole, Record<Capability, boolean>>;
 }
 
 export interface Organization {
