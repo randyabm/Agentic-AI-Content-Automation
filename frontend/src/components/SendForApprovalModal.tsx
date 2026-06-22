@@ -12,8 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { PlatformIcon, platformLabel } from "./PlatformIcon";
 import { toast } from "sonner";
-import type { User } from "../types";
+import type { CampaignDetail, Post, User } from "../types";
 
 interface SendForApprovalModalProps {
   campaignId: string;
@@ -30,21 +31,42 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     api<User[]>("/team")
       .then((members) => setApprovers(members.filter((m) => m.org_role === "reviewer" || m.org_role === "org_admin")))
       .catch(() => {});
+    // Load the campaign's posts so individual-post approval can pick a subset.
+    api<CampaignDetail>(`/campaigns/${campaignId}`)
+      .then((c) => {
+        setPosts(c.posts ?? []);
+        setSelected(new Set((c.posts ?? []).map((p) => p.id)));
+      })
+      .catch(() => {});
     // Default due date: 7 days from now
     const d = new Date();
     d.setDate(d.getDate() + 7);
     setDueDate(d.toISOString().split("T")[0]);
-  }, []);
+  }, [campaignId]);
+
+  function togglePost(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!approverId) {
       setError("Select an approver");
+      return;
+    }
+    if (scope === "individual_posts" && selected.size === 0) {
+      setError("Select at least one post to send for approval");
       return;
     }
     setBusy(true);
@@ -57,6 +79,7 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
           approval_scope: scope,
           approval_due_date: dueDate || null,
           message,
+          post_ids: scope === "individual_posts" ? [...selected] : [],
         },
       });
       toast.success("Campaign submitted for approval");
@@ -154,6 +177,45 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
                 ))}
               </div>
             </div>
+
+            {scope === "individual_posts" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Posts to review ({selected.size}/{posts.length})
+                  </Label>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-primary hover:underline"
+                    onClick={() =>
+                      setSelected(selected.size === posts.length ? new Set() : new Set(posts.map((p) => p.id)))
+                    }
+                  >
+                    {selected.size === posts.length ? "Clear all" : "Select all"}
+                  </button>
+                </div>
+                <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-border p-2">
+                  {posts.length === 0 && (
+                    <p className="px-1 py-2 text-xs text-muted-foreground">This campaign has no posts yet.</p>
+                  )}
+                  {posts.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md p-2 hover:bg-accent"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => togglePost(p.id)}
+                        className="size-4 accent-primary"
+                      />
+                      <PlatformIcon platform={p.platform} size={16} />
+                      <span className="min-w-0 flex-1 truncate text-sm">{p.headline || platformLabel(p.platform)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <TextareaZoom

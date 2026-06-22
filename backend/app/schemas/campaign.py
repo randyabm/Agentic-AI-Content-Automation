@@ -326,6 +326,8 @@ class SubmitForApprovalRequest(BaseModel):
     approval_scope: str = "full_campaign"  # full_campaign | individual_posts
     approval_due_date: date | None = None
     message: str = ""
+    # For individual_posts scope: which posts to submit for review.
+    post_ids: list[str] = Field(default_factory=list)
 
 
 class CampaignReviewAction(BaseModel):

@@ -329,19 +329,43 @@ def submit_campaign_for_approval(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.submit_review)),
 ):
-    """Submit an entire campaign for approval. Locks editing until a decision."""
+    """Submit a campaign for approval.
+
+    full_campaign scope locks the whole campaign (pending_review). individual_posts
+    scope instead submits only the chosen posts for review and leaves the campaign
+    editable — the approver reviews each post in the review queue.
+    """
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status not in (CampaignApprovalStatus.draft, CampaignApprovalStatus.changes_requested, CampaignApprovalStatus.rejected):
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not in a submittable state")
-    campaign.approval_status = CampaignApprovalStatus.pending_review
+
+    # Shared assignment metadata (who reviews, by when, with what note).
     campaign.assigned_approver_id = body.assigned_approver_id
     campaign.approval_scope = body.approval_scope
     campaign.approval_due_date = body.approval_due_date
     campaign.approval_message = body.message
-    campaign.review_note = ""
+
+    if body.approval_scope == "individual_posts":
+        if not body.post_ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select at least one post for individual approval")
+        posts = db.scalars(
+            select(Post).where(Post.campaign_id == campaign.id, Post.id.in_(body.post_ids))
+        ).all()
+        if not posts:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "None of the selected posts belong to this campaign")
+        for p in posts:
+            p.approval_status = ApprovalStatus.pending_review
+            p.reviewed_by = None
+            p.review_note = ""
+    else:
+        campaign.approval_status = CampaignApprovalStatus.pending_review
+        campaign.review_note = ""
+
     db.commit()
     audit.record(db, actor, "campaign.submit_for_approval", "campaign", campaign.id, {
         "approver": body.assigned_approver_id,
+        "scope": body.approval_scope,
+        "post_ids": body.post_ids,
     })
     db.refresh(campaign)
     return campaign
