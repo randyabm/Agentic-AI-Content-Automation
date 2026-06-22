@@ -20,7 +20,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">AI</span> Marketing Platform
+          <span className="w-10 h-10 rounded-xl bg-[#6d28d9] flex items-center justify-center text-white font-bold text-sm mr-2">SF</span>
+          <div>
+            <span className="font-bold text-[#5300b7]" style={{ fontSize: "1.1rem" }}>SocialFlow</span>
+            <p className="text-[10px] text-[#4a4455] opacity-70 -mt-0.5">Enterprise Plan</p>
+          </div>
         </div>
         <nav>
           {/* Brand/org work — hidden from the platform super-admin. */}
@@ -28,6 +32,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {!user?.is_platform_admin && <NavLink to="/campaigns">Campaigns</NavLink>}
           {!user?.is_platform_admin && showArticleLibrary && <NavLink to="/articles">Article Library</NavLink>}
           {!user?.is_platform_admin && <NavLink to="/calendar">Calendar</NavLink>}
+          {!user?.is_platform_admin && <NavLink to="/analytics" style={{ opacity: 0.5, pointerEvents: "none" }}>Analytics</NavLink>}
           {(user?.org_role === "reviewer" || user?.org_role === "org_admin") && (
             <NavLink to="/review-queue">Review Queue</NavLink>
           )}

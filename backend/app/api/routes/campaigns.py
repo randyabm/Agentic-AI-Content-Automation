@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.models.campaign import (
     Campaign,
     ApprovalStatus,
+    CampaignApprovalStatus,
     CampaignElement,
     CampaignPlatform,
     CampaignStatus,
@@ -36,6 +37,7 @@ from app.schemas.campaign import (
     CampaignDetail,
     CampaignListItem,
     CampaignOut,
+    CampaignReviewAction,
     CampaignUpdate,
     CanvasUpdate,
     CopyImproveRequest,
@@ -55,6 +57,7 @@ from app.schemas.campaign import (
     PromptUpdate,
     RegenerateRequest,
     ReviewReject,
+    SubmitForApprovalRequest,
 )
 from app.schemas.social import (
     AutopilotCommitRequest,
@@ -312,6 +315,97 @@ def update_campaign(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(campaign, field, value)
     db.commit()
+    db.refresh(campaign)
+    return campaign
+
+
+# --- Campaign-level approval workflow (SocialFlow concept UI) ---
+
+
+@router.post("/{campaign_id}/submit-for-approval", response_model=CampaignOut)
+def submit_campaign_for_approval(
+    campaign_id: str,
+    body: SubmitForApprovalRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.submit_review)),
+):
+    """Submit an entire campaign for approval. Locks editing until a decision."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    if campaign.approval_status not in (CampaignApprovalStatus.draft, CampaignApprovalStatus.changes_requested, CampaignApprovalStatus.rejected):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not in a submittable state")
+    campaign.approval_status = CampaignApprovalStatus.pending_review
+    campaign.assigned_approver_id = body.assigned_approver_id
+    campaign.approval_scope = body.approval_scope
+    campaign.approval_due_date = body.approval_due_date
+    campaign.approval_message = body.message
+    campaign.review_note = ""
+    db.commit()
+    audit.record(db, actor, "campaign.submit_for_approval", "campaign", campaign.id, {
+        "approver": body.assigned_approver_id,
+    })
+    db.refresh(campaign)
+    return campaign
+
+
+@router.post("/{campaign_id}/approve", response_model=CampaignOut)
+def approve_campaign(
+    campaign_id: str,
+    body: CampaignReviewAction,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_campaign)),
+):
+    """Approve an entire campaign. All posts become schedulable/publishable."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    if campaign.approval_status != CampaignApprovalStatus.pending_review:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    campaign.approval_status = CampaignApprovalStatus.approved
+    campaign.reviewed_by = actor.id
+    campaign.reviewed_at = datetime.now(timezone.utc)
+    campaign.review_note = body.note
+    db.commit()
+    audit.record(db, actor, "campaign.approve", "campaign", campaign.id)
+    db.refresh(campaign)
+    return campaign
+
+
+@router.post("/{campaign_id}/request-changes", response_model=CampaignOut)
+def request_campaign_changes(
+    campaign_id: str,
+    body: CampaignReviewAction,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_campaign)),
+):
+    """Request changes on a campaign. Returns it to draft state for edits."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    if campaign.approval_status != CampaignApprovalStatus.pending_review:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    campaign.approval_status = CampaignApprovalStatus.changes_requested
+    campaign.reviewed_by = actor.id
+    campaign.reviewed_at = datetime.now(timezone.utc)
+    campaign.review_note = body.note
+    db.commit()
+    audit.record(db, actor, "campaign.request_changes", "campaign", campaign.id)
+    db.refresh(campaign)
+    return campaign
+
+
+@router.post("/{campaign_id}/reject", response_model=CampaignOut)
+def reject_campaign(
+    campaign_id: str,
+    body: CampaignReviewAction,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_campaign)),
+):
+    """Reject a campaign entirely."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    if campaign.approval_status != CampaignApprovalStatus.pending_review:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    campaign.approval_status = CampaignApprovalStatus.rejected
+    campaign.reviewed_by = actor.id
+    campaign.reviewed_at = datetime.now(timezone.utc)
+    campaign.review_note = body.note
+    db.commit()
+    audit.record(db, actor, "campaign.reject", "campaign", campaign.id)
     db.refresh(campaign)
     return campaign
 

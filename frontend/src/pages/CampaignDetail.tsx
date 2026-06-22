@@ -10,6 +10,10 @@ import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { AiAssist } from "../components/AiAssist";
 import { MediaSkeleton } from "../components/MediaSkeleton";
+import { SendForApprovalModal } from "../components/SendForApprovalModal";
+import { ApprovedBanner } from "../components/ApprovedBanner";
+import { EditWarningDialog } from "../components/EditWarningDialog";
+import { ApprovalTimeline } from "../components/ApprovalTimeline";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { Button } from "@/components/ui/button";
@@ -26,6 +30,7 @@ import { RATIO_PRIORITY } from "../ratios";
 import { useAuth } from "../auth";
 import type {
   CampaignDetail as Campaign,
+  CampaignApprovalStatus,
   CampaignElement,
   Client,
   ImageModel,
@@ -33,6 +38,7 @@ import type {
   PostImage,
   PostVideo,
   PublishState,
+  User,
   VideoModel,
 } from "../types";
 
@@ -58,8 +64,16 @@ export default function CampaignDetail() {
   const [busy, setBusy] = useState("");
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [showEditWarning, setShowEditWarning] = useState(false);
+  const [team, setTeam] = useState<User[]>([]);
+  const [busyApproval, setBusyApproval] = useState("");
 
   const canEdit = user?.role === "admin" || user?.role === "editor";
+  const canReview = user?.org_role === "reviewer" || user?.org_role === "org_admin" || user?.is_platform_admin;
+  const canSubmit = user?.org_role === "analyst" || user?.org_role === "creative" || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+
+  const approvalStatus = campaign?.approval_status ?? ("draft" as CampaignApprovalStatus);
 
   async function load() {
     const c = await api<Campaign>(`/campaigns/${campaignId}`);
@@ -71,6 +85,7 @@ export default function CampaignDetail() {
     load().catch((e) => setError(e.message));
     api<ImageModel[]>("/image-models").then(setModels).catch(() => {});
     api<VideoModel[]>("/video-models").then(setVideoModels).catch(() => {});
+    api<User[]>("/team").then(setTeam).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
@@ -120,6 +135,95 @@ export default function CampaignDetail() {
     navigate("/campaigns");
   }
 
+  async function handleApprove() {
+    setBusyApproval("Approving…");
+    try {
+      await api(`/campaigns/${campaign!.id}/approve`, { method: "POST", body: { note: "" } });
+      toast.success("Campaign approved");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Approval failed");
+    } finally {
+      setBusyApproval("");
+    }
+  }
+
+  async function handleRequestChanges() {
+    const note = await promptDialog({
+      title: "Request changes",
+      description: "What changes are needed?",
+      placeholder: "Describe the changes required…",
+      confirmLabel: "Request Changes",
+      destructive: false,
+    });
+    if (note === null) return;
+    setBusyApproval("Requesting changes…");
+    try {
+      await api(`/campaigns/${campaign!.id}/request-changes`, { method: "POST", body: { note } });
+      toast.success("Changes requested");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusyApproval("");
+    }
+  }
+
+  async function handleReject() {
+    const note = await promptDialog({
+      title: "Reject campaign",
+      description: "Add an optional note explaining why.",
+      placeholder: "Reason for rejection (optional)",
+      confirmLabel: "Reject",
+      destructive: true,
+    });
+    if (note === null) return;
+    setBusyApproval("Rejecting…");
+    try {
+      await api(`/campaigns/${campaign!.id}/reject`, { method: "POST", body: { note } });
+      toast.success("Campaign rejected");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusyApproval("");
+    }
+  }
+
+  async function handleCancelRequest() {
+    const ok = await confirm({
+      title: "Cancel approval request",
+      description: "This will withdraw the approval request and return the campaign to draft.",
+      confirmLabel: "Cancel Request",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/campaigns/${campaign!.id}/submit-for-approval`, {
+        method: "POST",
+        body: { assigned_approver_id: "", approval_scope: "full_campaign", message: "" },
+      });
+      toast.success("Approval request cancelled");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  const APPR_BADGE: Record<string, { bg: string; text: string; label: string; icon: string }> = {
+    draft: { bg: "#f3f4f6", text: "#6b7280", label: "Draft", icon: "edit_note" },
+    pending_review: { bg: "#fef3c7", text: "#d97706", label: "Pending Approval", icon: "pending" },
+    approved: { bg: "#d1fae5", text: "#059669", label: "Approved", icon: "check_circle" },
+    rejected: { bg: "#fee2e2", text: "#dc2626", label: "Rejected", icon: "cancel" },
+    changes_requested: { bg: "#fef3c7", text: "#d97706", label: "Changes Requested", icon: "edit_note" },
+  };
+
+  function approverName(id: string | null): string {
+    if (!id) return "";
+    const m = team.find((t) => t.id === id);
+    return m ? m.full_name : id;
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -127,34 +231,155 @@ export default function CampaignDetail() {
           <Button variant="ghost" size="sm" onClick={() => navigate("/campaigns")}>
             ← Campaigns
           </Button>
-          <h1 style={{ marginTop: "0.5rem" }}>{campaign.name}</h1>
-          <p className="muted small">
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
+            <h1 style={{ margin: 0 }}>{campaign.name}</h1>
+            <span
+              className="px-3 py-1 rounded-full text-label-md font-bold flex items-center gap-1.5"
+              style={{ background: APPR_BADGE[approvalStatus]?.bg ?? "#f3f4f6", color: APPR_BADGE[approvalStatus]?.text ?? "#6b7280" }}
+            >
+              {approvalStatus === "pending_review" && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#d97706" }} />}
+              {APPR_BADGE[approvalStatus]?.label ?? approvalStatus}
+            </span>
+          </div>
+          <p className="muted small" style={{ marginTop: 0 }}>
             {client?.company_name} · {campaign.objective} ·{" "}
             <span className={`tag ${campaign.status === "ready" ? "tag-green" : campaign.status === "failed" ? "tag-red" : "tag"}`}>
               {campaign.status}
             </span>
           </p>
         </div>
-        {canEdit && (
-          <div className="competitor-actions">
-            {campaign.status === "ready" && (
-              <Button onClick={() => setShowAutopilot(true)} disabled={!!busy}>
-                <Sparkles size={14} /> AI auto-schedule
+        <div className="competitor-actions">
+          {/* Approval actions for reviewers */}
+          {canReview && approvalStatus === "pending_review" && (
+            <>
+              <Button size="sm" onClick={handleApprove} disabled={!!busyApproval} style={{ background: "#10B981" }}>
+                <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span> Approve
               </Button>
-            )}
-            <Button variant="ghost" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
-              Regenerate all
+              <Button variant="secondary" size="sm" onClick={handleRequestChanges} disabled={!!busyApproval}>
+                Request Changes
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleReject} disabled={!!busyApproval} className="text-destructive">
+                Reject
+              </Button>
+            </>
+          )}
+
+          {/* Cancel approval request (for submitters) */}
+          {canSubmit && approvalStatus === "pending_review" && (
+            <Button variant="ghost" size="sm" onClick={handleCancelRequest}>
+              Cancel Request
             </Button>
-            <Button variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={remove}>
-              Delete
+          )}
+
+          {/* Send for approval (when in draft/changes_requested/rejected state) */}
+          {canSubmit && (approvalStatus === "draft" || approvalStatus === "changes_requested" || approvalStatus === "rejected") && (
+            <Button size="sm" onClick={() => setShowApprovalModal(true)} style={{ background: "#6d28d9" }}>
+              <span className="material-symbols-outlined text-sm">send</span> Send for Approval
             </Button>
-          </div>
-        )}
+          )}
+
+          {/* Auto-schedule + regenerate + edit (shown when approved or draft) */}
+          {(approvalStatus === "approved" || approvalStatus === "draft") && campaign.status === "ready" && (
+            <Button size="sm" onClick={() => setShowAutopilot(true)} disabled={!!busy}>
+              <Sparkles size={14} /> AI auto-schedule
+            </Button>
+          )}
+          {(approvalStatus === "draft" || approvalStatus === "changes_requested") && (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => navigate(`/campaigns/${campaign.id}/preview`)}>
+                <span className="material-symbols-outlined text-sm">visibility</span> Preview
+              </Button>
+              <Button variant="ghost" size="sm" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating">
+                Regenerate all
+              </Button>
+              <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={remove}>
+                Delete
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
       {campaign.status === "failed" && <div className="alert alert-error">{campaign.error}</div>}
       {busy && <div className="alert alert-success">{busy}</div>}
+
+      {/* Approved banner */}
+      {approvalStatus === "approved" && campaign.reviewed_by && (
+        <ApprovedBanner
+          reviewerName={approverName(campaign.reviewed_by)}
+          reviewedAt={campaign.reviewed_at ?? ""}
+          quote={campaign.review_note || "Looks great, proceed with the launch!"}
+        />
+      )}
+
+      {/* Edit warning (on approved campaigns) */}
+      {approvalStatus === "approved" && (
+        <EditWarningDialog
+          visible={showEditWarning}
+          onCancel={() => setShowEditWarning(false)}
+          onConfirm={() => {
+            setShowEditWarning(false);
+            toast.info("Editing mode enabled — approval will be voided on save");
+          }}
+        />
+      )}
+
+      {/* Pending approval banner */}
+      {approvalStatus === "pending_review" && campaign.assigned_approver_id && (
+        <div className="mb-lg p-md bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-4">
+          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-600">
+            <span className="material-symbols-outlined">hourglass_top</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-amber-800" style={{ fontSize: "0.95rem" }}>
+              Pending approval from {approverName(campaign.assigned_approver_id)}
+            </h3>
+            {campaign.approval_due_date && (
+              <p className="text-amber-700 opacity-90" style={{ fontSize: "0.85rem" }}>
+                Due by {new Date(campaign.approval_due_date).toLocaleDateString()}
+              </p>
+            )}
+            <p className="text-amber-700 opacity-80 mt-1" style={{ fontSize: "0.8rem" }}>
+              Changes are disabled until a decision is made or the request is cancelled.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Changes requested banner */}
+      {approvalStatus === "changes_requested" && campaign.review_note && (
+        <div className="mb-lg p-md bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-4">
+          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-600">
+            <span className="material-symbols-outlined">edit_note</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-amber-800" style={{ fontSize: "0.95rem" }}>
+              Changes requested by {approverName(campaign.reviewed_by)}
+            </h3>
+            <p className="text-amber-700 opacity-90 mt-1" style={{ fontSize: "0.85rem" }}>
+              "{campaign.review_note}"
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Rejected banner */}
+      {approvalStatus === "rejected" && (
+        <div className="mb-lg p-md bg-red-50 border border-red-200 rounded-xl flex items-start gap-4">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 text-red-600">
+            <span className="material-symbols-outlined">cancel</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-red-800" style={{ fontSize: "0.95rem" }}>
+              Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}
+            </h3>
+            {campaign.review_note && (
+              <p className="text-red-700 opacity-90 mt-1" style={{ fontSize: "0.85rem" }}>"{campaign.review_note}"</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {campaign.status === "generating" && (
         <div className="card progress-card">
@@ -186,7 +411,26 @@ export default function CampaignDetail() {
       {/* Hide the element cards while the campaign is still generating — they'd
           just show empty "No image yet" placeholders, which looks unfinished. */}
       {campaign.status !== "generating" && (
-        <div className="element-grid">
+        <div className="element-grid" style={{ position: "relative" }}>
+          {/* Locked overlay for pending review */}
+          {(approvalStatus === "pending_review") && (
+            <div
+              style={{
+                position: "absolute", inset: 0, zIndex: 10, pointerEvents: "none",
+                borderRadius: "0.75rem",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute", inset: 0,
+                  background: "rgba(249,250,251,0.15)",
+                  backdropFilter: "blur(1px)",
+                  borderRadius: "0.75rem",
+                }}
+              />
+            </div>
+          )}
+
           {[...campaign.elements]
             .sort((a, b) => a.position - b.position)
             .map((el) => (
@@ -213,6 +457,76 @@ export default function CampaignDetail() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Approval info sidebar for pending_review */}
+      {approvalStatus === "pending_review" && campaign.assigned_approver_id && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
+          <div className="card p-md">
+            <h4 className="text-label-md font-bold text-[#6d28d9] uppercase tracking-widest mb-4" style={{ fontSize: "0.7rem" }}>Approval Details</h4>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-[#dce2f7] flex items-center justify-center border border-[#ccc3d7] text-[#4a4455] font-bold text-sm">
+                  {approverName(campaign.assigned_approver_id).charAt(0)}
+                </div>
+                <div>
+                  <p className="font-bold" style={{ fontSize: "0.85rem" }}>{approverName(campaign.assigned_approver_id)}</p>
+                  <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Approver</p>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-[#e5e7eb] flex justify-between">
+                <div>
+                  <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Due Date</p>
+                  <p className="font-semibold" style={{ fontSize: "0.85rem" }}>
+                    {campaign.approval_due_date ? new Date(campaign.approval_due_date).toLocaleDateString() : "—"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.7rem" }}>Scope</p>
+                  <p className="font-semibold" style={{ fontSize: "0.85rem" }}>
+                    {campaign.approval_scope === "full_campaign" ? "Full Campaign" : "Individual Posts"}
+                  </p>
+                </div>
+              </div>
+              <div className="bg-[#e9edff] p-3 rounded-lg flex items-start gap-3">
+                <span className="material-symbols-outlined text-amber-600 text-[20px]">info</span>
+                <p className="text-label-sm leading-relaxed text-[#4a4455]" style={{ fontSize: "0.75rem" }}>
+                  Changes are disabled until a decision is made or the request is cancelled.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {campaign.review_note && (
+            <div className="card p-md">
+              <ApprovalTimeline
+                events={[
+                  {
+                    label: "Campaign created",
+                    description: `By ${approverName(campaign.created_by) || "Unknown"}`,
+                    timestamp: new Date(campaign.created_at).toLocaleString(),
+                    icon: "check_circle",
+                    color: "#6d28d9",
+                  },
+                  {
+                    label: "Submitted for approval",
+                    description: campaign.approval_message || "No message",
+                    timestamp: new Date(campaign.updated_at).toLocaleString(),
+                    icon: "send",
+                    color: "#6d28d9",
+                  },
+                  {
+                    label: "Pending review",
+                    description: `Waiting for ${approverName(campaign.assigned_approver_id)}`,
+                    timestamp: "",
+                    icon: "pending",
+                    color: "#f59e0b",
+                  },
+                ]}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -246,6 +560,13 @@ export default function CampaignDetail() {
         <AutopilotModal
           campaignId={campaign.id}
           onClose={() => setShowAutopilot(false)}
+          onDone={load}
+        />
+      )}
+      {showApprovalModal && (
+        <SendForApprovalModal
+          campaignId={campaign.id}
+          onClose={() => setShowApprovalModal(false)}
           onDone={load}
         />
       )}

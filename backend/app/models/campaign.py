@@ -72,6 +72,18 @@ class ApprovalStatus(str, enum.Enum):
     rejected = "rejected"
 
 
+class CampaignApprovalStatus(str, enum.Enum):
+    """Campaign-level approval status (SocialFlow concept UI). Mirrors the
+    per-post ApprovalStatus but adds `changes_requested` for the full campaign
+    lifecycle."""
+
+    draft = "draft"
+    pending_review = "pending_review"
+    approved = "approved"
+    rejected = "rejected"
+    changes_requested = "changes_requested"
+
+
 class Campaign(Base):
     __tablename__ = "campaigns"
 
@@ -101,6 +113,21 @@ class Campaign(Base):
 
     status: Mapped[CampaignStatus] = mapped_column(Enum(CampaignStatus), default=CampaignStatus.draft)
     error: Mapped[str] = mapped_column(Text, default="")
+
+    # Campaign-level approval workflow (SocialFlow concept UI)
+    approval_status: Mapped[CampaignApprovalStatus] = mapped_column(
+        Enum(CampaignApprovalStatus), default=CampaignApprovalStatus.draft, nullable=False
+    )
+    assigned_approver_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approval_scope: Mapped[str] = mapped_column(String(20), default="full_campaign")
+    approval_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    approval_message: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_note: Mapped[str] = mapped_column(Text, default="")
+
     created_by: Mapped[str] = mapped_column(String(36), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

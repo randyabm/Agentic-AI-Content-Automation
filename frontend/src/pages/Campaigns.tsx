@@ -52,6 +52,14 @@ interface PlatformSettings {
   tone: string;
 }
 
+const APPROVAL_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  draft: { bg: "#f3f4f6", text: "#6b7280", label: "Draft" },
+  pending_review: { bg: "#fef3c7", text: "#d97706", label: "Pending Review" },
+  approved: { bg: "#d1fae5", text: "#059669", label: "Approved" },
+  rejected: { bg: "#fee2e2", text: "#dc2626", label: "Rejected" },
+  changes_requested: { bg: "#fef3c7", text: "#d97706", label: "Changes Requested" },
+};
+
 const STATUS_TAG: Record<string, string> = {
   ready: "tag-green",
   generating: "tag",
@@ -221,9 +229,9 @@ export default function Campaigns() {
         {visible.map((c) => {
           const client = clients.find((cl) => cl.id === c.client_id) ?? null;
           const colors = client?.brand_colors?.length ? client.brand_colors : null;
+          const ab = (c as any).approval_status ? APPROVAL_BADGE[(c as any).approval_status] : null;
           return (
-          <div key={c.id} className="card client-card client-card-v2">
-            {/* Brand color banner — same structure as client cards */}
+          <div key={c.id} className="card client-card client-card-v2" style={{ borderRadius: "12px", overflow: "hidden" }}>
             <div
               className="client-card-banner"
               style={colors ? { background: `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` } : undefined}
@@ -246,6 +254,11 @@ export default function Campaigns() {
               </p>
               <div className="campaign-card-meta">
                 <span className={`objective-badge objective-${c.objective}`}>{c.objective}</span>
+                {ab && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full" style={{ background: ab.bg, color: ab.text }}>
+                    {ab.label}
+                  </span>
+                )}
                 <span className="muted small">{new Date(c.updated_at).toLocaleDateString()}</span>
               </div>
             </Link>

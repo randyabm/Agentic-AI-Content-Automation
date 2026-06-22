@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import Articles from "./pages/Articles";
 import Calendar from "./pages/Calendar";
 import CampaignDetail from "./pages/CampaignDetail";
+import CampaignPreview from "./pages/CampaignPreview";
 import Campaigns from "./pages/Campaigns";
 import ClientDetail from "./pages/ClientDetail";
 import Clients from "./pages/Clients";
@@ -53,6 +54,7 @@ export default function App() {
       <Route path="/clients/:clientId" element={<Protected orgOnly><ClientDetail /></Protected>} />
       <Route path="/campaigns" element={<Protected orgOnly><Campaigns /></Protected>} />
       <Route path="/campaigns/:campaignId" element={<Protected orgOnly><CampaignDetail /></Protected>} />
+      <Route path="/campaigns/:campaignId/preview" element={<Protected orgOnly><CampaignPreview /></Protected>} />
       <Route path="/articles" element={<Protected orgOnly><Articles /></Protected>} />
       <Route path="/calendar" element={<Protected orgOnly><Calendar /></Protected>} />
       <Route path="/review-queue" element={<Protected orgOnly><ReviewQueue /></Protected>} />

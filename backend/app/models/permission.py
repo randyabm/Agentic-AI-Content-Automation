@@ -33,6 +33,7 @@ class Capability(str, enum.Enum):
     manage_channels = "manage_channels"      # connect/manage social channels
     manage_members = "manage_members"        # manage org members & role assignments
     configure_permissions = "configure_permissions"  # edit this matrix
+    approve_campaign = "approve_campaign"    # approve/reject entire campaigns
 
 
 class RolePermission(Base):

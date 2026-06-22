@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.campaign import (
     ApprovalStatus,
+    CampaignApprovalStatus,
     CampaignObjective,
     CampaignStatus,
     ElementType,
@@ -230,6 +231,17 @@ class CampaignOut(BaseModel):
     generate_images: bool
     status: CampaignStatus
     error: str
+
+    # Campaign-level approval
+    approval_status: CampaignApprovalStatus = CampaignApprovalStatus.draft
+    assigned_approver_id: str | None = None
+    approval_scope: str = "full_campaign"
+    approval_due_date: date | None = None
+    approval_message: str = ""
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str = ""
+
     created_at: datetime
     updated_at: datetime
     platforms: list[PlatformConfigOut]
@@ -302,3 +314,21 @@ class RegenerateRequest(BaseModel):
 
     creativity_level: int | None = Field(None, ge=1, le=10)
     central_theme: str | None = None
+
+
+# --- Campaign-level approval schemas (SocialFlow concept UI) ---
+
+
+class SubmitForApprovalRequest(BaseModel):
+    """Body for submitting a campaign for approval."""
+
+    assigned_approver_id: str
+    approval_scope: str = "full_campaign"  # full_campaign | individual_posts
+    approval_due_date: date | None = None
+    message: str = ""
+
+
+class CampaignReviewAction(BaseModel):
+    """Body for approving, requesting changes, or rejecting a campaign."""
+
+    note: str = ""

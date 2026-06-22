@@ -23,21 +23,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* ThreadWeave design tokens (Indigo / Amber / Teal) expressed as the shadcn/ui
- * variable contract, so shadcn components inherit the existing brand palette. */
+/* SocialFlow design tokens (Deep Purple / Amber / Emerald) following the
+ * SaaS Automation Framework concept. Purple (#6D28D9) is the primary action
+ * color; semantic statuses are Draft (gray), Pending (amber), Approved (green),
+ * Changes Requested (red). */
 :root {
   --radius: 0.75rem;
 
-  --background: #fafaf9;
-  --foreground: #1c1917;
+  --background: #f9fafb;
+  --foreground: #141b2b;
 
   --card: #ffffff;
-  --card-foreground: #1c1917;
+  --card-foreground: #141b2b;
 
   --popover: #ffffff;
-  --popover-foreground: #1c1917;
+  --popover-foreground: #141b2b;
 
-  --primary: #4338ca;
+  --primary: #6d28d9;
   --primary-foreground: #ffffff;
 
   --secondary: #f5f5f4;
@@ -46,19 +48,26 @@
   --muted: #f5f5f4;
   --muted-foreground: #57534e;
 
-  --accent: #eef2ff;
-  --accent-foreground: #3730a3;
+  --accent: #f1f3ff;
+  --accent-foreground: #5300b7;
 
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
-  --border: #e7e5e4;
-  --input: #e7e5e4;
-  --ring: #4338ca;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: #6d28d9;
 
   /* Brand accents beyond the shadcn contract, available as utilities */
   --tertiary: #0f766e;
   --warning: #d97706;
+
+  /* SocialFlow semantic status colors */
+  --status-draft: #6b7280;
+  --status-pending: #f59e0b;
+  --status-approved: #10b981;
+  --status-rejected: #ef4444;
+  --status-changes: #f59e0b;
 }
 
 /* Expose the variables above as Tailwind theme tokens (text-primary, bg-card,
@@ -90,6 +99,11 @@
   --color-ring: var(--ring);
   --color-tertiary: var(--tertiary);
   --color-warning: var(--warning);
+  --color-status-draft: var(--status-draft);
+  --color-status-pending: var(--status-pending);
+  --color-status-approved: var(--status-approved);
+  --color-status-rejected: var(--status-rejected);
+  --color-status-changes: var(--status-changes);
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-serif: "Crimson Text", Georgia, "Times New Roman", serif;

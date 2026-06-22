@@ -19,9 +19,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import assert_client_access, get_current_user, require_capability, require_client
 from app.models.permission import Capability
 from app.db.session import get_db
-from app.models.campaign import ApprovalStatus, Campaign, Post
+from app.models.campaign import ApprovalStatus, Campaign, CampaignApprovalStatus, Post
 from app.models.client import Client
-from app.models.social import PublishStatus, ScheduledPost, SocialAccount
+from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
 from app.models.user import User
 from app.schemas.social import CalendarItemOut, RescheduleRequest, ReviewQueueItem, ScheduleablePostOut, ScheduledPostOut
 from app.services import audit
@@ -31,9 +31,12 @@ router = APIRouter(tags=["scheduling"])
 
 @router.get("/review-queue", response_model=list[ReviewQueueItem])
 def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_capability(Capability.approve_copy))):
-    """Posts awaiting review across the reviewer's organization (newest first)."""
+    """Posts and campaigns awaiting review across the organization (newest first)."""
     if actor.org_id is None:  # platform admin has no brand content
         return []
+    items: list[ReviewQueueItem] = []
+
+    # 1) Per-post pending reviews
     rows = db.execute(
         select(Post, Campaign, Client)
         .join(Campaign, Campaign.id == Post.campaign_id)
@@ -41,8 +44,9 @@ def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_ca
         .where(Client.org_id == actor.org_id, Post.approval_status == ApprovalStatus.pending_review)
         .order_by(Post.updated_at.desc())
     ).all()
-    return [
-        ReviewQueueItem(
+    for post, campaign, client in rows:
+        items.append(ReviewQueueItem(
+            review_type="post",
             post_id=post.id,
             campaign_id=campaign.id,
             campaign_name=campaign.name,
@@ -53,9 +57,40 @@ def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_ca
             preview=(post.copy or post.headline or "").strip().replace("\n", " ")[:140],
             approval_status=post.approval_status.value,
             updated_at=post.updated_at,
+        ))
+
+    # 2) Campaign-level pending reviews
+    camp_rows = db.execute(
+        select(Campaign, Client)
+        .join(Client, Client.id == Campaign.client_id)
+        .where(
+            Client.org_id == actor.org_id,
+            Campaign.approval_status == CampaignApprovalStatus.pending_review,
         )
-        for post, campaign, client in rows
-    ]
+        .order_by(Campaign.updated_at.desc())
+    ).all()
+    for campaign, client in camp_rows:
+        platforms = ", ".join(p.platform.value for p in campaign.platforms) if campaign.platforms else ""
+        items.append(ReviewQueueItem(
+            review_type="campaign",
+            post_id="",
+            campaign_id=campaign.id,
+            campaign_name=campaign.name,
+            client_id=client.id,
+            client_name=client.company_name,
+            platform=platforms,
+            headline=campaign.name,
+            preview=campaign.approval_message or "Awaiting review",
+            approval_status=campaign.approval_status.value,
+            updated_at=campaign.updated_at,
+            assigned_approver_id=campaign.assigned_approver_id,
+            approval_due_date=campaign.approval_due_date,
+            approval_message=campaign.approval_message or "",
+            review_note=campaign.review_note or "",
+        ))
+
+    items.sort(key=lambda i: i.updated_at, reverse=True)
+    return items
 
 
 def _preview(post: Post) -> str:

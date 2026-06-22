@@ -20,7 +20,7 @@ export type Capability =
   | "view_content" | "edit_campaign" | "edit_copy" | "edit_media"
   | "submit_review" | "approve_copy" | "approve_media"
   | "schedule" | "publish" | "manage_channels"
-  | "manage_members" | "configure_permissions";
+  | "manage_members" | "configure_permissions" | "approve_campaign";
 
 export interface CapabilityInfo {
   key: Capability;
@@ -107,6 +107,7 @@ export interface AutopilotPreview {
 }
 
 export interface ReviewQueueItem {
+  review_type: "post" | "campaign";
   post_id: string;
   campaign_id: string;
   campaign_name: string;
@@ -117,6 +118,10 @@ export interface ReviewQueueItem {
   preview: string;
   approval_status: ApprovalStatus;
   updated_at: string;
+  assigned_approver_id: string | null;
+  approval_due_date: string | null;
+  approval_message: string;
+  review_note: string;
 }
 
 export interface CalendarItem {
@@ -419,6 +424,7 @@ export type CampaignObjective =
 
 export type VisualFormat = "static_image" | "carousel";
 export type CampaignStatus = "draft" | "generating" | "ready" | "failed";
+export type CampaignApprovalStatus = "draft" | "pending_review" | "approved" | "rejected" | "changes_requested";
 export type PostStatus = "pending" | "generating" | "ready" | "failed";
 
 export interface PlatformSpec {
@@ -602,6 +608,17 @@ export interface Campaign {
   article_url: string;
   status: CampaignStatus;
   error: string;
+
+  // Campaign-level approval (SocialFlow concept)
+  approval_status: CampaignApprovalStatus;
+  assigned_approver_id: string | null;
+  approval_scope: string;
+  approval_due_date: string | null;
+  approval_message: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string;
+
   created_at: string;
   updated_at: string;
   platforms: PlatformConfig[];

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -110,6 +110,14 @@ class AutopilotCommitRequest(BaseModel):
 
 
 class ReviewQueueItem(BaseModel):
+    """An item in the review queue — either a post or an entire campaign.
+
+    `review_type` distinguishes: "post" (per-post approval) or "campaign"
+    (campaign-level approval). For campaign items, `post_id` is empty and
+    `platform` is the campaign's platform list.
+    """
+
+    review_type: str = "post"  # post | campaign
     post_id: str
     campaign_id: str
     campaign_name: str
@@ -120,6 +128,10 @@ class ReviewQueueItem(BaseModel):
     preview: str
     approval_status: str
     updated_at: datetime
+    assigned_approver_id: str | None = None
+    approval_due_date: date | None = None
+    approval_message: str = ""
+    review_note: str = ""
 
 
 class CalendarItemOut(BaseModel):
