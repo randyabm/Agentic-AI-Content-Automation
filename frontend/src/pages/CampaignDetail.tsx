@@ -1079,7 +1079,6 @@ function CopyForm({
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
   const { user } = useAuth();
-  const confirm = useConfirm();
   const promptDialog = usePrompt();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
 
@@ -1088,12 +1087,8 @@ function CopyForm({
   const canSubmit =
     canReview || user?.org_role === "analyst" || user?.org_role === "creative";
 
-  const [pubMsg, setPubMsg] = useState("");
-  const [scheduleAt, setScheduleAt] = useState("");
-  const [showSchedule, setShowSchedule] = useState(false);
-
-  // Persistent publish status comes from the server (post.publish_state); local
-  // state is only a transient overlay for in-flight feedback / error messages.
+  // Persistent publish status comes from the server (post.publish_state).
+  // Publishing/scheduling itself is handled from the global Calendar.
   const ps = post.publish_state;
 
   async function review(action: "submit" | "approve" | "reject") {
@@ -1119,56 +1114,6 @@ function CopyForm({
         action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected",
       );
       await onChange();
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function publishNow() {
-    const ok = await confirm({
-      title: "Publish now",
-      description: "This publishes the post to the connected channel immediately.",
-      confirmLabel: "Publish",
-    });
-    if (!ok) return;
-    setBusy("Publishing…");
-    setPubMsg("");
-    try {
-      await api<{ status: string; published_url: string }>(
-        `/campaigns/${campaignId}/posts/${post.id}/publish`,
-        { method: "POST", body: {} }
-      );
-      await onChange();  // refreshes post.publish_state with the persisted result
-    } catch (e) {
-      setPubMsg(e instanceof Error ? e.message : "Publish failed");
-      await onChange();  // a failed attempt is still persisted server-side
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function schedulePost() {
-    if (!scheduleAt) {
-      setPubMsg("Pick a date and time first.");
-      return;
-    }
-    setBusy("Scheduling…");
-    setPubMsg("");
-    try {
-      // datetime-local has no timezone; send the browser's local offset so the
-      // backend interprets the wall-clock time the user picked correctly.
-      const when = new Date(scheduleAt);
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      const sp = await api<{ status: string; scheduled_at: string }>(
-        `/campaigns/${campaignId}/posts/${post.id}/schedule`,
-        { method: "POST", body: { scheduled_at: when.toISOString(), timezone: tz } }
-      );
-      setPubMsg(`Scheduled for ${new Date(sp.scheduled_at).toLocaleString()}.`);
-      setShowSchedule(false);
-      setScheduleAt("");
-      await onChange();
-    } catch (e) {
-      setPubMsg(e instanceof Error ? e.message : "Scheduling failed");
     } finally {
       setBusy("");
     }
@@ -1304,37 +1249,11 @@ function CopyForm({
             Reject
           </Button>
         )}
-        {post.approval_status === "approved" && (
-          <Button size="sm" onClick={publishNow} disabled={!!busy || ps?.status === "publishing"}>
-            {ps?.status === "published" ? "Publish again" : "Publish now"}
-          </Button>
-        )}
-        {post.approval_status === "approved" && (
-          <Button variant="ghost" size="sm" onClick={() => setShowSchedule((s) => !s)} disabled={!!busy}>
-            Schedule…
-          </Button>
-        )}
         {ps && <PublishBadge ps={ps} busy={!!busy} />}
-        {pubMsg && <span className="char-over small">{pubMsg}</span>}
       </div>
 
       {post.best_time && (
         <p className="publish-suggestion">🕐 <strong>Suggested time:</strong> {post.best_time}</p>
-      )}
-
-      {post.approval_status === "approved" && showSchedule && (
-        <div className="schedule-row">
-          <Input
-            type="datetime-local"
-            className="w-auto"
-            value={scheduleAt}
-            onChange={(e) => setScheduleAt(e.target.value)}
-          />
-          <Button size="sm" onClick={schedulePost} disabled={!!busy}>
-            Confirm schedule
-          </Button>
-          <span className="muted small">Sent automatically at the chosen time.</span>
-        </div>
       )}
 
       {canEdit && (
