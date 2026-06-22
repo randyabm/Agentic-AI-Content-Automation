@@ -1640,6 +1640,48 @@ input:focus, select:focus, textarea:focus {
 .preview-card.yt .preview-media { border-radius: 12px; }
 .preview-subscribe { margin-left: auto; background: #0f0f0f; color: #fff; border-radius: 18px; padding: 0.35rem 0.9rem; font-size: 0.8rem; }
 
+/* Media placeholder / loading skeleton (image & video boxes). */
+.media-skeleton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+.media-skeleton-content {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 0.5rem;
+}
+.media-skeleton-icon { opacity: 0.5; }
+.media-skeleton-label { font-size: 0.8rem; }
+/* Animated shimmer only while genuinely generating. */
+.media-skeleton.is-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--surface) 75%, transparent),
+    transparent
+  );
+  animation: media-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes media-shimmer {
+  100% { transform: translateX(100%); }
+}
+
 /* --- Onboarding setup banner (compact mode, shown while pipeline is running) --- */
 .onboarding-setup-banner {
   display: flex;

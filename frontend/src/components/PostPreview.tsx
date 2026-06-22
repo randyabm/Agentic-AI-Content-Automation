@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiBlob } from "../api";
 import { PlatformIcon } from "./PlatformIcon";
+import { MediaSkeleton } from "./MediaSkeleton";
 import type { CampaignElement, Client, Post, PostImage } from "../types";
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -117,15 +118,20 @@ function Media({
         {vidUrl ? (
           <video src={vidUrl} controls loop muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <div className="image-empty">🎬 Video not generated yet</div>
+          <MediaSkeleton kind="video" label="Video not generated yet" />
         )}
       </div>
     );
   }
   if (images.length === 0) return null;
+  const generating = current?.status === "generating";
   return (
     <div className="preview-media" style={{ aspectRatio: aspect }}>
-      {imgUrl ? <img src={imgUrl} alt="" /> : <div className="image-empty">No image generated yet</div>}
+      {imgUrl ? (
+        <img src={imgUrl} alt="" />
+      ) : (
+        <MediaSkeleton loading={generating} label={generating ? "Generating image…" : "Image not generated yet"} />
+      )}
       {images.length > 1 && (
         <>
           {slide > 0 && (

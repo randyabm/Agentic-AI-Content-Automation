@@ -8,6 +8,7 @@ import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { AiAssist } from "../components/AiAssist";
+import { MediaSkeleton } from "../components/MediaSkeleton";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { Button } from "@/components/ui/button";
@@ -1171,16 +1172,11 @@ function ImageSlot({
     <div className="image-slot">
       <div className="image-thumb" style={{ aspectRatio: image.aspect_ratio.replace(":", "/") }}>
         {image.status === "generating" ? (
-          <div className="image-empty">
-            Generating image…
-            <div className="progress-bar" style={{ width: "80%" }}>
-              <div className="progress-fill indeterminate" />
-            </div>
-          </div>
+          <MediaSkeleton loading label="Generating image…" />
         ) : url ? (
           <img src={url} alt="post" className="image-zoomable" onClick={() => setLightbox(true)} />
         ) : (
-          <div className="image-empty">No image yet</div>
+          <MediaSkeleton label="No image yet" />
         )}
         {url && image.status !== "generating" && (
           <div className="image-overlay">
@@ -1485,16 +1481,11 @@ function VideoSlot({
     <div className="image-slot video-slot">
       <div className="image-thumb" style={{ aspectRatio: video.aspect_ratio.replace(":", "/") }}>
         {video.status === "generating" ? (
-          <div className="image-empty">
-            Generating video…
-            <div className="progress-bar" style={{ width: "80%" }}>
-              <div className="progress-fill indeterminate" />
-            </div>
-          </div>
+          <MediaSkeleton kind="video" loading label="Generating video…" />
         ) : url ? (
           <video src={url} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <div className="image-empty">🎬 No video yet</div>
+          <MediaSkeleton kind="video" label="No video yet" />
         )}
         {busy && <div className="image-busy">{busy}</div>}
       </div>
