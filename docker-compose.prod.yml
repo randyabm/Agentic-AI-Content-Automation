@@ -97,7 +97,11 @@ services:
       WEBHOOK_PORT: "9002"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/deplyuser/app:/app
+      # Mount the repo at the SAME path as on the host. deploy.sh runs `docker compose`
+      # against the host daemon, which resolves the compose file's relative bind mounts
+      # (e.g. ./nginx/nginx.conf) as host paths — so the in-container path must match
+      # the host path or those mounts point at non-existent files.
+      - /home/deplyuser/app:/home/deplyuser/app
       # deploy.sh runs git (SSH remote) as root in here. Mount deplyuser's key +
       # known_hosts read-only; the entrypoint copies them into a root-owned ~/.ssh
       # (ssh rejects mounting them at /root/.ssh directly — wrong owner/perms).
