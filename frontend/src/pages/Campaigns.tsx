@@ -183,7 +183,8 @@ export default function Campaigns() {
         />
       )}
 
-      {/* Filter bar */}
+      {/* Hide list when in creation mode */}
+      {mode === "none" && (
       <div className="campaign-filter-bar">
         <div className="campaign-filter-search">
           <Input
@@ -281,6 +282,7 @@ export default function Campaigns() {
           <p className="muted">No campaigns yet. Create your first one.</p>
         )}
       </div>
+      )}
 
       {deleteCandidate && (
         <ConfirmDialog
