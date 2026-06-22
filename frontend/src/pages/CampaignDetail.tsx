@@ -568,8 +568,8 @@ function ElementModal({
           {showPreview && (
             <aside className="composer-preview">
               <div className="composer-preview-head">
-                <span className="composer-preview-title">Live preview</span>
-                <span className="composer-preview-hint">updates as you type</span>
+                <span className="small muted">Live preview</span>
+                <span className="small muted">updates as you type</span>
               </div>
               <LivePreviewColumn
                 campaignId={campaignId}
