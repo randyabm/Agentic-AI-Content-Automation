@@ -24,29 +24,21 @@ export function CalendarFilters({ filters, onChange, clients }: CalendarFiltersP
   const hasActive = filters.client !== "all" || filters.platform !== "all" || filters.status !== "all";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 mb-4">
-      <Select
-        value={filters.client}
-        onValueChange={(v) => onChange({ ...filters, client: v })}
-      >
-        <SelectTrigger className="w-[180px]">
+    <div className="flex flex-wrap items-center gap-2">
+      <Select value={filters.client} onValueChange={(v) => onChange({ ...filters, client: v })}>
+        <SelectTrigger className="w-[180px] h-9">
           <SelectValue placeholder="All clients" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">All clients</SelectItem>
           {clients.map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {c.name}
-            </SelectItem>
+            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
           ))}
         </SelectContent>
       </Select>
 
-      <Select
-        value={filters.platform}
-        onValueChange={(v) => onChange({ ...filters, platform: v })}
-      >
-        <SelectTrigger className="w-[150px]">
+      <Select value={filters.platform} onValueChange={(v) => onChange({ ...filters, platform: v })}>
+        <SelectTrigger className="w-[150px] h-9">
           <SelectValue placeholder="All platforms" />
         </SelectTrigger>
         <SelectContent>
@@ -59,11 +51,8 @@ export function CalendarFilters({ filters, onChange, clients }: CalendarFiltersP
         </SelectContent>
       </Select>
 
-      <Select
-        value={filters.status}
-        onValueChange={(v) => onChange({ ...filters, status: v })}
-      >
-        <SelectTrigger className="w-[160px]">
+      <Select value={filters.status} onValueChange={(v) => onChange({ ...filters, status: v })}>
+        <SelectTrigger className="w-[160px] h-9">
           <SelectValue placeholder="All statuses" />
         </SelectTrigger>
         <SelectContent>
@@ -77,11 +66,7 @@ export function CalendarFilters({ filters, onChange, clients }: CalendarFiltersP
       </Select>
 
       {hasActive && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onChange(ALL_FILTERS)}
-        >
+        <Button variant="ghost" size="sm" onClick={() => onChange(ALL_FILTERS)} className="h-9">
           <X size={14} /> Clear
         </Button>
       )}

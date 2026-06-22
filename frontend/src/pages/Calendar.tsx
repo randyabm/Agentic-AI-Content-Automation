@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { CalendarDays, RefreshCw, LayoutGrid, List, CalendarRange, Kanban } from "lucide-react";
+import { CalendarDays, RefreshCw, CalendarRange, List, Kanban } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { toast } from "sonner";
@@ -68,87 +68,92 @@ export default function Calendar() {
     setDrawerOpen(true);
   }
 
-  const viewIcons: Record<View, React.ReactNode> = {
-    month: <CalendarDays size={15} />,
-    week: <CalendarRange size={15} />,
-    list: <List size={15} />,
-    board: <Kanban size={15} />,
-  };
-
   return (
-    <div className="page-container">
-      {/* Header */}
-      <div className="page-header">
-        <div>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 600 }}>
-            <CalendarDays size={22} style={{ verticalAlign: "-4px", marginRight: 8 }} />
-            Publishing Calendar
-          </h1>
-          <p className="muted" style={{ margin: "4px 0 0 0" }}>
-            All scheduled and published posts across your clients. Click any post for details.
-          </p>
+    <div className="flex flex-col h-full" style={{ maxWidth: "none", margin: 0, padding: 0 }}>
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 text-primary">
+            <CalendarDays size={18} />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight" style={{ margin: 0 }}>
+              Publishing Calendar
+            </h1>
+            <p className="text-sm text-muted-foreground" style={{ margin: 0 }}>
+              All scheduled and published posts across your clients
+            </p>
+          </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          <Tabs value={view} onValueChange={(v) => setView(v as View)}>
+            <TabsList>
+              <TabsTrigger value="month" className="gap-1.5">
+                <CalendarDays size={14} /> Month
+              </TabsTrigger>
+              <TabsTrigger value="week" className="gap-1.5">
+                <CalendarRange size={14} /> Week
+              </TabsTrigger>
+              <TabsTrigger value="list" className="gap-1.5">
+                <List size={14} /> List
+              </TabsTrigger>
+              <TabsTrigger value="board" className="gap-1.5">
+                <Kanban size={14} /> Pipeline
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button variant="outline" size="icon" onClick={load} disabled={loading} title="Refresh">
+            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          </Button>
+        </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
-
-      {/* View switcher */}
-      <div className="flex items-center justify-between mb-4">
-        <Tabs value={view} onValueChange={(v) => setView(v as View)}>
-          <TabsList>
-            <TabsTrigger value="month">
-              <CalendarDays size={15} className="mr-1.5" /> Month
-            </TabsTrigger>
-            <TabsTrigger value="week">
-              <CalendarRange size={15} className="mr-1.5" /> Week
-            </TabsTrigger>
-            <TabsTrigger value="list">
-              <List size={15} className="mr-1.5" /> List
-            </TabsTrigger>
-            <TabsTrigger value="board">
-              <Kanban size={15} className="mr-1.5" /> Pipeline
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+      {/* Filter bar */}
+      <div className="px-6 py-3 border-b border-border bg-muted/30">
+        <CalendarFilters filters={filters} onChange={setFilters} clients={clientOptions} />
       </div>
 
-      {/* Filters */}
-      <CalendarFilters filters={filters} onChange={setFilters} clients={clientOptions} />
-
-      {/* Content */}
-      {loading ? (
-        <div className="rounded-lg border border-border p-8 text-center">
-          <p className="text-muted-foreground">Loading calendar…</p>
+      {/* Error banner */}
+      {error && (
+        <div className="mx-6 mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {error}
         </div>
-      ) : filteredItems.length === 0 && items.length === 0 ? (
-        <div className="rounded-lg border border-border p-8 text-center">
-          <p className="text-muted-foreground">
-            Nothing scheduled yet. Approve a post in a campaign and use <em>Schedule…</em> to plan it here.
-          </p>
-        </div>
-      ) : filteredItems.length === 0 ? (
-        <div className="rounded-lg border border-border p-8 text-center">
-          <p className="text-muted-foreground">No posts match your filters.</p>
-        </div>
-      ) : (
-        <>
-          {view === "month" && <CalendarMonthGrid items={filteredItems} onSelectItem={handleSelectItem} />}
-          {view === "week" && <CalendarWeekView items={filteredItems} onSelectItem={handleSelectItem} />}
-          {view === "list" && <CalendarListView items={filteredItems} onSelectItem={handleSelectItem} />}
-          {view === "board" && (
-            <PipelineBoard
-              items={filteredItems}
-              onSelectItem={handleSelectItem}
-              canEdit={canEdit}
-              canReview={canReview}
-              onRefresh={load}
-            />
-          )}
-        </>
       )}
+
+      {/* Content area */}
+      <div className="flex-1 overflow-auto p-6">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <RefreshCw size={24} className="animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading calendar…</p>
+          </div>
+        ) : filteredItems.length === 0 && items.length === 0 ? (
+          <EmptyState
+            title="Nothing scheduled yet"
+            description="Approve a post in a campaign and use Schedule to plan it here."
+          />
+        ) : filteredItems.length === 0 ? (
+          <EmptyState
+            title="No posts match your filters"
+            description="Try adjusting or clearing the filters above."
+          />
+        ) : (
+          <>
+            {view === "month" && <CalendarMonthGrid items={filteredItems} onSelectItem={handleSelectItem} />}
+            {view === "week" && <CalendarWeekView items={filteredItems} onSelectItem={handleSelectItem} />}
+            {view === "list" && <CalendarListView items={filteredItems} onSelectItem={handleSelectItem} />}
+            {view === "board" && (
+              <PipelineBoard
+                items={filteredItems}
+                onSelectItem={handleSelectItem}
+                canEdit={canEdit}
+                canReview={canReview}
+                onRefresh={load}
+              />
+            )}
+          </>
+        )}
+      </div>
 
       {/* Post detail drawer */}
       <PostDrawer
@@ -159,6 +164,18 @@ export default function Calendar() {
         canReview={canReview}
         onRefresh={load}
       />
+    </div>
+  );
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 gap-2">
+      <div className="flex items-center justify-center w-16 h-16 rounded-full bg-muted">
+        <CalendarDays size={28} className="text-muted-foreground" />
+      </div>
+      <h3 className="text-lg font-medium text-foreground">{title}</h3>
+      <p className="text-sm text-muted-foreground text-center max-w-md">{description}</p>
     </div>
   );
 }

@@ -1,9 +1,8 @@
-import { Link } from "react-router-dom";
-import { Clock, ExternalLink } from "lucide-react";
+import { Clock, ExternalLink, AlertCircle } from "lucide-react";
 import { format, isToday, isTomorrow, isPast } from "date-fns";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
+import { cn } from "@/lib/utils";
 import type { CalendarItem } from "../types";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -29,7 +28,6 @@ interface CalendarListViewProps {
 }
 
 export function CalendarListView({ items, onSelectItem }: CalendarListViewProps) {
-  // Group by day
   const groups: { day: string; rows: CalendarItem[] }[] = [];
   for (const item of items) {
     const day = dayLabel(item.scheduled_at);
@@ -40,25 +38,36 @@ export function CalendarListView({ items, onSelectItem }: CalendarListViewProps)
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-border p-8 text-center">
-        <p className="text-muted-foreground">
-          Nothing scheduled yet. Approve a post in a campaign and use <em>Schedule…</em> to plan it here.
+      <div className="flex flex-col items-center justify-center py-20 gap-2">
+        <div className="flex items-center justify-center w-16 h-16 rounded-full bg-muted">
+          <Clock size={28} className="text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-medium">Nothing scheduled yet</h3>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          Approve a post in a campaign and use Schedule to plan it here.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {groups.map((g) => {
         const hasOverdue = g.rows.some(
           (r) => r.status === "scheduled" && r.scheduled_at && isPast(new Date(r.scheduled_at)),
         );
         return (
-          <div key={g.day} className="rounded-lg border border-border overflow-hidden">
-            <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
-              <h4 className="text-sm font-medium">{g.day}</h4>
-              <span className="text-xs text-muted-foreground">
+          <div key={g.day} className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-muted/30">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                {g.day}
+                {hasOverdue && (
+                  <Badge variant="destructive" className="text-xs">
+                    <AlertCircle size={10} className="mr-1" /> Overdue
+                  </Badge>
+                )}
+              </h4>
+              <span className="text-xs text-muted-foreground font-medium">
                 {g.rows.length} post{g.rows.length !== 1 ? "s" : ""}
               </span>
             </div>
@@ -69,17 +78,20 @@ export function CalendarListView({ items, onSelectItem }: CalendarListViewProps)
                   <button
                     key={item.id}
                     onClick={() => onSelectItem(item)}
-                    className="w-full text-left px-4 py-3 hover:bg-muted/30 transition-colors flex items-center gap-4"
+                    className="w-full text-left px-5 py-3.5 hover:bg-muted/30 transition-colors flex items-center gap-4 group"
                   >
                     <div className="flex items-center gap-2 w-20 shrink-0">
                       <Clock size={14} className="text-muted-foreground" />
-                      <span className={`text-sm ${overdue ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+                      <span className={cn(
+                        "text-sm tabular-nums font-medium",
+                        overdue ? "text-destructive" : "text-muted-foreground",
+                      )}>
                         {item.scheduled_at
                           ? new Date(item.scheduled_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
                           : "—"}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <div className="flex items-center gap-2.5 flex-1 min-w-0">
                       <PlatformIcon platform={item.platform} size={16} />
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">
@@ -90,11 +102,11 @@ export function CalendarListView({ items, onSelectItem }: CalendarListViewProps)
                         </p>
                       </div>
                     </div>
-                    <Badge variant={STATUS_VARIANT[item.status] ?? "default"} className="shrink-0">
+                    <Badge variant={STATUS_VARIANT[item.status] ?? "default"} className="shrink-0 capitalize">
                       {item.status}
                     </Badge>
                     {item.published_url && (
-                      <ExternalLink size={14} className="text-muted-foreground shrink-0" />
+                      <ExternalLink size={14} className="text-muted-foreground shrink-0 group-hover:text-primary transition-colors" />
                     )}
                   </button>
                 );
