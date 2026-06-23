@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, RefreshCw, GripVertical, Lock } from "lucide-react";
+import { CalendarDays, RefreshCw } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -15,9 +15,7 @@ import { toast } from "sonner";
 import { api } from "../api";
 import type { CalendarItem, ScheduleablePost } from "../types";
 import { CalendarMonthGrid } from "./CalendarMonthGrid";
-import { ScheduleablePostsSidebar } from "./ScheduleablePostsSidebar";
-import { PlatformIcon } from "./PlatformIcon";
-import { cn } from "@/lib/utils";
+import { ScheduleablePostsSidebar, SchedulePostOverlayCard } from "./ScheduleablePostsSidebar";
 import {
   Dialog,
   DialogContent,
@@ -172,34 +170,10 @@ export function CampaignSchedulerModal({
               </div>
             </div>
             {createPortal(
-            <DragOverlay dropAnimation={null}>
-              {activePost ? (
-                <div
-                  className={cn(
-                    "w-60 rounded-lg border bg-card p-2.5 shadow-lg",
-                    activePost.blocked_reason ? "border-amber-300 bg-amber-50/90" : "border-primary/30",
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    {activePost.blocked_reason ? (
-                      <Lock size={14} className="text-amber-500/70 mt-0.5 shrink-0" />
-                    ) : (
-                      <GripVertical size={14} className="text-muted-foreground/40 mt-0.5 shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <PlatformIcon platform={activePost.platform} size={12} />
-                        <span className="text-xs font-medium truncate">{activePost.client_name}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {activePost.headline || activePost.preview || "(no copy)"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </DragOverlay>,
-            document.body,
+              <DragOverlay dropAnimation={null}>
+                {activePost ? <SchedulePostOverlayCard post={activePost} /> : null}
+              </DragOverlay>,
+              document.body,
             )}
           </DndContext>
         )}

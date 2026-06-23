@@ -1,6 +1,16 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { CalendarDays, RefreshCw, CalendarRange, List, Kanban } from "lucide-react";
-import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { createPortal } from "react-dom";
+import {
+  DndContext,
+  DragOverlay,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { toast } from "sonner";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -13,7 +23,7 @@ import { CalendarWeekView } from "../components/CalendarWeekView";
 import { CalendarListView } from "../components/CalendarListView";
 import { PipelineBoard } from "../components/PipelineBoard";
 import { PostDrawer } from "../components/PostDrawer";
-import { ScheduleablePostsSidebar } from "../components/ScheduleablePostsSidebar";
+import { ScheduleablePostsSidebar, SchedulePostOverlayCard } from "../components/ScheduleablePostsSidebar";
 
 type View = "month" | "week" | "list" | "board";
 
@@ -28,6 +38,11 @@ export default function Calendar() {
   const [filters, setFilters] = useState<CalendarFiltersState>(ALL_FILTERS);
   const [selectedItem, setSelectedItem] = useState<CalendarItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const activePost = activeId
+    ? scheduleable.find((p) => `sched-${p.post_id}` === activeId) ?? null
+    : null;
 
   const canEdit = !user?.is_platform_admin;
   const canReview = user?.org_role === "reviewer" || user?.org_role === "org_admin" || !!user?.is_platform_admin;
@@ -101,15 +116,20 @@ export default function Calendar() {
     }
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
   async function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
     const { active, over } = event;
     if (!over) return;
 
     // Draggable from sidebar has id "sched-{postId}"
-    const activeId = active.id as string;
-    if (!activeId.startsWith("sched-")) return;
+    const dragId = active.id as string;
+    if (!dragId.startsWith("sched-")) return;
 
-    const postId = activeId.replace("sched-", "");
+    const postId = dragId.replace("sched-", "");
     const post = scheduleable.find((p) => p.post_id === postId);
     if (!post) return;
 
@@ -175,7 +195,13 @@ export default function Calendar() {
       )}
 
       {/* Content area — sidebar + calendar */}
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar with scheduleable posts (only for month & week views) */}
           {(view === "month" || view === "week") && canEdit && (
@@ -228,6 +254,12 @@ export default function Calendar() {
             )}
           </div>
         </div>
+        {createPortal(
+          <DragOverlay dropAnimation={null}>
+            {activePost ? <SchedulePostOverlayCard post={activePost} /> : null}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
 
       {/* Post detail drawer */}

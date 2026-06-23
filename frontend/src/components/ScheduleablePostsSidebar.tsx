@@ -11,6 +11,38 @@ interface ScheduleablePostsSidebarProps {
   filters: { client: string; platform: string };
 }
 
+/** The card shown inside a dnd-kit DragOverlay while a post is being dragged.
+ *  Lives in the overlay (portaled to body) so it follows the cursor without
+ *  being clipped by the sidebar's scroll container. */
+export function SchedulePostOverlayCard({ post }: { post: ScheduleablePost }) {
+  const blocked = !!post.blocked_reason;
+  return (
+    <div
+      className={cn(
+        "w-60 rounded-lg border bg-card p-2.5 shadow-lg cursor-grabbing",
+        blocked ? "border-amber-300 bg-amber-50/90" : "border-primary/30",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {blocked ? (
+          <Lock size={14} className="text-amber-500/70 mt-0.5 shrink-0" />
+        ) : (
+          <GripVertical size={14} className="text-muted-foreground/40 mt-0.5 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <PlatformIcon platform={post.platform} size={12} />
+            <span className="text-xs font-medium truncate">{post.client_name}</span>
+          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {post.headline || post.preview || "(no copy)"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSidebarProps) {
   const filtered = posts.filter((p) => {
     if (filters.client !== "all" && p.client_id !== filters.client) return false;
@@ -58,23 +90,19 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
 }
 
 function BlockedPostCard({ post }: { post: ScheduleablePost }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sched-${post.post_id}`,
   });
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
       {...listeners}
       {...attributes}
       className={cn(
         "group rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 cursor-grab active:cursor-grabbing",
         "hover:border-amber-400 hover:shadow-sm transition-all duration-200",
-        isDragging && "opacity-60 shadow-lg ring-2 ring-amber-400/40 scale-105 z-50",
+        isDragging && "opacity-40",
       )}
       title={`${post.blocked_reason} — you can still plan a date; it won't auto-publish until a channel is connected.`}
     >
@@ -100,24 +128,19 @@ function BlockedPostCard({ post }: { post: ScheduleablePost }) {
 }
 
 function DraggablePostCard({ post }: { post: ScheduleablePost }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sched-${post.post_id}`,
   });
-
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
       {...listeners}
       {...attributes}
       className={cn(
         "group rounded-lg border border-border bg-card p-2.5 cursor-grab active:cursor-grabbing",
         "hover:border-primary/30 hover:shadow-sm transition-all duration-200",
-        isDragging && "opacity-60 shadow-lg ring-2 ring-primary/40 scale-105 z-50",
+        isDragging && "opacity-40",
       )}
     >
       <div className="flex items-start gap-2">
