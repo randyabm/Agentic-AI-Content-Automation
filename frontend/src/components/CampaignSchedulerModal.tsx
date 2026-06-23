@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, RefreshCw } from "lucide-react";
+import { CalendarDays, RefreshCw, GripVertical, Lock } from "lucide-react";
 import {
   DndContext,
+  DragOverlay,
   type DragEndEvent,
+  type DragStartEvent,
   PointerSensor,
+  pointerWithin,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -12,6 +15,8 @@ import { api } from "../api";
 import type { CalendarItem, ScheduleablePost } from "../types";
 import { CalendarMonthGrid } from "./CalendarMonthGrid";
 import { ScheduleablePostsSidebar } from "./ScheduleablePostsSidebar";
+import { PlatformIcon } from "./PlatformIcon";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -43,10 +48,15 @@ export function CampaignSchedulerModal({
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [scheduleable, setScheduleable] = useState<ScheduleablePost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
+
+  const activePost = activeId
+    ? scheduleable.find((p) => `sched-${p.post_id}` === activeId) ?? null
+    : null;
 
   const minDate = useMemo(() => (startDate ? new Date(startDate) : null), [startDate]);
   const maxDate = useMemo(() => (endDate ? new Date(endDate) : null), [endDate]);
@@ -99,12 +109,17 @@ export function CampaignSchedulerModal({
     }
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
   async function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
     const { active, over } = event;
     if (!over) return;
-    const activeId = active.id as string;
-    if (!activeId.startsWith("sched-")) return;
-    const postId = activeId.replace("sched-", "");
+    const dragId = active.id as string;
+    if (!dragId.startsWith("sched-")) return;
+    const postId = dragId.replace("sched-", "");
     const post = scheduleable.find((p) => p.post_id === postId);
     if (!post) return;
     const overData = over.data.current;
@@ -135,7 +150,13 @@ export function CampaignSchedulerModal({
             <span className="ml-2 text-muted-foreground">Loading…</span>
           </div>
         ) : (
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={pointerWithin}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveId(null)}
+          >
             <div className="flex-1 flex overflow-hidden border-t border-border">
               <ScheduleablePostsSidebar posts={scheduleable} filters={ALL} />
               <div className="flex-1 overflow-auto p-6">
@@ -149,6 +170,33 @@ export function CampaignSchedulerModal({
                 />
               </div>
             </div>
+            <DragOverlay dropAnimation={null}>
+              {activePost ? (
+                <div
+                  className={cn(
+                    "w-60 rounded-lg border bg-card p-2.5 shadow-lg",
+                    activePost.blocked_reason ? "border-amber-300 bg-amber-50/90" : "border-primary/30",
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    {activePost.blocked_reason ? (
+                      <Lock size={14} className="text-amber-500/70 mt-0.5 shrink-0" />
+                    ) : (
+                      <GripVertical size={14} className="text-muted-foreground/40 mt-0.5 shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <PlatformIcon platform={activePost.platform} size={12} />
+                        <span className="text-xs font-medium truncate">{activePost.client_name}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {activePost.headline || activePost.preview || "(no copy)"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </DragOverlay>
           </DndContext>
         )}
       </DialogContent>
