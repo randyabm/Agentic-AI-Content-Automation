@@ -533,9 +533,9 @@ export default function CampaignDetail() {
                               </p>
                               <h4 className="line-clamp-1 text-sm font-semibold">{post.headline || "Untitled"}</h4>
                             </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                               <QuickSchedule campaignId={campaign.id} post={post} onDone={load} />
-                              {post.approval_status && <ApprovalBadge status={post.approval_status} className="px-2 py-0.5 text-[0.65rem]" />}
+                              {post.approval_status && <ApprovalBadge status={post.approval_status} className="shrink-0 px-2 py-0.5 text-[0.65rem]" />}
                             </div>
                           </div>
                         </div>
@@ -821,25 +821,32 @@ function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post:
           type="button"
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted",
-            isScheduled ? "font-medium text-foreground" : "text-muted-foreground",
+            "group/qs inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors",
+            isScheduled
+              ? "border-primary/20 bg-primary/5 font-medium text-foreground hover:bg-primary/10"
+              : "border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/30 hover:bg-muted",
           )}
           title="Click to set date & time"
         >
-          <span className="material-symbols-outlined text-xs">
+          <span className="material-symbols-outlined text-sm leading-none">
             {isScheduled ? "event_available" : "schedule"}
           </span>
-          {isScheduled && ps?.scheduled_at
-            ? new Date(ps.scheduled_at).toLocaleString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : post.best_time
-              ? post.best_time
-              : "Set schedule"}
+          <span className="leading-none">
+            {isScheduled && ps?.scheduled_at
+              ? new Date(ps.scheduled_at).toLocaleString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : post.best_time
+                ? post.best_time
+                : "Set schedule"}
+          </span>
+          <span className="material-symbols-outlined text-sm leading-none opacity-0 transition-opacity group-hover/qs:opacity-60">
+            edit
+          </span>
         </button>
       </PopoverTrigger>
       <PopoverContent
