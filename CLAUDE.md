@@ -34,7 +34,7 @@ Deploy logs land in `/tmp/deploy.log` on the server. Check them if something bre
 plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cat /tmp/deploy.log | tail -30"
 ```
 
-**Schema changes** (new columns): push first (auto-deploys), then run the ALTER TABLE manually:
+**Schema changes** (new columns): add a numbered SQL file in `backend/migrations/` and push — the runner applies it on startup automatically (see "Schema changes" below). Manual psql is only needed to inspect or hot-fix the live DB:
 
 ```bash
 plink ... deplyuser@192.168.0.239 "docker exec -it app-db-1 psql -U marketing marketing"
@@ -61,15 +61,17 @@ Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPT
 
 `Base.metadata.create_all` runs at API startup and creates **new tables only** — it does not add columns to existing tables.
 
-For any DDL change (new column, index, constraint, etc.) create a numbered SQL file in `migrations/`:
+For any DDL change (new column, index, constraint, etc.) create a numbered SQL file in **`backend/migrations/`** (NOT the repo-root `migrations/` folder):
 
 ```
-migrations/001_add_foo_to_bar.sql
+backend/migrations/006_add_foo_to_bar.sql
 ```
 
-The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sql` files in order at startup, recording each in `schema_migrations`. Just push — no SSH or manual psql needed.
+**Why `backend/migrations/` and not `migrations/`:** the Docker build context is `backend/` (copied to `/code` in the container), so only `backend/migrations/` ships in the image. The runner's `MIGRATIONS_DIR` resolves to `Path(__file__).resolve().parents[2] / "migrations"` = `backend/migrations` locally and `/code/migrations` in the container. The repo-root `migrations/` folder is legacy/dead — files placed there are never copied into the image and never applied.
 
-**Rules:** never edit an already-applied migration; add a new one instead. Use `IF NOT EXISTS` / `IF EXISTS` where possible. See `migrations/README.md` for full conventions.
+The migration runner (`backend/app/db/migrations.py`) applies all unapplied `.sql` files in order at startup, recording each by filename in `schema_migrations` (columns: `filename`, `applied_at`). Just push — no SSH or manual psql needed.
+
+**Rules:** never edit an already-applied migration; add a new one instead. Use `IF NOT EXISTS` / `IF EXISTS` where possible.
 
 ## Architecture
 
@@ -137,7 +139,7 @@ Images served via authenticated FastAPI routes that read from MinIO (S3). Optimi
 
 **Backend endpoints** (`api/routes/scheduling.py`):
 - `GET /calendar` — cross-client calendar (org-scoped, all `ScheduledPost` rows enriched with client/campaign/channel context).
-- `GET /scheduleable-posts` — approved posts without a `ScheduledPost` yet, filtered to only those with a connected channel. Used by the drag-to-schedule sidebar.
+- `GET /scheduleable-posts` — posts without a `ScheduledPost` yet, used by the drag-to-schedule sidebar. By default only fully-ready posts (approved + connected channel). With `?include_blocked=1` it also returns not-yet-ready posts flagged with `blocked_reason` (`"Not approved yet"` or `"No connected <platform> channel"`) so they can be shown as **plan-only**. The campaign Schedule modal passes `include_blocked=1`; the global calendar does not.
 - `GET /clients/{id}/calendar` — single-client calendar (still available).
 - `GET /scheduled-posts/{id}/export-pack` — ZIP with captions, media, publishing instructions.
 - `PATCH /scheduled-posts/{id}` — reschedule.
@@ -150,7 +152,8 @@ Images served via authenticated FastAPI routes that read from MinIO (S3). Optimi
 - **List view** (`CalendarListView.tsx`): day-grouped agenda with Today/Tomorrow labels, overdue highlighting, shadcn Badge for status.
 - **Pipeline board** (`PipelineBoard.tsx`): Kanban with 5 columns (Draft → Needs Approval → Approved → Scheduled → Published). **Drag-and-drop via @dnd-kit** — drag cards between columns to submit/approve/reject. Column headers are color-coded (slate/blue/violet/amber/emerald).
 - **Post drawer** (`PostDrawer.tsx`): shadcn Sheet (right side panel) opened by clicking any post card. Shows: headline, caption, hashtags, status/approval badges, quick actions (copy caption, download media, export pack, view live post, open campaign), reschedule via DateTimePicker, cancel schedule, approval actions (submit/approve/reject).
-- **Scheduleable posts sidebar** (`ScheduleablePostsSidebar.tsx`): left panel with draggable cards of approved-but-unscheduled posts. Shows platform, client, headline, and AI `best_time` hint. Drag onto month/week grid to schedule. Filters apply.
+- **Scheduleable posts sidebar** (`ScheduleablePostsSidebar.tsx`): left panel with draggable cards of unscheduled posts. Shows platform, client, headline, and AI `best_time` hint. Ready posts drag normally; **plan-only** posts (those with a `blocked_reason`) render as amber/dashed locked cards but are still draggable. Exports `SchedulePostOverlayCard` (the card shown in the `DragOverlay`). Drag onto month/week grid to schedule. Filters apply.
+- **Drag-and-drop internals**: both the global calendar and the campaign modal use `collisionDetection={pointerWithin}` and a `DragOverlay` **portaled to `document.body`** (`createPortal`). This is required because Radix `DialogContent` centers with a CSS `transform`, which (a) breaks dnd-kit's default rect collision detection and (b) makes a `position:fixed` overlay anchor to the dialog box instead of the viewport. Source cards do **not** apply dnd-kit's `transform` (they just dim) — only the overlay moves.
 - **Filters** (`CalendarFilters.tsx`): shadcn Select dropdowns for client, platform, status. Apply to all views + sidebar.
 - **DateTimePicker** (`components/ui/date-picker.tsx`): Popover + shadcn Calendar + time input. Replaces the old text-prompt `YYYY-MM-DD HH:MM` reschedule UX.
 - **Autopilot modal** (`AutopilotModal.tsx`): migrated to shadcn Dialog + DateTimePicker + Badge. Uses `local_label` from the API. Skeleton loader with spinner.
@@ -161,6 +164,10 @@ Images served via authenticated FastAPI routes that read from MinIO (S3). Optimi
 **Approval workflow**: posts go draft → pending_review → approved → scheduled → published. Approval actions available in: the PostDrawer, the Pipeline board (drag), the inline approval bar in `CampaignDetail.tsx`, and the Review Queue page (`/review-queue`).
 
 **Autopilot** (`services/autopilot.py`): deterministic best-time engine (no live LLM). Uses per-platform engagement windows (`BEST_WINDOWS`), respects weekday-only platforms (LinkedIn), campaign date range, per-day spacing. Seeded by editorial agent `best_time` hints. Frontend: "AI auto-schedule" button on ready campaigns → AutopilotModal.
+
+**Campaign Schedule modal** (`components/CampaignSchedulerModal.tsx`): a per-campaign scheduler opened from the "Schedule" button on `CampaignDetail` (next to "AI auto-schedule"). Reuses the global calendar's two-pane layout (`ScheduleablePostsSidebar` + `CalendarMonthGrid`) but filters `/calendar` and `/scheduleable-posts?include_blocked=1` client-side to the one campaign. If the campaign has `start_date`/`end_date`, `CalendarMonthGrid`'s optional `minDate`/`maxDate`/`initialMonth` props highlight that window and disable drops outside it (and in the past). Dropping a post opens a "Pick a time" dialog (`DateTimePicker`, default 9:00 AM on the dropped day) before scheduling.
+
+**Planning vs publishing**: scheduling is a *planning* step that can happen before approval and before a channel exists. The schedule endpoint (`POST /campaigns/{id}/posts/{post_id}/schedule`) requires neither approval nor a connected channel — a planned `ScheduledPost` may have `social_account_id = NULL` (column is nullable, see `backend/migrations/006`). The Beat sweep (`publish_due_posts`) is the gate: at due time it **skips** (leaves pending, does not fail) any post that isn't approved or has no connected channel, and only publishes once both are satisfied. Plan-only items show an amber lock in the month grid (`!item.channel_id`).
 
 ## Conventions
 
