@@ -526,7 +526,7 @@ export default function CampaignDetail() {
                               </div>
                             )}
                           </div>
-                          <div className="flex flex-1 flex-col justify-between p-4">
+                          <div className="flex flex-1 flex-col justify-center gap-2 p-4">
                             <div>
                               <p className="mb-1 text-xs font-bold uppercase tracking-wider text-primary">
                                 {post.platform.toUpperCase()} {typeLabel}
