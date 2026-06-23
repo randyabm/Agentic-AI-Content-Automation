@@ -821,17 +821,23 @@ function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post:
           type="button"
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "group/qs inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors",
+            "group/qs inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 transition-colors",
             isScheduled
               ? "border-primary/20 bg-primary/5 font-medium text-foreground hover:bg-primary/10"
               : "border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/30 hover:bg-muted",
           )}
-          title="Click to set date & time"
+          title={
+            isScheduled
+              ? "Click to change date & time"
+              : post.best_time
+                ? `AI suggested: ${post.best_time} — click to set a date & time`
+                : "Click to set date & time"
+          }
         >
-          <span className="material-symbols-outlined text-sm leading-none">
+          <span className="material-symbols-outlined shrink-0 text-sm leading-none">
             {isScheduled ? "event_available" : "schedule"}
           </span>
-          <span className="leading-none">
+          <span className="truncate leading-none">
             {isScheduled && ps?.scheduled_at
               ? new Date(ps.scheduled_at).toLocaleString(undefined, {
                   weekday: "short",
@@ -840,11 +846,9 @@ function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post:
                   hour: "2-digit",
                   minute: "2-digit",
                 })
-              : post.best_time
-                ? post.best_time
-                : "Set schedule"}
+              : "Set schedule"}
           </span>
-          <span className="material-symbols-outlined text-sm leading-none opacity-0 transition-opacity group-hover/qs:opacity-60">
+          <span className="material-symbols-outlined shrink-0 text-sm leading-none opacity-0 transition-opacity group-hover/qs:opacity-60">
             edit
           </span>
         </button>
