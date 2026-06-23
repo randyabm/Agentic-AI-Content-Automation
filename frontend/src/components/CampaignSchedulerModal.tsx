@@ -55,7 +55,7 @@ export function CampaignSchedulerModal({
     try {
       const [calendarData, scheduleableData] = await Promise.all([
         api<CalendarItem[]>("/calendar"),
-        api<ScheduleablePost[]>("/scheduleable-posts"),
+        api<ScheduleablePost[]>("/scheduleable-posts?include_blocked=1"),
       ]);
       setItems(calendarData.filter((i) => i.campaign_id === campaignId));
       setScheduleable(scheduleableData.filter((p) => p.campaign_id === campaignId));

@@ -158,6 +158,8 @@ export interface ScheduleablePost {
   channel_id: string;
   channel_name: string;
   best_time: string;
+  /** When set, the post can't be scheduled yet (e.g. no connected channel). */
+  blocked_reason?: string;
 }
 
 export interface Client {

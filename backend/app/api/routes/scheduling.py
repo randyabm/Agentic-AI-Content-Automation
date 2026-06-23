@@ -179,11 +179,15 @@ def global_calendar(
 
 @router.get("/scheduleable-posts", response_model=list[ScheduleablePostOut])
 def scheduleable_posts(
+    include_blocked: bool = False,
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ):
     """Approved posts that have no ScheduledPost yet — ready to be dragged onto
-    the calendar to be scheduled. Only posts with a connected channel are returned."""
+    the calendar to be scheduled. By default only posts with a connected channel
+    are returned. With ``include_blocked=true`` approved posts that lack a
+    connected channel are also returned, flagged with ``blocked_reason`` so the
+    UI can show them disabled instead of hiding them."""
     from app.models.social import ChannelStatus
 
     if actor.org_id is None:
@@ -218,7 +222,26 @@ def scheduleable_posts(
         key = f"{client.id}|{post.platform.value}"
         ch = channels.get(key)
         if ch is None:
-            continue  # no connected channel — can't schedule
+            if not include_blocked:
+                continue  # no connected channel — can't schedule
+            # Surface it as blocked so the UI can show it disabled.
+            out.append(
+                ScheduleablePostOut(
+                    post_id=post.id,
+                    campaign_id=campaign.id,
+                    campaign_name=campaign.name,
+                    client_id=client.id,
+                    client_name=client.company_name,
+                    platform=post.platform.value,
+                    headline=post.headline or "",
+                    preview=_preview(post),
+                    channel_id="",
+                    channel_name="",
+                    best_time=post.best_time or "",
+                    blocked_reason=f"No connected {post.platform.value} channel",
+                )
+            )
+            continue
         out.append(
             ScheduleablePostOut(
                 post_id=post.id,

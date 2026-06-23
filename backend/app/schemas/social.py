@@ -176,3 +176,6 @@ class ScheduleablePostOut(BaseModel):
     channel_id: str
     channel_name: str
     best_time: str = ""
+    # When set, the post can't be scheduled yet (e.g. no connected channel).
+    # Empty string means the post is ready to schedule.
+    blocked_reason: str = ""
