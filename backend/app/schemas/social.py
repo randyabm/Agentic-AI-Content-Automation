@@ -46,7 +46,7 @@ class ScheduledPostOut(BaseModel):
 
     id: str
     post_id: str
-    social_account_id: str
+    social_account_id: str | None = None
     post_image_id: str | None
     scheduled_at: datetime | None
     timezone: str

@@ -16,13 +16,22 @@ import { api } from "../api";
 import type { CalendarItem, ScheduleablePost } from "../types";
 import { CalendarMonthGrid } from "./CalendarMonthGrid";
 import { ScheduleablePostsSidebar, SchedulePostOverlayCard } from "./ScheduleablePostsSidebar";
+import { PlatformIcon } from "./PlatformIcon";
+import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+interface PendingDrop {
+  post: ScheduleablePost;
+  when: Date;
+}
 
 const ALL = { client: "all", platform: "all" } as const;
 
@@ -48,6 +57,8 @@ export function CampaignSchedulerModal({
   const [scheduleable, setScheduleable] = useState<ScheduleablePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingDrop | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -79,18 +90,28 @@ export function CampaignSchedulerModal({
     load();
   }, [load]);
 
-  async function handleDropPost(postId: string, campId: string, date: Date) {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  // Drop just picks the day — open a dialog to confirm the exact time (default 9:00 AM).
+  function handleDropPost(postId: string, _campId: string, date: Date) {
+    const post = scheduleable.find((p) => p.post_id === postId);
+    if (!post) return;
     const when = new Date(date);
     if (when.getHours() === 0 && when.getMinutes() === 0) {
       when.setHours(9, 0, 0, 0);
     }
+    setPending({ post, when });
+  }
+
+  async function confirmSchedule() {
+    if (!pending) return;
+    const { post, when } = pending;
     if (when <= new Date()) {
-      toast.error("Can't schedule in the past — pick a future date");
+      toast.error("Can't schedule in the past — pick a future date and time");
       return;
     }
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    setSaving(true);
     try {
-      await api(`/campaigns/${campId}/posts/${postId}/schedule`, {
+      await api(`/campaigns/${post.campaign_id}/posts/${post.post_id}/schedule`, {
         method: "POST",
         body: { scheduled_at: when.toISOString(), timezone: tz },
       });
@@ -101,10 +122,13 @@ export function CampaignSchedulerModal({
           day: "numeric",
         })} at ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`,
       );
+      setPending(null);
       await load();
       onDone();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Scheduling failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -127,6 +151,7 @@ export function CampaignSchedulerModal({
   }
 
   return (
+    <>
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-hidden flex flex-col p-0">
         <DialogHeader className="px-6 pt-6">
@@ -179,5 +204,50 @@ export function CampaignSchedulerModal({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Time picker for the dropped post */}
+    <Dialog open={!!pending} onOpenChange={(o) => { if (!o) setPending(null); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Pick a time</DialogTitle>
+          <DialogDescription>
+            Choose when this post should publish. Defaults to 9:00 AM on the day you dropped it.
+          </DialogDescription>
+        </DialogHeader>
+
+        {pending && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-2 rounded-lg border border-border p-3">
+              <PlatformIcon platform={pending.post.platform} size={16} />
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{pending.post.client_name}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2">
+                  {pending.post.headline || pending.post.preview || "(no copy)"}
+                </p>
+              </div>
+            </div>
+            <DateTimePicker
+              value={pending.when}
+              onChange={(d) => setPending((prev) => (prev && d ? { ...prev, when: d } : prev))}
+            />
+            {pending.post.blocked_reason && (
+              <p className="text-xs text-amber-700">
+                {pending.post.blocked_reason} — this will be planned only and won't auto-publish until a channel is connected.
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPending(null)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={confirmSchedule} disabled={saving}>
+            {saving ? "Scheduling…" : "Schedule"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
