@@ -734,7 +734,7 @@ def schedule_post_for_later(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     audit.record(
         db, actor, "post.schedule", "post", post.id,
-        {"channel": channel.id, "scheduled_at": when.isoformat()},
+        {"channel": channel.id if channel else None, "scheduled_at": when.isoformat()},
     )
     return sp
 
