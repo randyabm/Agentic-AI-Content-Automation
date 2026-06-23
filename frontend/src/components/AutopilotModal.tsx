@@ -91,8 +91,9 @@ export function AutopilotModal({
             <Sparkles size={18} /> AI auto-schedule
           </DialogTitle>
           <DialogDescription>
-            The AI proposes an optimal time for each approved post ({tz}). Adjust any time, then confirm —
-            posts publish automatically at their slot.
+            The AI proposes an optimal time for each post ({tz}). Adjust any time, then confirm.
+            Approved posts with a connected channel publish automatically at their slot; drafts or
+            posts without a channel are planned only and won't auto-publish until they're ready.
           </DialogDescription>
         </DialogHeader>
 
@@ -107,7 +108,7 @@ export function AutopilotModal({
           <>
             {preview.proposals.length === 0 ? (
               <p className="text-muted-foreground text-sm py-4">
-                No approved posts with a connected channel to schedule yet.
+                This campaign has no posts to schedule yet.
               </p>
             ) : (
               <div className="space-y-3">
@@ -134,10 +135,15 @@ export function AutopilotModal({
                         className="flex-1"
                       />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="outline" className="text-xs">
                         {p.local_label}
                       </Badge>
+                      {p.blocked_reason && (
+                        <Badge variant="outline" className="text-xs border-amber-300 text-amber-700">
+                          Plan only — {p.blocked_reason}
+                        </Badge>
+                      )}
                       <p className="text-xs text-muted-foreground">{p.rationale}</p>
                     </div>
                   </div>

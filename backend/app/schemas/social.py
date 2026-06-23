@@ -85,6 +85,9 @@ class AutopilotProposal(BaseModel):
     suggested_at: datetime
     local_label: str
     rationale: str
+    # When set, the post will be planned only (not approved yet, or no channel)
+    # and won't auto-publish until it's ready. Empty = ready to publish on time.
+    blocked_reason: str = ""
 
 
 class AutopilotSkipped(BaseModel):

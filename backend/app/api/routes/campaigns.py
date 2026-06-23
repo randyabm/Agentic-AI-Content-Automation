@@ -739,30 +739,19 @@ def _connected_channel(db: Session, client_id: str, platform: str) -> SocialAcco
     )
 
 
-def _autopilot_split(db: Session, campaign: Campaign) -> tuple[list[tuple[Post, SocialAccount]], list[AutopilotSkipped]]:
-    """Partition a campaign's posts into schedulable (approved + connected channel)
-    pairs and skipped ones (with a reason), preserving order."""
+def _autopilot_split(db: Session, campaign: Campaign) -> tuple[list[tuple[Post, SocialAccount | None]], list[AutopilotSkipped]]:
+    """Pair every post in the campaign with its connected channel (or None when
+    there's none). Auto-schedule plans all posts — unapproved / channel-less ones
+    are proposed as plan-only (the proposal carries the reason), so nothing is
+    skipped. `skipped` is kept for API compatibility and is currently empty."""
     posts = db.scalars(
         select(Post).where(Post.campaign_id == campaign.id).order_by(Post.platform, Post.position)
     ).all()
-    items: list[tuple[Post, SocialAccount]] = []
-    skipped: list[AutopilotSkipped] = []
-    for post in posts:
-        if post.approval_status != ApprovalStatus.approved:
-            skipped.append(AutopilotSkipped(
-                post_id=post.id, platform=post.platform.value, headline=post.headline or "",
-                reason="Awaiting approval",
-            ))
-            continue
-        channel = _connected_channel(db, campaign.client_id, post.platform.value)
-        if channel is None:
-            skipped.append(AutopilotSkipped(
-                post_id=post.id, platform=post.platform.value, headline=post.headline or "",
-                reason=f"No connected {post.platform.value} channel",
-            ))
-            continue
-        items.append((post, channel))
-    return items, skipped
+    items: list[tuple[Post, SocialAccount | None]] = [
+        (post, _connected_channel(db, campaign.client_id, post.platform.value))
+        for post in posts
+    ]
+    return items, []
 
 
 @router.post("/{campaign_id}/autopilot/preview", response_model=AutopilotPreviewResponse)
@@ -796,14 +785,10 @@ def autopilot_commit(
     created = []
     for item in body.items:
         post = _get_post_or_404(db, campaign_id, item.post_id)
-        if post.approval_status != ApprovalStatus.approved:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"Post {post.id} is not approved.")
+        # Approval and a connected channel are optional — channel-less / unapproved
+        # posts are committed as plan-only and the due sweep won't publish them
+        # until they're ready.
         channel = _connected_channel(db, campaign.client_id, post.platform.value)
-        if channel is None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"No connected {post.platform.value} channel for one of the posts.",
-            )
         when = item.scheduled_at
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)

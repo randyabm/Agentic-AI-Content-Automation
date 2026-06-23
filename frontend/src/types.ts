@@ -92,6 +92,8 @@ export interface AutopilotProposal {
   suggested_at: string;
   local_label: string;
   rationale: string;
+  /** When set, the post is proposed as plan-only (not approved yet / no channel). */
+  blocked_reason?: string;
 }
 
 export interface AutopilotSkipped {
