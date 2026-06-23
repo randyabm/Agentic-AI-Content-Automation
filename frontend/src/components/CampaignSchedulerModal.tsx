@@ -159,9 +159,9 @@ export function CampaignSchedulerModal({
             <CalendarDays size={18} /> Schedule posts
           </DialogTitle>
           <DialogDescription>
-            Drag an approved post onto a day to schedule it (9:00 AM). Posts without a
-            connected channel can still be planned — they won't auto-publish until you
-            connect a channel.
+            Drag a post onto a day to plan it, then pick a time. Drafts and posts without a
+            connected channel can still be placed — they won't auto-publish until they're
+            approved and a channel is connected.
             {minDate || maxDate
               ? " The campaign window is highlighted — days outside it are disabled."
               : " Set a campaign date range to limit scheduling to a window."}

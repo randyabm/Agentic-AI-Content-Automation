@@ -60,7 +60,7 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
         </h3>
         <p className="text-xs text-muted-foreground mt-0.5">
           {ready.length} ready to drag
-          {blocked.length > 0 ? ` · ${blocked.length} need a channel` : ""}
+          {blocked.length > 0 ? ` · ${blocked.length} plan-only` : ""}
         </p>
       </div>
       <ScrollArea className="flex-1">
@@ -69,7 +69,7 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
             <div className="text-center py-8">
               <p className="text-xs text-muted-foreground">
                 {posts.length === 0
-                  ? "No approved posts waiting. Approve posts in campaigns first."
+                  ? "No posts to schedule yet."
                   : "No posts match your filters."}
               </p>
             </div>

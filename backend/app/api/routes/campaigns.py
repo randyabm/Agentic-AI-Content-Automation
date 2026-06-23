@@ -712,15 +712,14 @@ def schedule_post_for_later(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.schedule)),
 ):
-    """Schedule an approved post to publish at a future time (the Beat sweep sends it).
+    """Schedule a post to publish at a future time (the Beat sweep sends it).
 
-    The post must be approved. A connected channel is optional: with no channel
-    this records a *planned* schedule (the due sweep skips it, never publishing)
-    until a channel is connected — useful for laying out a calendar up front."""
+    Approval and a connected channel are both optional here — this lets you lay
+    out a calendar up front (a *planned* schedule). The due sweep re-checks both
+    at send time and only publishes once the post is approved and has a connected
+    channel; otherwise it leaves the plan pending."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status != ApprovalStatus.approved:
-        raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before scheduling.")
     channel = _connected_channel(db, campaign, post)
 
     when = body.scheduled_at
