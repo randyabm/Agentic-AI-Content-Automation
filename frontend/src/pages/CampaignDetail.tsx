@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronRight, Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Upload as UploadIcon, X } from "lucide-react";
+import { CalendarDays, ChevronRight, Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Upload as UploadIcon, X } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { getBlobUrl, hashKey } from "../lib/blobCache";
 import { ImageEditor } from "../components/ImageEditor";
 import { AutopilotModal } from "../components/AutopilotModal";
+import { CampaignSchedulerModal } from "../components/CampaignSchedulerModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
@@ -66,6 +67,7 @@ export default function CampaignDetail() {
   const [busy, setBusy] = useState("");
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
   const [showEditWarning, setShowEditWarning] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
   const [busyApproval, setBusyApproval] = useState("");
@@ -320,9 +322,14 @@ export default function CampaignDetail() {
               </Button>
             )}
             {(approvalStatus === "draft" || approvalStatus === "approved") && campaign.status === "ready" && (
-              <Button variant="outline" onClick={() => setShowAutopilot(true)} disabled={!!busy}>
-                <Sparkles className="mr-1 size-3.5" /> AI auto-schedule
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => setShowScheduler(true)} disabled={!!busy}>
+                  <CalendarDays className="mr-1 size-3.5" /> Schedule
+                </Button>
+                <Button variant="outline" onClick={() => setShowAutopilot(true)} disabled={!!busy}>
+                  <Sparkles className="mr-1 size-3.5" /> AI auto-schedule
+                </Button>
+              </>
             )}
             {isEditorMode && (
               <>
@@ -690,6 +697,15 @@ export default function CampaignDetail() {
       )}
       {showAutopilot && (
         <AutopilotModal campaignId={campaign.id} onClose={() => setShowAutopilot(false)} onDone={load} />
+      )}
+      {showScheduler && (
+        <CampaignSchedulerModal
+          campaignId={campaign.id}
+          startDate={campaign.start_date}
+          endDate={campaign.end_date}
+          onClose={() => setShowScheduler(false)}
+          onDone={load}
+        />
       )}
     </div>
   );

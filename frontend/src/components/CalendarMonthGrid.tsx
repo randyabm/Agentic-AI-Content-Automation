@@ -7,6 +7,8 @@ import {
   eachDayOfInterval,
   isSameMonth,
   isToday,
+  isBefore,
+  startOfDay,
   addMonths,
   subMonths,
   format,
@@ -33,10 +35,24 @@ interface CalendarMonthGridProps {
   items: CalendarItem[];
   onSelectItem: (item: CalendarItem) => void;
   onDropPost: (postId: string, campaignId: string, date: Date) => void;
+  /** Optional campaign window — days inside [minDate, maxDate] are highlighted
+   *  and droppable; days outside are dimmed and reject drops. When omitted,
+   *  every (non-past) day is droppable (the global calendar behaviour). */
+  minDate?: Date | null;
+  maxDate?: Date | null;
+  /** Month to open on (defaults to the current month). */
+  initialMonth?: Date | null;
 }
 
-export function CalendarMonthGrid({ items, onSelectItem, onDropPost }: CalendarMonthGridProps) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+export function CalendarMonthGrid({
+  items,
+  onSelectItem,
+  onDropPost,
+  minDate,
+  maxDate,
+  initialMonth,
+}: CalendarMonthGridProps) {
+  const [currentMonth, setCurrentMonth] = useState(initialMonth ?? new Date());
 
   const days = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -86,18 +102,30 @@ export function CalendarMonthGrid({ items, onSelectItem, onDropPost }: CalendarM
         </div>
 
         <div className="grid grid-cols-7">
-          {days.map((day, i) => (
-            <DayCell
-              key={day.toISOString()}
-              day={day}
-              index={i}
-              inMonth={isSameMonth(day, currentMonth)}
-              today={isToday(day)}
-              dayItems={itemsByDay.get(format(day, "yyyy-MM-dd")) || []}
-              onSelectItem={onSelectItem}
-              onDropPost={onDropPost}
-            />
-          ))}
+          {days.map((day, i) => {
+            const hasWindow = !!(minDate || maxDate);
+            const today0 = startOfDay(new Date());
+            const isPast = isBefore(startOfDay(day), today0);
+            const beforeWindow = minDate ? isBefore(startOfDay(day), startOfDay(minDate)) : false;
+            const afterWindow = maxDate ? isBefore(startOfDay(maxDate), startOfDay(day)) : false;
+            const inWindow = hasWindow && !beforeWindow && !afterWindow;
+            // Droppable when not past and (no window, or inside the window).
+            const droppable = !isPast && (!hasWindow || inWindow);
+            return (
+              <DayCell
+                key={day.toISOString()}
+                day={day}
+                index={i}
+                inMonth={isSameMonth(day, currentMonth)}
+                today={isToday(day)}
+                highlighted={hasWindow && inWindow}
+                droppable={droppable}
+                dayItems={itemsByDay.get(format(day, "yyyy-MM-dd")) || []}
+                onSelectItem={onSelectItem}
+                onDropPost={onDropPost}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
@@ -109,6 +137,8 @@ function DayCell({
   index,
   inMonth,
   today,
+  highlighted,
+  droppable,
   dayItems,
   onSelectItem,
   onDropPost,
@@ -117,6 +147,8 @@ function DayCell({
   index: number;
   inMonth: boolean;
   today: boolean;
+  highlighted: boolean;
+  droppable: boolean;
   dayItems: CalendarItem[];
   onSelectItem: (item: CalendarItem) => void;
   onDropPost: (postId: string, campaignId: string, date: Date) => void;
@@ -124,6 +156,7 @@ function DayCell({
   const { setNodeRef, isOver } = useDroppable({
     id: `day-${format(day, "yyyy-MM-dd")}`,
     data: { day, type: "day" },
+    disabled: !droppable,
   });
   const isWeekend = index % 7 >= 5;
 
@@ -134,8 +167,10 @@ function DayCell({
         "min-h-[110px] p-2 border-r border-b border-border last:border-r-0 transition-colors",
         !inMonth && "bg-muted/20",
         isWeekend && inMonth && "bg-muted/10",
+        highlighted && "bg-primary/5",
+        !droppable && "opacity-40",
         today && "ring-2 ring-primary ring-inset z-10",
-        isOver && "bg-primary/10 ring-2 ring-primary/40 ring-inset",
+        isOver && droppable && "bg-primary/10 ring-2 ring-primary/40 ring-inset",
       )}
     >
       <div className={cn(
