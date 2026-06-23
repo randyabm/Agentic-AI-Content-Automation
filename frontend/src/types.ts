@@ -643,4 +643,7 @@ export interface CampaignListItem {
   created_at: string;
   updated_at: string;
   visuals_generating?: boolean;
+  platforms?: string[];
+  element_count?: number;
+  post_count?: number;
 }

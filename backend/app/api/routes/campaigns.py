@@ -162,6 +162,35 @@ def list_campaigns(
     ).all()
     generating = set(img_ids) | set(vid_ids)
 
+    # List-view extras (aggregated per campaign): element count, post count, and
+    # the distinct set of platforms used across the campaign's elements.
+    camp_ids = [c.id for c in campaigns]
+    element_counts: dict[str, int] = {}
+    platforms_by_campaign: dict[str, list[str]] = {}
+    post_counts: dict[str, int] = {}
+    if camp_ids:
+        for cid, cnt in db.execute(
+            select(CampaignElement.campaign_id, func.count(CampaignElement.id))
+            .where(CampaignElement.campaign_id.in_(camp_ids))
+            .group_by(CampaignElement.campaign_id)
+        ).all():
+            element_counts[cid] = cnt
+        for cid, cnt in db.execute(
+            select(Post.campaign_id, func.count(Post.id))
+            .where(Post.campaign_id.in_(camp_ids))
+            .group_by(Post.campaign_id)
+        ).all():
+            post_counts[cid] = cnt
+        # Distinct platforms come from the per-platform Post rows.
+        for cid, platform in db.execute(
+            select(Post.campaign_id, Post.platform)
+            .where(Post.campaign_id.in_(camp_ids))
+            .distinct()
+        ).all():
+            platforms_by_campaign.setdefault(cid, []).append(
+                platform.value if hasattr(platform, "value") else str(platform)
+            )
+
     return [
         CampaignListItem(
             id=c.id,
@@ -172,6 +201,9 @@ def list_campaigns(
             created_at=c.created_at,
             updated_at=c.updated_at,
             visuals_generating=c.id in generating,
+            platforms=platforms_by_campaign.get(c.id, []),
+            element_count=element_counts.get(c.id, 0),
+            post_count=post_counts.get(c.id, 0),
         )
         for c in campaigns
     ]

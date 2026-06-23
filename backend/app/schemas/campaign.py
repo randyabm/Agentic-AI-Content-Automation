@@ -281,6 +281,10 @@ class CampaignListItem(BaseModel):
     updated_at: datetime
     # True when the campaign is otherwise done but some image/video is still rendering.
     visuals_generating: bool = False
+    # List-view extras: the distinct platforms used and how many elements/posts.
+    platforms: list[str] = []
+    element_count: int = 0
+    post_count: int = 0
 
 
 class PostUpdate(BaseModel):

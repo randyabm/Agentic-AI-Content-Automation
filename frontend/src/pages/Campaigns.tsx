@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { resolvePlatformRatios } from "../ratios";
 import type {
   ArticleListItem,
@@ -83,6 +84,12 @@ export default function Campaigns() {
   const [filterClient, setFilterClient] = useState(initClient);
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [view, setView] = useState<"list" | "cards">(
+    () => (localStorage.getItem("campaignsView") as "list" | "cards") || "list",
+  );
+  useEffect(() => {
+    localStorage.setItem("campaignsView", view);
+  }, [view]);
   const [deleteCandidate, setDeleteCandidate] = useState<CampaignListItem | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<{ elements: number; posts: number; images: number; videos: number } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -224,8 +231,104 @@ export default function Campaigns() {
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
         </select>
+        <div className="ml-auto inline-flex overflow-hidden rounded-md border border-border">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors",
+              view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+            )}
+            title="List view"
+          >
+            <span className="material-symbols-outlined text-base">list</span> List
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("cards")}
+            className={cn(
+              "flex items-center gap-1.5 border-l border-border px-3 py-1.5 text-sm transition-colors",
+              view === "cards" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+            )}
+            title="Card view"
+          >
+            <span className="material-symbols-outlined text-base">grid_view</span> Cards
+          </button>
+        </div>
       </div>
 
+      {view === "list" && (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_110px_80px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div>Campaign</div>
+            <div>Client</div>
+            <div>Platforms</div>
+            <div className="text-center">Elements</div>
+            <div>Updated</div>
+            <div></div>
+          </div>
+          {visible.map((c) => {
+            const ab = (c as any).approval_status ? APPROVAL_BADGE[(c as any).approval_status] : null;
+            return (
+              <div
+                key={c.id}
+                onClick={() => navigate(`/campaigns/${c.id}`)}
+                className="grid cursor-pointer grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_110px_80px_90px_40px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/40"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      c.status === "ready" ? "bg-emerald-500" : c.status === "failed" ? "bg-red-500" : "bg-amber-400",
+                    )}
+                    title={c.status}
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{c.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="rounded bg-muted px-1.5 py-px text-[10px] capitalize text-muted-foreground">{c.objective}</span>
+                      {ab && (
+                        <span className="rounded px-1.5 py-px text-[10px] font-medium" style={{ background: ab.bg, color: ab.text }}>{ab.label}</span>
+                      )}
+                      {c.status !== "generating" && c.visuals_generating && (
+                        <span className="text-[10px] text-amber-600">⏳ visuals</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="truncate text-sm text-muted-foreground">{clientName(c.client_id)}</div>
+                <div className="flex items-center gap-1.5">
+                  {(c.platforms ?? []).slice(0, 5).map((p) => (
+                    <PlatformIcon key={p} platform={p} size={15} />
+                  ))}
+                  {(c.platforms?.length ?? 0) > 5 && (
+                    <span className="text-[10px] text-muted-foreground">+{(c.platforms!.length - 5)}</span>
+                  )}
+                  {(c.platforms?.length ?? 0) === 0 && <span className="text-xs text-muted-foreground/50">—</span>}
+                </div>
+                <div className="text-center text-sm text-muted-foreground">{c.element_count ?? 0}</div>
+                <div className="text-xs text-muted-foreground">{new Date(c.updated_at).toLocaleDateString()}</div>
+                <button
+                  className="flex items-center justify-center rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-destructive"
+                  onClick={(e) => { e.stopPropagation(); openDeleteDialog(c); }}
+                  title="Delete campaign"
+                  aria-label="Delete campaign"
+                >
+                  <span className="material-symbols-outlined text-base">delete</span>
+                </button>
+              </div>
+            );
+          })}
+          {visible.length === 0 && campaigns.length > 0 && (
+            <p className="px-4 py-6 text-sm text-muted-foreground">No campaigns match the current filters.</p>
+          )}
+          {campaigns.length === 0 && (
+            <p className="px-4 py-6 text-sm text-muted-foreground">No campaigns yet. Create your first one.</p>
+          )}
+        </div>
+      )}
+
+      {view === "cards" && (
       <div className="card-grid">
         {visible.map((c) => {
           const client = clients.find((cl) => cl.id === c.client_id) ?? null;
@@ -282,6 +385,7 @@ export default function Campaigns() {
           <p className="muted">No campaigns yet. Create your first one.</p>
         )}
       </div>
+      )}
         </>
       )}
 
