@@ -22,6 +22,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateTimePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectContent,
@@ -532,24 +534,7 @@ export default function CampaignDetail() {
                               <h4 className="line-clamp-1 text-sm font-semibold">{post.headline || "Untitled"}</h4>
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              {post.publish_state?.status === "scheduled" && post.publish_state.scheduled_at ? (
-                                <span className="flex items-center gap-1 font-medium text-foreground">
-                                  <span className="material-symbols-outlined text-xs">event_available</span>
-                                  {new Date(post.publish_state.scheduled_at).toLocaleString(undefined, {
-                                    weekday: "short",
-                                    month: "short",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </span>
-                              ) : (
-                                post.best_time && (
-                                  <span className="flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-xs">schedule</span> {post.best_time}
-                                  </span>
-                                )
-                              )}
+                              <QuickSchedule campaignId={campaign.id} post={post} onDone={load} />
                               {post.approval_status && <ApprovalBadge status={post.approval_status} className="px-2 py-0.5 text-[0.65rem]" />}
                             </div>
                           </div>
@@ -782,6 +767,98 @@ function ApproverMeta({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Inline quick-schedule on a post card: click the time chip to set/change the
+ *  publish date & time without opening the full Schedule modal. Reschedules an
+ *  existing ScheduledPost (PATCH) or creates one (POST). */
+function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post: Post; onDone: () => void }) {
+  const ps = post.publish_state;
+  const isScheduled = ps?.status === "scheduled" && !!ps.scheduled_at;
+  const [open, setOpen] = useState(false);
+  const [when, setWhen] = useState<Date | null>(ps?.scheduled_at ? new Date(ps.scheduled_at) : null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setWhen(ps?.scheduled_at ? new Date(ps.scheduled_at) : null);
+  }, [ps?.scheduled_at]);
+
+  async function save() {
+    if (!when) return;
+    if (when <= new Date()) {
+      toast.error("Pick a future date and time");
+      return;
+    }
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    setBusy(true);
+    try {
+      if (isScheduled && ps?.id) {
+        await api(`/scheduled-posts/${ps.id}`, {
+          method: "PATCH",
+          body: { scheduled_at: when.toISOString(), timezone: tz },
+        });
+      } else {
+        await api(`/campaigns/${campaignId}/posts/${post.id}/schedule`, {
+          method: "POST",
+          body: { scheduled_at: when.toISOString(), timezone: tz },
+        });
+      }
+      toast.success("Schedule updated");
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Scheduling failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted",
+            isScheduled ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+          title="Click to set date & time"
+        >
+          <span className="material-symbols-outlined text-xs">
+            {isScheduled ? "event_available" : "schedule"}
+          </span>
+          {isScheduled && ps?.scheduled_at
+            ? new Date(ps.scheduled_at).toLocaleString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : post.best_time
+              ? post.best_time
+              : "Set schedule"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-auto space-y-3 p-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-xs font-medium">Schedule this post</p>
+        <DateTimePicker value={when} onChange={setWhen} />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={save} disabled={busy || !when}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

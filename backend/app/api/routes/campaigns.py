@@ -291,6 +291,7 @@ def _latest_publish_states(db: Session, post_ids: list[str]) -> dict[str, Publis
         latest[sp.post_id] = sp
     return {
         pid: PublishStateOut(
+            id=sp.id,
             status=sp.status.value,
             published_url=sp.published_url or "",
             scheduled_at=sp.scheduled_at,

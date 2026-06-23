@@ -155,6 +155,7 @@ class PublishStateOut(BaseModel):
     """The latest publish/schedule attempt for a post, surfaced on PostOut so the
     UI can show persistent publish status without a separate calendar lookup."""
 
+    id: str = ""                     # the ScheduledPost id (for reschedule/cancel)
     status: str                      # scheduled | publishing | published | partial | failed
     published_url: str = ""
     scheduled_at: datetime | None = None
