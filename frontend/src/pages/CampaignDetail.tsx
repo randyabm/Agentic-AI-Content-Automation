@@ -505,10 +505,23 @@ export default function CampaignDetail() {
                               <h4 className="line-clamp-1 text-sm font-semibold">{post.headline || "Untitled"}</h4>
                             </div>
                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              {post.best_time && (
-                                <span className="flex items-center gap-1">
-                                  <span className="material-symbols-outlined text-xs">schedule</span> {post.best_time}
+                              {post.publish_state?.status === "scheduled" && post.publish_state.scheduled_at ? (
+                                <span className="flex items-center gap-1 font-medium text-foreground">
+                                  <span className="material-symbols-outlined text-xs">event_available</span>
+                                  {new Date(post.publish_state.scheduled_at).toLocaleString(undefined, {
+                                    weekday: "short",
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
                                 </span>
+                              ) : (
+                                post.best_time && (
+                                  <span className="flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-xs">schedule</span> {post.best_time}
+                                  </span>
+                                )
                               )}
                               {post.approval_status && <ApprovalBadge status={post.approval_status} className="px-2 py-0.5 text-[0.65rem]" />}
                             </div>
