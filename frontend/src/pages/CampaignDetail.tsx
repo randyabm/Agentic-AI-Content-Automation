@@ -68,6 +68,7 @@ export default function CampaignDetail() {
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
+  const [postPlatformTab, setPostPlatformTab] = useState<string>("all");
   const [showEditWarning, setShowEditWarning] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
   const [busyApproval, setBusyApproval] = useState("");
@@ -456,11 +457,37 @@ export default function CampaignDetail() {
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-lg font-semibold">Campaign Posts ({campaign.posts.length})</h3>
                 </div>
+                {(() => {
+                  const platforms = Array.from(new Set(campaign.posts.map((p) => p.platform)));
+                  if (platforms.length > 1) {
+                    return (
+                      <Tabs value={postPlatformTab} onValueChange={setPostPlatformTab} className="mb-3">
+                        <TabsList className="flex-wrap h-auto">
+                          <TabsTrigger value="all" className="gap-1.5">
+                            All <span className="text-[0.65rem] opacity-70">{campaign.posts.length}</span>
+                          </TabsTrigger>
+                          {platforms.map((pf) => (
+                            <TabsTrigger key={pf} value={pf} className="gap-1.5">
+                              <PlatformIcon platform={pf} size={14} />
+                              {platformLabel(pf)}
+                              <span className="text-[0.65rem] opacity-70">
+                                {campaign.posts.filter((p) => p.platform === pf).length}
+                              </span>
+                            </TabsTrigger>
+                          ))}
+                        </TabsList>
+                      </Tabs>
+                    );
+                  }
+                  return null;
+                })()}
                 <div className="flex flex-col gap-3">
                   {campaign.posts.length === 0 && (
                     <p className="text-sm text-muted-foreground">No posts yet. Generate the campaign first.</p>
                   )}
-                  {campaign.posts.map((post) => {
+                  {campaign.posts
+                    .filter((post) => postPlatformTab === "all" || post.platform === postPlatformTab)
+                    .map((post) => {
                     const el = campaign.elements.find((e) => e.id === post.element_id);
                     const cover = el?.images.find((i) => i.base_object_key);
                     const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
