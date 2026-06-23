@@ -194,7 +194,19 @@ function PostPreviewCard({
           <PlatformIcon platform={post.platform} size={18} />
           <span className="text-sm font-bold">{platformLabel(post.platform)}</span>
         </div>
-        {post.best_time && <span className="text-xs text-muted-foreground">{post.best_time}</span>}
+        {post.publish_state?.status === "scheduled" && post.publish_state.scheduled_at ? (
+          <span className="text-xs font-medium text-foreground">
+            {new Date(post.publish_state.scheduled_at).toLocaleString(undefined, {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        ) : (
+          post.best_time && <span className="text-xs text-muted-foreground">{post.best_time}</span>
+        )}
       </div>
       <div className="relative aspect-square overflow-hidden bg-muted">
         {imageUrl ? (
