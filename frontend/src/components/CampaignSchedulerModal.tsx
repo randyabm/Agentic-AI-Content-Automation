@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { CalendarDays, RefreshCw, GripVertical, Lock } from "lucide-react";
 import {
   DndContext,
@@ -170,6 +171,7 @@ export function CampaignSchedulerModal({
                 />
               </div>
             </div>
+            {createPortal(
             <DragOverlay dropAnimation={null}>
               {activePost ? (
                 <div
@@ -196,7 +198,9 @@ export function CampaignSchedulerModal({
                   </div>
                 </div>
               ) : null}
-            </DragOverlay>
+            </DragOverlay>,
+            document.body,
+            )}
           </DndContext>
         )}
       </DialogContent>
