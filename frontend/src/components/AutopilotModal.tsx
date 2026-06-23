@@ -128,14 +128,14 @@ export function AutopilotModal({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <DateTimePicker
                         value={times[p.post_id] ?? null}
                         onChange={(d) => setTimes((prev) => ({ ...prev, [p.post_id]: d ?? toDate(p.suggested_at) }))}
-                        className="flex-1"
+                        className="flex-1 min-w-0"
                       />
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
                       <Badge variant="outline" className="text-xs">
                         {p.local_label}
                       </Badge>
@@ -144,8 +144,8 @@ export function AutopilotModal({
                           Plan only — {p.blocked_reason}
                         </Badge>
                       )}
-                      <p className="text-xs text-muted-foreground">{p.rationale}</p>
                     </div>
+                    <p className="text-xs text-muted-foreground break-words">{p.rationale}</p>
                   </div>
                 ))}
               </div>
