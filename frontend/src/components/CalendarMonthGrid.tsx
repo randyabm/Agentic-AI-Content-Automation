@@ -13,7 +13,7 @@ import {
   subMonths,
   format,
 } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "./PlatformIcon";
@@ -192,6 +192,13 @@ function DayCell({
           >
             <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
             <PlatformIcon platform={item.platform} size={12} />
+            {!item.channel_id && (
+              <Lock
+                size={11}
+                className="shrink-0 text-amber-500"
+                aria-label="Planned — no connected channel; won't auto-publish"
+              />
+            )}
             <span className="truncate flex-1 font-medium text-foreground/80 group-hover:text-foreground">
               {item.scheduled_at && new Date(item.scheduled_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
               {" "}

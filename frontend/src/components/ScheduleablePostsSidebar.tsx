@@ -58,15 +58,28 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
 }
 
 function BlockedPostCard({ post }: { post: ScheduleablePost }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `sched-${post.post_id}`,
+  });
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
+
   return (
     <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
       className={cn(
-        "rounded-lg border border-dashed border-border bg-muted/30 p-2.5 cursor-not-allowed opacity-80",
+        "group rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 cursor-grab active:cursor-grabbing",
+        "hover:border-amber-400 hover:shadow-sm transition-all duration-200",
+        isDragging && "opacity-60 shadow-lg ring-2 ring-amber-400/40 scale-105 z-50",
       )}
-      title={post.blocked_reason}
+      title={`${post.blocked_reason} — you can still plan a date; it won't auto-publish until a channel is connected.`}
     >
       <div className="flex items-start gap-2">
-        <Lock size={14} className="text-muted-foreground/60 mt-0.5 shrink-0" />
+        <Lock size={14} className="text-amber-500/70 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-1">
             <PlatformIcon platform={post.platform} size={12} />
@@ -77,7 +90,7 @@ function BlockedPostCard({ post }: { post: ScheduleablePost }) {
           </p>
           <div className="flex items-center gap-1.5 flex-wrap">
             <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-amber-300 text-amber-700">
-              {post.blocked_reason || "Can't schedule yet"}
+              {post.blocked_reason || "Plan only — no channel"}
             </Badge>
           </div>
         </div>

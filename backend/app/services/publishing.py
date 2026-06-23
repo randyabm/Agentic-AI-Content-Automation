@@ -150,7 +150,7 @@ def publish_post(
 def schedule_post(
     db: Session,
     post: Post,
-    channel: SocialAccount,
+    channel: SocialAccount | None,
     actor_id: str,
     scheduled_at: datetime,
     timezone: str = "UTC",
@@ -158,12 +158,16 @@ def schedule_post(
     """Record a future-dated publish. We hold it locally (status `scheduled`) and
     the Celery Beat sweep (`publish_due_posts`) hands it to Zernio when due — this
     lets us re-check approval and mint a fresh signed media URL at send time, and
-    makes cancel/reschedule a pure local operation."""
+    makes cancel/reschedule a pure local operation.
+
+    `channel` may be None: that records a *planned* schedule for an approved post
+    whose client has no connected channel yet. The due sweep skips planned posts
+    (it never auto-publishes them) until a channel is connected."""
     _, images, _, video, _ = _resolve_content(db, post)  # validate there's something to send
 
     sp = ScheduledPost(
         post_id=post.id,
-        social_account_id=channel.id,
+        social_account_id=channel.id if channel else None,
         post_image_id=images[0].id if images else None,
         post_video_id=video.id if video else None,
         scheduled_at=scheduled_at,

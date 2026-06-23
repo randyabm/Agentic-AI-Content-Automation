@@ -654,15 +654,13 @@ def reject_post(
     return post
 
 
-def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:
-    """Shared guards for publish/schedule: the post must be approved and its
-    platform must have a connected channel. Returns the channel to publish to."""
-    if post.approval_status != ApprovalStatus.approved:
-        raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
+def _connected_channel(db: Session, campaign: Campaign, post: Post) -> SocialAccount | None:
+    """Return the connected channel for this post's platform, or None if there
+    is none. Does not enforce approval."""
     platform_val = post.platform.value
     # "x" and "twitter" are the same network; accept either stored value
     platform_aliases = ["twitter", "x"] if platform_val == "x" else [platform_val]
-    channel = db.scalar(
+    return db.scalar(
         select(SocialAccount)
         .where(
             SocialAccount.client_id == campaign.client_id,
@@ -671,6 +669,14 @@ def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialA
         )
         .order_by(SocialAccount.created_at)
     )
+
+
+def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:
+    """Shared guards for publish (immediate): the post must be approved and its
+    platform must have a connected channel. Returns the channel to publish to."""
+    if post.approval_status != ApprovalStatus.approved:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
+    channel = _connected_channel(db, campaign, post)
     if channel is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -706,10 +712,16 @@ def schedule_post_for_later(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.schedule)),
 ):
-    """Schedule an approved post to publish at a future time (the Beat sweep sends it)."""
+    """Schedule an approved post to publish at a future time (the Beat sweep sends it).
+
+    The post must be approved. A connected channel is optional: with no channel
+    this records a *planned* schedule (the due sweep skips it, never publishing)
+    until a channel is connected — useful for laying out a calendar up front."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    channel = _require_publishable(db, campaign, post)
+    if post.approval_status != ApprovalStatus.approved:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before scheduling.")
+    channel = _connected_channel(db, campaign, post)
 
     when = body.scheduled_at
     if when.tzinfo is None:
