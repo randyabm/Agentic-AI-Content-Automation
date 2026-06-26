@@ -1,5 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
-import { Clock, GripVertical } from "lucide-react";
+import { Clock, GripVertical, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
@@ -11,12 +11,46 @@ interface ScheduleablePostsSidebarProps {
   filters: { client: string; platform: string };
 }
 
+/** The card shown inside a dnd-kit DragOverlay while a post is being dragged.
+ *  Lives in the overlay (portaled to body) so it follows the cursor without
+ *  being clipped by the sidebar's scroll container. */
+export function SchedulePostOverlayCard({ post }: { post: ScheduleablePost }) {
+  const blocked = !!post.blocked_reason;
+  return (
+    <div
+      className={cn(
+        "w-60 rounded-lg border bg-card p-2.5 shadow-lg cursor-grabbing",
+        blocked ? "border-amber-300 bg-amber-50/90" : "border-primary/30",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {blocked ? (
+          <Lock size={14} className="text-amber-500/70 mt-0.5 shrink-0" />
+        ) : (
+          <GripVertical size={14} className="text-muted-foreground/40 mt-0.5 shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <PlatformIcon platform={post.platform} size={12} />
+            <span className="text-xs font-medium truncate">{post.client_name}</span>
+          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {post.headline || post.preview || "(no copy)"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSidebarProps) {
   const filtered = posts.filter((p) => {
     if (filters.client !== "all" && p.client_id !== filters.client) return false;
     if (filters.platform !== "all" && p.platform !== filters.platform) return false;
     return true;
   });
+  const ready = filtered.filter((p) => !p.blocked_reason);
+  const blocked = filtered.filter((p) => p.blocked_reason);
 
   return (
     <div className="w-64 shrink-0 border-r border-border bg-card flex flex-col">
@@ -25,7 +59,8 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
           Ready to schedule
         </h3>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {filtered.length} approved post{filtered.length !== 1 ? "s" : ""} — drag onto the calendar
+          {ready.length} ready to drag
+          {blocked.length > 0 ? ` · ${blocked.length} plan-only` : ""}
         </p>
       </div>
       <ScrollArea className="flex-1">
@@ -34,14 +69,19 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
             <div className="text-center py-8">
               <p className="text-xs text-muted-foreground">
                 {posts.length === 0
-                  ? "No approved posts waiting. Approve posts in campaigns first."
+                  ? "No posts to schedule yet."
                   : "No posts match your filters."}
               </p>
             </div>
           ) : (
-            filtered.map((post) => (
-              <DraggablePostCard key={post.post_id} post={post} />
-            ))
+            <>
+              {ready.map((post) => (
+                <DraggablePostCard key={post.post_id} post={post} />
+              ))}
+              {blocked.map((post) => (
+                <BlockedPostCard key={post.post_id} post={post} />
+              ))}
+            </>
           )}
         </div>
       </ScrollArea>
@@ -49,25 +89,58 @@ export function ScheduleablePostsSidebar({ posts, filters }: ScheduleablePostsSi
   );
 }
 
-function DraggablePostCard({ post }: { post: ScheduleablePost }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+function BlockedPostCard({ post }: { post: ScheduleablePost }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `sched-${post.post_id}`,
   });
-
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      {...listeners}
+      {...attributes}
+      className={cn(
+        "group rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 cursor-grab active:cursor-grabbing",
+        "hover:border-amber-400 hover:shadow-sm transition-all duration-200",
+        isDragging && "opacity-40",
+      )}
+      title={`${post.blocked_reason} — you can still plan a date; it won't auto-publish until a channel is connected.`}
+    >
+      <div className="flex items-start gap-2">
+        <Lock size={14} className="text-amber-500/70 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <PlatformIcon platform={post.platform} size={12} />
+            <span className="text-xs font-medium truncate">{post.client_name}</span>
+          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2 mb-1.5">
+            {post.headline || post.preview || "(no copy)"}
+          </p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-amber-300 text-amber-700">
+              {post.blocked_reason || "Plan only — no channel"}
+            </Badge>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraggablePostCard({ post }: { post: ScheduleablePost }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `sched-${post.post_id}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
       {...listeners}
       {...attributes}
       className={cn(
         "group rounded-lg border border-border bg-card p-2.5 cursor-grab active:cursor-grabbing",
         "hover:border-primary/30 hover:shadow-sm transition-all duration-200",
-        isDragging && "opacity-60 shadow-lg ring-2 ring-primary/40 scale-105 z-50",
+        isDragging && "opacity-40",
       )}
     >
       <div className="flex items-start gap-2">

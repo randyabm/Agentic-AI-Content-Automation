@@ -179,26 +179,34 @@ def global_calendar(
 
 @router.get("/scheduleable-posts", response_model=list[ScheduleablePostOut])
 def scheduleable_posts(
+    include_blocked: bool = False,
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
 ):
-    """Approved posts that have no ScheduledPost yet — ready to be dragged onto
-    the calendar to be scheduled. Only posts with a connected channel are returned."""
+    """Posts that have no ScheduledPost yet — ready to be dragged onto the
+    calendar. By default only fully-ready posts are returned (approved + a
+    connected channel). With ``include_blocked=true`` posts that aren't ready
+    yet are also returned, flagged with ``blocked_reason`` (e.g. not approved,
+    or no connected channel) so the UI can show them as plan-only — they can be
+    placed on the calendar but won't auto-publish until they're ready."""
     from app.models.social import ChannelStatus
 
     if actor.org_id is None:
         return []
     # Subquery: post_ids that already have a ScheduledPost
     scheduled_post_ids = select(ScheduledPost.post_id).scalar_subquery()
+    where = [
+        Client.org_id == actor.org_id,
+        ~Post.id.in_(scheduled_post_ids),
+    ]
+    if not include_blocked:
+        # The global calendar only schedules fully-approved posts.
+        where.append(Post.approval_status == ApprovalStatus.approved)
     rows = db.execute(
         select(Post, Campaign, Client)
         .join(Campaign, Campaign.id == Post.campaign_id)
         .join(Client, Client.id == Campaign.client_id)
-        .where(
-            Client.org_id == actor.org_id,
-            Post.approval_status == ApprovalStatus.approved,
-            ~Post.id.in_(scheduled_post_ids),
-        )
+        .where(*where)
         .order_by(Post.updated_at.desc())
     ).all()
     if not rows:
@@ -215,10 +223,17 @@ def scheduleable_posts(
         channels[f"{ch.client_id}|{ch.platform}"] = ch
     out: list[ScheduleablePostOut] = []
     for post, campaign, client in rows:
-        key = f"{client.id}|{post.platform.value}"
-        ch = channels.get(key)
-        if ch is None:
-            continue  # no connected channel — can't schedule
+        ch = channels.get(f"{client.id}|{post.platform.value}")
+        approved = post.approval_status == ApprovalStatus.approved
+        # Why isn't this post ready to publish? (Empty = ready.)
+        if not approved:
+            blocked_reason = "Not approved yet"
+        elif ch is None:
+            blocked_reason = f"No connected {post.platform.value} channel"
+        else:
+            blocked_reason = ""
+        if blocked_reason and not include_blocked:
+            continue
         out.append(
             ScheduleablePostOut(
                 post_id=post.id,
@@ -229,9 +244,10 @@ def scheduleable_posts(
                 platform=post.platform.value,
                 headline=post.headline or "",
                 preview=_preview(post),
-                channel_id=ch.id,
-                channel_name=ch.display_name,
+                channel_id=ch.id if ch else "",
+                channel_name=ch.display_name if ch else "",
                 best_time=post.best_time or "",
+                blocked_reason=blocked_reason,
             )
         )
     return out

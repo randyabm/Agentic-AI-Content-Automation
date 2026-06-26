@@ -106,12 +106,12 @@ export default function ReviewQueue() {
       {error && <div className="alert alert-error">{error}</div>}
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-4">
+      <div className="mb-4 flex gap-2">
         {(["all", "post", "campaign"] as const).map((t) => (
           <button
             key={t}
-            className={`px-4 py-2 rounded-lg text-label-md font-bold transition-colors ${
-              tab === t ? "bg-[#6d28d9] text-white" : "bg-[#f3f4f6] text-[#4a4455] hover:bg-[#e5e7eb]"
+            className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${
+              tab === t ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"
             }`}
             onClick={() => setTab(t)}
           >
@@ -130,41 +130,40 @@ export default function ReviewQueue() {
           {filtered.map((item) => (
             <div
               key={item.review_type === "campaign" ? item.campaign_id : item.post_id}
-              className="card p-md"
-              style={{ borderRadius: "12px" }}
+              className="rounded-xl border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="mb-1 flex items-center gap-2">
                     {item.review_type === "campaign" ? (
-                      <span className="px-2 py-0.5 bg-[#ebddff] text-[#5300b7] text-[10px] font-bold uppercase rounded">Campaign</span>
+                      <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold uppercase text-accent-foreground">Campaign</span>
                     ) : (
                       <PlatformIcon platform={item.platform} size={16} />
                     )}
-                    <Link to={`/campaigns/${item.campaign_id}`} className="font-bold" style={{ fontSize: "0.9rem", color: "#6d28d9" }}>
+                    <Link to={`/campaigns/${item.campaign_id}`} className="text-sm font-bold text-primary hover:underline">
                       {item.campaign_name}
                     </Link>
-                    <span className="text-label-sm text-[#4a4455]">· {item.client_name}</span>
+                    <span className="text-xs text-muted-foreground">· {item.client_name}</span>
                   </div>
                   {item.review_type === "post" && (
                     <>
-                      <p className="font-semibold" style={{ fontSize: "0.85rem" }}>{item.headline || platformLabel(item.platform)}</p>
-                      <p className="text-label-sm text-[#4a4455]">{item.preview}</p>
+                      <p className="text-sm font-semibold">{item.headline || platformLabel(item.platform)}</p>
+                      <p className="text-xs text-muted-foreground">{item.preview}</p>
                     </>
                   )}
                   {item.review_type === "campaign" && (
-                    <p className="text-label-sm text-[#4a4455]">
+                    <p className="text-xs text-muted-foreground">
                       {item.platform && <><strong>Platforms:</strong> {item.platform} · </>}
                       {item.approval_message && <><strong>Note:</strong> {item.approval_message}</>}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
+                <div className="flex flex-shrink-0 gap-2">
                   <Button
                     size="sm"
+                    className="bg-emerald-600 text-white hover:bg-emerald-700"
                     onClick={() => item.review_type === "campaign" ? decideCampaign(item, "approve") : decidePost(item, "approve")}
                     disabled={!!busy}
-                    style={{ background: "#10B981" }}
                   >
                     Approve
                   </Button>

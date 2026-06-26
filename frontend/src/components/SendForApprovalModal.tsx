@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { TextareaZoom } from "./TextareaZoom";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { PlatformIcon, platformLabel } from "./PlatformIcon";
 import { toast } from "sonner";
-import type { User } from "../types";
+import type { CampaignDetail, Post, User } from "../types";
 
 interface SendForApprovalModalProps {
   campaignId: string;
@@ -19,21 +31,42 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     api<User[]>("/team")
       .then((members) => setApprovers(members.filter((m) => m.org_role === "reviewer" || m.org_role === "org_admin")))
       .catch(() => {});
+    // Load the campaign's posts so individual-post approval can pick a subset.
+    api<CampaignDetail>(`/campaigns/${campaignId}`)
+      .then((c) => {
+        setPosts(c.posts ?? []);
+        setSelected(new Set((c.posts ?? []).map((p) => p.id)));
+      })
+      .catch(() => {});
     // Default due date: 7 days from now
     const d = new Date();
     d.setDate(d.getDate() + 7);
     setDueDate(d.toISOString().split("T")[0]);
-  }, []);
+  }, [campaignId]);
+
+  function togglePost(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!approverId) {
       setError("Select an approver");
+      return;
+    }
+    if (scope === "individual_posts" && selected.size === 0) {
+      setError("Select at least one post to send for approval");
       return;
     }
     setBusy(true);
@@ -46,6 +79,7 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
           approval_scope: scope,
           approval_due_date: dueDate || null,
           message,
+          post_ids: scope === "individual_posts" ? [...selected] : [],
         },
       });
       toast.success("Campaign submitted for approval");
@@ -58,128 +92,175 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
     }
   }
 
+  const scopes = [
+    {
+      key: "full_campaign" as const,
+      title: "Full campaign approval",
+      desc: "Approver reviews all assets and strategy docs",
+    },
+    {
+      key: "individual_posts" as const,
+      title: "Individual post approval",
+      desc: "Approver reviews each specific post",
+    },
+  ];
+
   return (
-    <div className="modal-overlay" onClick={onClose} style={{ background: "rgba(20, 27, 43, 0.4)", backdropFilter: "blur(2px)" }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-[560px] rounded-xl shadow-xl overflow-hidden"
-        style={{ background: "rgba(255,255,255,0.8)", backdropFilter: "blur(12px)", border: "1px solid rgba(255,255,255,0.3)" }}
+        className="w-full max-w-[560px] overflow-hidden rounded-xl border border-border bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-xl py-lg border-b border-[#ccc3d7] flex items-center justify-between">
-          <div className="flex items-center gap-md">
-            <div className="w-10 h-10 bg-[#ebddff] rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#5300b7]">send_and_archive</span>
+        <div className="flex items-center justify-between border-b border-border px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+              <span className="material-symbols-outlined">send_and_archive</span>
             </div>
-            <h2 className="font-headline-md text-headline-md" style={{ fontSize: "1.2rem", fontWeight: 600 }}>Send Campaign for Approval</h2>
+            <h2 className="text-lg font-semibold">Send Campaign for Approval</h2>
           </div>
-          <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#e1e8fd] transition-colors" onClick={onClose}>
-            <span className="material-symbols-outlined text-[#4a4455]">close</span>
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent"
+            onClick={onClose}
+          >
+            <span className="material-symbols-outlined">close</span>
           </button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="p-xl space-y-lg">
+          <div className="space-y-6 p-6">
             {error && <div className="alert alert-error">{error}</div>}
 
-            <div className="space-y-sm">
-              <label className="font-label-md text-label-md text-[#4a4455] block uppercase tracking-wider" style={{ fontSize: "0.7rem" }}>Approver</label>
-              <div className="relative">
-                <select
-                  className="w-full h-12 pl-md pr-xl bg-white border border-[#ccc3d7] rounded-lg text-body-md focus:ring-2 focus:ring-[#6d28d9] focus:outline-none appearance-none cursor-pointer"
-                  value={approverId}
-                  onChange={(e) => setApproverId(e.target.value)}
-                >
-                  <option value="">Select Team Member</option>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Approver</Label>
+              <Select value={approverId} onValueChange={setApproverId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select team member" />
+                </SelectTrigger>
+                <SelectContent>
                   {approvers.map((a) => (
-                    <option key={a.id} value={a.id}>
+                    <SelectItem key={a.id} value={a.id}>
                       {a.full_name} ({a.org_role === "org_admin" ? "Admin" : "Reviewer"})
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
-                <div className="absolute right-md top-1/2 -translate-y-1/2 pointer-events-none">
-                  <span className="material-symbols-outlined text-[#7b7486]">expand_more</span>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Approval Scope</Label>
+              <div className="grid grid-cols-1 gap-2">
+                {scopes.map((s) => (
+                  <label
+                    key={s.key}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-4 transition-all",
+                      scope === s.key ? "border-primary ring-1 ring-primary" : "border-border",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="scope"
+                      value={s.key}
+                      checked={scope === s.key}
+                      onChange={() => setScope(s.key)}
+                      className="size-5 accent-primary"
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold">{s.title}</span>
+                      <span className="text-xs text-muted-foreground">{s.desc}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {scope === "individual_posts" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Posts to review ({selected.size}/{posts.length})
+                  </Label>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-primary hover:underline"
+                    onClick={() =>
+                      setSelected(selected.size === posts.length ? new Set() : new Set(posts.map((p) => p.id)))
+                    }
+                  >
+                    {selected.size === posts.length ? "Clear all" : "Select all"}
+                  </button>
+                </div>
+                <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-border p-2">
+                  {posts.length === 0 && (
+                    <p className="px-1 py-2 text-xs text-muted-foreground">This campaign has no posts yet.</p>
+                  )}
+                  {posts.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md p-2 hover:bg-accent"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(p.id)}
+                        onChange={() => togglePost(p.id)}
+                        className="size-4 accent-primary"
+                      />
+                      <PlatformIcon platform={p.platform} size={16} />
+                      <span className="min-w-0 flex-1 truncate text-sm">{p.headline || platformLabel(p.platform)}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="space-y-sm">
-              <label className="font-label-md text-label-md text-[#4a4455] block uppercase tracking-wider" style={{ fontSize: "0.7rem" }}>Approval Scope</label>
-              <div className="grid grid-cols-1 gap-sm">
-                <label className={`flex items-center gap-md p-md bg-white border rounded-lg cursor-pointer transition-all ${scope === "full_campaign" ? "border-[#6d28d9]" : "border-[#ccc3d7]"}`}>
-                  <input
-                    type="radio"
-                    name="scope"
-                    value="full_campaign"
-                    checked={scope === "full_campaign"}
-                    onChange={() => setScope("full_campaign")}
-                    className="w-5 h-5 text-[#6d28d9] border-[#ccc3d7] focus:ring-[#6d28d9]"
-                  />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-body-md" style={{ fontSize: "0.9rem" }}>Full campaign approval</span>
-                    <span className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.75rem" }}>Approver reviews all assets and strategy docs</span>
-                  </div>
-                </label>
-                <label className={`flex items-center gap-md p-md bg-white border rounded-lg cursor-pointer transition-all ${scope === "individual_posts" ? "border-[#6d28d9]" : "border-[#ccc3d7]"}`}>
-                  <input
-                    type="radio"
-                    name="scope"
-                    value="individual_posts"
-                    checked={scope === "individual_posts"}
-                    onChange={() => setScope("individual_posts")}
-                    className="w-5 h-5 text-[#6d28d9] border-[#ccc3d7] focus:ring-[#6d28d9]"
-                  />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-body-md" style={{ fontSize: "0.9rem" }}>Individual post approval</span>
-                    <span className="text-label-sm text-[#4a4455]" style={{ fontSize: "0.75rem" }}>Approver reviews each specific post</span>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <div className="space-y-sm">
-              <label className="font-label-md text-label-md text-[#4a4455] block uppercase tracking-wider" style={{ fontSize: "0.7rem" }}>Message</label>
-              <textarea
-                className="w-full p-md bg-white border border-[#ccc3d7] rounded-lg text-body-md focus:ring-2 focus:ring-[#6d28d9] focus:outline-none"
-                placeholder="Add a note for the approver..."
+            <div className="space-y-2">
+              <TextareaZoom
+                label="Message"
                 rows={3}
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={setMessage}
+                placeholder="Add a note for the approver…"
               />
             </div>
 
-            <div className="flex items-center gap-xl">
-              <div className="flex-1 space-y-sm">
-                <label className="font-label-md text-label-md text-[#4a4455] block uppercase tracking-wider" style={{ fontSize: "0.7rem" }}>Due Date</label>
-                <input
-                  type="date"
-                  className="w-full h-12 pl-md pr-md bg-white border border-[#ccc3d7] rounded-lg text-body-md focus:ring-2 focus:ring-[#6d28d9] focus:outline-none"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                />
+            <div className="flex items-end gap-8">
+              <div className="flex-1 space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Due Date</Label>
+                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
               </div>
-              <div className="flex items-center gap-md pt-6">
-                <span className="text-label-md text-[#4a4455]" style={{ fontSize: "0.75rem" }}>Notify Approver</span>
+              <div className="flex items-center gap-3 pb-2.5">
+                <span className="text-xs text-muted-foreground">Notify Approver</span>
                 <button
                   type="button"
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#6d28d9] focus:ring-offset-2 ${notify ? "bg-[#6d28d9]" : "bg-[#dce2f7]"}`}
+                  role="switch"
+                  aria-checked={notify}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    notify ? "bg-primary" : "bg-muted",
+                  )}
                   onClick={() => setNotify((v) => !v)}
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out ${notify ? "translate-x-6" : "translate-x-1"}`} />
+                  <span
+                    className={cn(
+                      "inline-block size-4 transform rounded-full bg-white transition-transform duration-200 ease-in-out",
+                      notify ? "translate-x-6" : "translate-x-1",
+                    )}
+                  />
                 </button>
               </div>
             </div>
           </div>
 
-          <div className="px-xl py-lg bg-[#f1f3ff] border-t border-[#ccc3d7] flex items-center justify-end gap-md">
-            <button
-              type="button"
-              className="px-6 py-2.5 rounded-lg font-semibold text-[#4a4455] hover:bg-[#e1e8fd] transition-colors"
-              onClick={onClose}
-            >
+          <div className="flex items-center justify-end gap-3 border-t border-border bg-accent/40 px-6 py-4">
+            <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
-            </button>
-            <Button type="submit" disabled={busy} style={{ padding: "0.625rem 2rem" }}>
-              {busy ? "Sending..." : "Send Approval Request"}
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Sending…" : "Send Approval Request"}
             </Button>
           </div>
         </form>

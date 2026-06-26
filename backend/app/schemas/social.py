@@ -46,7 +46,7 @@ class ScheduledPostOut(BaseModel):
 
     id: str
     post_id: str
-    social_account_id: str
+    social_account_id: str | None = None
     post_image_id: str | None
     scheduled_at: datetime | None
     timezone: str
@@ -85,6 +85,9 @@ class AutopilotProposal(BaseModel):
     suggested_at: datetime
     local_label: str
     rationale: str
+    # When set, the post will be planned only (not approved yet, or no channel)
+    # and won't auto-publish until it's ready. Empty = ready to publish on time.
+    blocked_reason: str = ""
 
 
 class AutopilotSkipped(BaseModel):
@@ -176,3 +179,6 @@ class ScheduleablePostOut(BaseModel):
     channel_id: str
     channel_name: str
     best_time: str = ""
+    # When set, the post can't be scheduled yet (e.g. no connected channel).
+    # Empty string means the post is ready to schedule.
+    blocked_reason: str = ""

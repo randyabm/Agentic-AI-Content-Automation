@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { resolvePlatformRatios } from "../ratios";
 import type {
   ArticleListItem,
@@ -83,6 +84,12 @@ export default function Campaigns() {
   const [filterClient, setFilterClient] = useState(initClient);
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [view, setView] = useState<"list" | "cards">(
+    () => (localStorage.getItem("campaignsView") as "list" | "cards") || "list",
+  );
+  useEffect(() => {
+    localStorage.setItem("campaignsView", view);
+  }, [view]);
   const [deleteCandidate, setDeleteCandidate] = useState<CampaignListItem | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<{ elements: number; posts: number; images: number; videos: number } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -172,6 +179,7 @@ export default function Campaigns() {
           clients={clients}
           defaultClient={initClient}
           onCreated={(id) => { setMode("none"); navigate(`/campaigns/${id}`); }}
+          onCancel={() => setMode("none")}
         />
       )}
       {mode === "article" && (
@@ -223,8 +231,104 @@ export default function Campaigns() {
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
         </select>
+        <div className="ml-auto inline-flex overflow-hidden rounded-md border border-border">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors",
+              view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+            )}
+            title="List view"
+          >
+            <span className="material-symbols-outlined text-base">list</span> List
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("cards")}
+            className={cn(
+              "flex items-center gap-1.5 border-l border-border px-3 py-1.5 text-sm transition-colors",
+              view === "cards" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+            )}
+            title="Card view"
+          >
+            <span className="material-symbols-outlined text-base">grid_view</span> Cards
+          </button>
+        </div>
       </div>
 
+      {view === "list" && (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_110px_80px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div>Campaign</div>
+            <div>Client</div>
+            <div>Platforms</div>
+            <div className="text-center">Elements</div>
+            <div>Updated</div>
+            <div></div>
+          </div>
+          {visible.map((c) => {
+            const ab = (c as any).approval_status ? APPROVAL_BADGE[(c as any).approval_status] : null;
+            return (
+              <div
+                key={c.id}
+                onClick={() => navigate(`/campaigns/${c.id}`)}
+                className="grid cursor-pointer grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_110px_80px_90px_40px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/40"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className={cn(
+                      "size-2 shrink-0 rounded-full",
+                      c.status === "ready" ? "bg-emerald-500" : c.status === "failed" ? "bg-red-500" : "bg-amber-400",
+                    )}
+                    title={c.status}
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{c.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="rounded bg-muted px-1.5 py-px text-[10px] capitalize text-muted-foreground">{c.objective}</span>
+                      {ab && (
+                        <span className="rounded px-1.5 py-px text-[10px] font-medium" style={{ background: ab.bg, color: ab.text }}>{ab.label}</span>
+                      )}
+                      {c.status !== "generating" && c.visuals_generating && (
+                        <span className="text-[10px] text-amber-600">⏳ visuals</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="truncate text-sm text-muted-foreground">{clientName(c.client_id)}</div>
+                <div className="flex items-center gap-1.5">
+                  {(c.platforms ?? []).slice(0, 5).map((p) => (
+                    <PlatformIcon key={p} platform={p} size={15} />
+                  ))}
+                  {(c.platforms?.length ?? 0) > 5 && (
+                    <span className="text-[10px] text-muted-foreground">+{(c.platforms!.length - 5)}</span>
+                  )}
+                  {(c.platforms?.length ?? 0) === 0 && <span className="text-xs text-muted-foreground/50">—</span>}
+                </div>
+                <div className="text-center text-sm text-muted-foreground">{c.element_count ?? 0}</div>
+                <div className="text-xs text-muted-foreground">{new Date(c.updated_at).toLocaleDateString()}</div>
+                <button
+                  className="flex items-center justify-center rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-destructive"
+                  onClick={(e) => { e.stopPropagation(); openDeleteDialog(c); }}
+                  title="Delete campaign"
+                  aria-label="Delete campaign"
+                >
+                  <span className="material-symbols-outlined text-base">delete</span>
+                </button>
+              </div>
+            );
+          })}
+          {visible.length === 0 && campaigns.length > 0 && (
+            <p className="px-4 py-6 text-sm text-muted-foreground">No campaigns match the current filters.</p>
+          )}
+          {campaigns.length === 0 && (
+            <p className="px-4 py-6 text-sm text-muted-foreground">No campaigns yet. Create your first one.</p>
+          )}
+        </div>
+      )}
+
+      {view === "cards" && (
       <div className="card-grid">
         {visible.map((c) => {
           const client = clients.find((cl) => cl.id === c.client_id) ?? null;
@@ -281,6 +385,7 @@ export default function Campaigns() {
           <p className="muted">No campaigns yet. Create your first one.</p>
         )}
       </div>
+      )}
         </>
       )}
 
@@ -317,10 +422,12 @@ function CreateCampaign({
   clients,
   defaultClient,
   onCreated,
+  onCancel,
 }: {
   clients: Client[];
   defaultClient: string;
   onCreated: (id: string) => void;
+  onCancel: () => void;
 }) {
   const [specs, setSpecs] = useState<PlatformSpec[]>([]);
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
@@ -368,6 +475,8 @@ function CreateCampaign({
     ]);
     setNextKey((k) => k + 1);
   }
+
+  const [activeType, setActiveType] = useState<ElementType>("image");
 
   const updateElement = (key: number, patch: Partial<ElementDraft>) =>
     setElements((prev) => prev.map((el) => (el.key === key ? { ...el, ...patch } : el)));
@@ -645,22 +754,58 @@ function CreateCampaign({
                 <p style={{ fontSize: "0.8rem", color: "#4a4455", margin: 0 }}>Use the buttons below to add images, carousels, videos, or text.</p>
               </div>
             )}
-            {elements.map((el) => (
-              <div key={el.key} style={{ background: "white", borderRadius: "12px", border: "1px solid #e5e7eb", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", background: "#f1f3ff" }}>
-                  <strong style={{ fontSize: "0.8rem", color: "#141b2b" }}>{ELEMENT_LABELS[el.element_type]}</strong>
-                  <div style={{ display: "flex", gap: "0.25rem" }}>
-                    <button type="button" onClick={() => duplicateElement(el)}
-                      style={{ padding: "0.2rem 0.5rem", background: "none", border: "none", cursor: "pointer", color: "#6d28d9", fontSize: "0.75rem", fontWeight: 600 }}>Duplicate</button>
-                    <button type="button" onClick={() => removeElement(el.key)}
-                      style={{ padding: "0.2rem 0.5rem", background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: "0.75rem", fontWeight: 600 }}>✕</button>
+            {elements.length > 0 && (() => {
+              const presentTypes = (Object.keys(ELEMENT_LABELS) as ElementType[]).filter((t) =>
+                elements.some((el) => el.element_type === t),
+              );
+              const current = presentTypes.includes(activeType) ? activeType : presentTypes[0];
+              const rows = elements.filter((el) => el.element_type === current);
+              return (
+                <div>
+                  {/* Type tabs */}
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {presentTypes.map((t) => {
+                      const on = current === t;
+                      const count = elements.filter((el) => el.element_type === t).length;
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setActiveType(t)}
+                          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            on
+                              ? "border-transparent bg-primary text-primary-foreground"
+                              : "border-border bg-card text-muted-foreground hover:bg-accent"
+                          }`}
+                        >
+                          {ELEMENT_LABELS[t]}
+                          <span
+                            className={`rounded-full px-1.5 text-[0.65rem] font-bold ${
+                              on ? "bg-white/20 text-primary-foreground" : "bg-primary/10 text-primary"
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Active type rows */}
+                  <div className="flex flex-col gap-2">
+                    {rows.map((el) => (
+                      <ElementCard
+                        key={el.key}
+                        el={el}
+                        specs={specs}
+                        onChange={(patch) => updateElement(el.key, patch)}
+                        onRemove={() => removeElement(el.key)}
+                        onDuplicate={() => duplicateElement(el)}
+                      />
+                    ))}
                   </div>
                 </div>
-                <div style={{ padding: "1rem" }}>
-                  <ElementCard el={el} specs={specs} onChange={(patch) => updateElement(el.key, patch)} onRemove={(() => {}) as any} onDuplicate={(() => {}) as any} />
-                </div>
-              </div>
-            ))}
+              );
+            })()}
           </div>
 
           {/* Add Element buttons */}
@@ -679,7 +824,7 @@ function CreateCampaign({
 
           {/* Generate button */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", paddingTop: "0.5rem" }}>
-            <button type="button" onClick={() => { setMode("none"); }}
+            <button type="button" onClick={onCancel}
               style={{ padding: "0.65rem 1.5rem", borderRadius: "8px", border: "1px solid #ccc3d7", background: "white", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, color: "#4a4455" }}>
               Cancel
             </button>
@@ -743,9 +888,22 @@ function ElementCard({
 
   return (
     <div className="platform-config enabled element-card">
-      {/* Always visible: header + concept */}
+      {/* Always visible: platform-icon summary + actions */}
       <div className="card-header">
-        <strong>{ELEMENT_LABELS[el.element_type]}</strong>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {el.platforms.length === 0 ? (
+            <span className="muted small">No platforms</span>
+          ) : (
+            el.platforms.map((p) => (
+              <span key={p} title={specs.find((s) => s.platform === p)?.label ?? p} className="inline-flex">
+                <PlatformIcon platform={p} size={16} color="#6d28d9" />
+              </span>
+            ))
+          )}
+          {el.element_type !== "text" && uniqueRatios.length > 0 && (
+            <span className="muted small">· {uniqueRatios.join(", ")}</span>
+          )}
+        </div>
         <div className="competitor-actions">
           <Button type="button" variant="ghost" size="sm" onClick={onDuplicate}>Duplicate</Button>
           <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onRemove}>✕</Button>
@@ -771,14 +929,6 @@ function ElementCard({
         />
       </label>
 
-      {/* Collapsed summary */}
-      {!expanded && el.platforms.length > 0 && (
-        <p className="muted small" style={{ margin: "0.35rem 0 0" }}>
-          {el.platforms.map((p) => specs.find((s) => s.platform === p)?.label ?? p).join(", ")}
-          {el.element_type !== "text" && uniqueRatios.length > 0 && ` · ${uniqueRatios.join(", ")}`}
-        </p>
-      )}
-
       {/* Expanded details */}
       {expanded && (
         <>
@@ -801,13 +951,13 @@ function ElementCard({
 
           <div className="element-platforms">
             {specs.map((s) => (
-              <label key={s.platform} className="checkbox-label">
+              <label key={s.platform} className="checkbox-label" title={s.label}>
                 <input
                   type="checkbox"
                   checked={el.platforms.includes(s.platform)}
                   onChange={(e) => togglePlatform(s.platform, e.target.checked)}
                 />
-                {s.label}
+                <PlatformIcon platform={s.platform} size={16} color={el.platforms.includes(s.platform) ? "#6d28d9" : "#4a4455"} />
               </label>
             ))}
           </div>

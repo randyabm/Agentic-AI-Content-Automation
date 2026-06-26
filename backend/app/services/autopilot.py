@@ -16,7 +16,7 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.models.campaign import Campaign, Post
+from app.models.campaign import ApprovalStatus, Campaign, Post
 from app.models.social import SocialAccount
 
 # Industry-standard engagement windows per platform, in the audience's local time.
@@ -58,16 +58,19 @@ def _rationale(platform: str, slot: time, best_time_hint: str, used_hint: bool) 
 
 def propose_schedule(
     campaign: Campaign,
-    items: list[tuple[Post, SocialAccount]],
+    items: list[tuple[Post, SocialAccount | None]],
     tz_name: str = "UTC",
     per_day: int = 2,
     start_from: date | None = None,
 ) -> list[dict]:
     """Build proposed slots for (post, channel) pairs.
 
-    Returns one dict per pair: post_id, platform, channel id/name, the suggested
-    instant (UTC), its local label, and a rationale. Times are always strictly in
-    the future, spaced across days, and de-duplicated per channel.
+    `channel` may be None — that post is proposed as *plan-only* (it isn't ready
+    to publish yet because it's unapproved and/or has no connected channel). Each
+    proposal carries a `blocked_reason` ("" when ready). Returns one dict per
+    pair: post_id, platform, channel id/name, the suggested instant (UTC), its
+    local label, a rationale, and blocked_reason. Times are always strictly in
+    the future, spaced across days, and de-duplicated per channel/platform.
     """
     tz = _resolve_tz(tz_name)
     now = datetime.now(timezone.utc)
@@ -85,6 +88,15 @@ def propose_schedule(
 
     for idx, (post, channel) in enumerate(items):
         platform = post.platform.value
+        # Collision/dedup key: by channel when present, else by platform so
+        # plan-only posts of the same platform still spread out.
+        collide_key = channel.id if channel else f"plan:{platform}"
+        if post.approval_status != ApprovalStatus.approved:
+            blocked_reason = "Not approved yet"
+        elif channel is None:
+            blocked_reason = f"No connected {platform} channel"
+        else:
+            blocked_reason = ""
         windows = _windows_for(platform)
         # Prefer the editorial AI's own best-time hint when it parses; otherwise
         # fall back to the platform's standard engagement window (cycled so
@@ -103,7 +115,7 @@ def propose_schedule(
             if utc_dt <= now + timedelta(minutes=5):
                 day += timedelta(days=1)
                 continue
-            key = (channel.id, utc_dt.strftime("%Y-%m-%dT%H:%M"))
+            key = (collide_key, utc_dt.strftime("%Y-%m-%dT%H:%M"))
             if key in used:
                 day += timedelta(days=1)
                 continue
@@ -111,18 +123,19 @@ def propose_schedule(
         if window_end and day > window_end:
             # Campaign window exhausted — keep placing but flag it past the window.
             pass
-        used.add((channel.id, utc_dt.strftime("%Y-%m-%dT%H:%M")))
+        used.add((collide_key, utc_dt.strftime("%Y-%m-%dT%H:%M")))
 
         proposals.append({
             "post_id": post.id,
             "platform": platform,
-            "channel_id": channel.id,
-            "channel_name": channel.display_name or platform.title(),
+            "channel_id": channel.id if channel else "",
+            "channel_name": (channel.display_name if channel else "") or platform.title(),
             "headline": post.headline or "",
             "preview": (post.copy or post.headline or "").strip().replace("\n", " ")[:140],
             "suggested_at": utc_dt,
             "local_label": local_dt.strftime("%a %d %b · %H:%M"),
             "rationale": _rationale(platform, slot, post.best_time, used_hint=hint_time is not None),
+            "blocked_reason": blocked_reason,
         })
 
     return proposals

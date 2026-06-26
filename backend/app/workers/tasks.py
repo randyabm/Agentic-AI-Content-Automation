@@ -857,9 +857,12 @@ def publish_due_posts() -> None:
                     db.commit()
                     continue
                 if post.approval_status != ApprovalStatus.approved:
-                    sp.status = PublishStatus.failed
-                    sp.error = "Post was not approved at its scheduled time — skipped."
-                    db.commit()
+                    # Planned schedule that isn't approved yet — leave it pending
+                    # (don't fail, don't publish) until it's approved.
+                    continue
+                if not sp.social_account_id:
+                    # Planned schedule with no channel yet — leave it pending
+                    # (don't fail, don't publish) until a channel is connected.
                     continue
                 channel = db.get(SocialAccount, sp.social_account_id)
                 if channel is None or channel.status != ChannelStatus.connected:

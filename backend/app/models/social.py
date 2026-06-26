@@ -75,8 +75,10 @@ class ScheduledPost(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     post_id: Mapped[str] = mapped_column(String(36), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
-    social_account_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("social_accounts.id", ondelete="CASCADE"), index=True
+    # Nullable: a "planned" schedule (approved post with no connected channel yet)
+    # has no target account. The due sweep skips these until a channel exists.
+    social_account_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("social_accounts.id", ondelete="CASCADE"), index=True, nullable=True
     )
     # The chosen rendition (one of these), if any. Text-only posts have neither.
     post_image_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

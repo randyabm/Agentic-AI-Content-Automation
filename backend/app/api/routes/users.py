@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_platform_admin
+from app.api.deps import get_current_user, require_platform_admin
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.audit import AuditLog
@@ -11,6 +11,20 @@ from app.schemas.user import UserCreate, UserOut, UserUpdate
 from app.services import audit
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+# Mounted at the API root (no prefix): the current user's own org members.
+# Any authenticated org member can read it (e.g. an analyst picking an approver),
+# unlike /orgs/{id}/members which is org-admin only.
+team_router = APIRouter(tags=["team"])
+
+
+@team_router.get("/team", response_model=list[UserOut])
+def list_team(db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    if not actor.org_id:
+        return []
+    return db.scalars(
+        select(User).where(User.org_id == actor.org_id).order_by(User.created_at)
+    ).all()
 
 
 @router.get("", response_model=list[UserOut])

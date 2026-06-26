@@ -14,7 +14,10 @@ from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
-MIGRATIONS_DIR = Path(__file__).parent.parent.parent.parent / "migrations"
+# backend/app/db/migrations.py -> parents[2] is the backend/ dir (the image
+# WORKDIR /code in the container). Migration SQL lives in backend/migrations/ so
+# it's inside the Docker build context and copied into the image.
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 _CREATE_TRACKING_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_migrations (

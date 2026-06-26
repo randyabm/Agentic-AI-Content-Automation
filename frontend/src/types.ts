@@ -92,6 +92,8 @@ export interface AutopilotProposal {
   suggested_at: string;
   local_label: string;
   rationale: string;
+  /** When set, the post is proposed as plan-only (not approved yet / no channel). */
+  blocked_reason?: string;
 }
 
 export interface AutopilotSkipped {
@@ -158,6 +160,8 @@ export interface ScheduleablePost {
   channel_id: string;
   channel_name: string;
   best_time: string;
+  /** When set, the post can't be scheduled yet (e.g. no connected channel). */
+  blocked_reason?: string;
 }
 
 export interface Client {
@@ -578,6 +582,7 @@ export interface Post {
 export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
 
 export interface PublishState {
+  id: string;
   status: PublishStatus;
   published_url: string;
   scheduled_at: string | null;
@@ -638,4 +643,7 @@ export interface CampaignListItem {
   created_at: string;
   updated_at: string;
   visuals_generating?: boolean;
+  platforms?: string[];
+  element_count?: number;
+  post_count?: number;
 }

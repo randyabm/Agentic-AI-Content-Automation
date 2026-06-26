@@ -162,6 +162,35 @@ def list_campaigns(
     ).all()
     generating = set(img_ids) | set(vid_ids)
 
+    # List-view extras (aggregated per campaign): element count, post count, and
+    # the distinct set of platforms used across the campaign's elements.
+    camp_ids = [c.id for c in campaigns]
+    element_counts: dict[str, int] = {}
+    platforms_by_campaign: dict[str, list[str]] = {}
+    post_counts: dict[str, int] = {}
+    if camp_ids:
+        for cid, cnt in db.execute(
+            select(CampaignElement.campaign_id, func.count(CampaignElement.id))
+            .where(CampaignElement.campaign_id.in_(camp_ids))
+            .group_by(CampaignElement.campaign_id)
+        ).all():
+            element_counts[cid] = cnt
+        for cid, cnt in db.execute(
+            select(Post.campaign_id, func.count(Post.id))
+            .where(Post.campaign_id.in_(camp_ids))
+            .group_by(Post.campaign_id)
+        ).all():
+            post_counts[cid] = cnt
+        # Distinct platforms come from the per-platform Post rows.
+        for cid, platform in db.execute(
+            select(Post.campaign_id, Post.platform)
+            .where(Post.campaign_id.in_(camp_ids))
+            .distinct()
+        ).all():
+            platforms_by_campaign.setdefault(cid, []).append(
+                platform.value if hasattr(platform, "value") else str(platform)
+            )
+
     return [
         CampaignListItem(
             id=c.id,
@@ -172,6 +201,9 @@ def list_campaigns(
             created_at=c.created_at,
             updated_at=c.updated_at,
             visuals_generating=c.id in generating,
+            platforms=platforms_by_campaign.get(c.id, []),
+            element_count=element_counts.get(c.id, 0),
+            post_count=post_counts.get(c.id, 0),
         )
         for c in campaigns
     ]
@@ -291,6 +323,7 @@ def _latest_publish_states(db: Session, post_ids: list[str]) -> dict[str, Publis
         latest[sp.post_id] = sp
     return {
         pid: PublishStateOut(
+            id=sp.id,
             status=sp.status.value,
             published_url=sp.published_url or "",
             scheduled_at=sp.scheduled_at,
@@ -329,19 +362,43 @@ def submit_campaign_for_approval(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.submit_review)),
 ):
-    """Submit an entire campaign for approval. Locks editing until a decision."""
+    """Submit a campaign for approval.
+
+    full_campaign scope locks the whole campaign (pending_review). individual_posts
+    scope instead submits only the chosen posts for review and leaves the campaign
+    editable — the approver reviews each post in the review queue.
+    """
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status not in (CampaignApprovalStatus.draft, CampaignApprovalStatus.changes_requested, CampaignApprovalStatus.rejected):
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not in a submittable state")
-    campaign.approval_status = CampaignApprovalStatus.pending_review
+
+    # Shared assignment metadata (who reviews, by when, with what note).
     campaign.assigned_approver_id = body.assigned_approver_id
     campaign.approval_scope = body.approval_scope
     campaign.approval_due_date = body.approval_due_date
     campaign.approval_message = body.message
-    campaign.review_note = ""
+
+    if body.approval_scope == "individual_posts":
+        if not body.post_ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select at least one post for individual approval")
+        posts = db.scalars(
+            select(Post).where(Post.campaign_id == campaign.id, Post.id.in_(body.post_ids))
+        ).all()
+        if not posts:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "None of the selected posts belong to this campaign")
+        for p in posts:
+            p.approval_status = ApprovalStatus.pending_review
+            p.reviewed_by = None
+            p.review_note = ""
+    else:
+        campaign.approval_status = CampaignApprovalStatus.pending_review
+        campaign.review_note = ""
+
     db.commit()
     audit.record(db, actor, "campaign.submit_for_approval", "campaign", campaign.id, {
         "approver": body.assigned_approver_id,
+        "scope": body.approval_scope,
+        "post_ids": body.post_ids,
     })
     db.refresh(campaign)
     return campaign
@@ -631,22 +688,11 @@ def reject_post(
 
 
 def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:
-    """Shared guards for publish/schedule: the post must be approved and its
+    """Shared guards for publish (immediate): the post must be approved and its
     platform must have a connected channel. Returns the channel to publish to."""
     if post.approval_status != ApprovalStatus.approved:
         raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
-    platform_val = post.platform.value
-    # "x" and "twitter" are the same network; accept either stored value
-    platform_aliases = ["twitter", "x"] if platform_val == "x" else [platform_val]
-    channel = db.scalar(
-        select(SocialAccount)
-        .where(
-            SocialAccount.client_id == campaign.client_id,
-            SocialAccount.platform.in_(platform_aliases),
-            SocialAccount.status == ChannelStatus.connected,
-        )
-        .order_by(SocialAccount.created_at)
-    )
+    channel = _connected_channel(db, campaign.client_id, post.platform.value)
     if channel is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -682,10 +728,15 @@ def schedule_post_for_later(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.schedule)),
 ):
-    """Schedule an approved post to publish at a future time (the Beat sweep sends it)."""
+    """Schedule a post to publish at a future time (the Beat sweep sends it).
+
+    Approval and a connected channel are both optional here — this lets you lay
+    out a calendar up front (a *planned* schedule). The due sweep re-checks both
+    at send time and only publishes once the post is approved and has a connected
+    channel; otherwise it leaves the plan pending."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    channel = _require_publishable(db, campaign, post)
+    channel = _connected_channel(db, campaign.client_id, post.platform.value)
 
     when = body.scheduled_at
     if when.tzinfo is None:
@@ -699,7 +750,7 @@ def schedule_post_for_later(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     audit.record(
         db, actor, "post.schedule", "post", post.id,
-        {"channel": channel.id, "scheduled_at": when.isoformat()},
+        {"channel": channel.id if channel else None, "scheduled_at": when.isoformat()},
     )
     return sp
 
@@ -708,41 +759,32 @@ def schedule_post_for_later(
 
 
 def _connected_channel(db: Session, client_id: str, platform: str) -> SocialAccount | None:
+    # "x" and "twitter" are the same network; accept either stored value.
+    platform_aliases = ["twitter", "x"] if platform == "x" else [platform]
     return db.scalar(
         select(SocialAccount)
         .where(
             SocialAccount.client_id == client_id,
-            SocialAccount.platform == platform,
+            SocialAccount.platform.in_(platform_aliases),
             SocialAccount.status == ChannelStatus.connected,
         )
         .order_by(SocialAccount.created_at)
     )
 
 
-def _autopilot_split(db: Session, campaign: Campaign) -> tuple[list[tuple[Post, SocialAccount]], list[AutopilotSkipped]]:
-    """Partition a campaign's posts into schedulable (approved + connected channel)
-    pairs and skipped ones (with a reason), preserving order."""
+def _autopilot_split(db: Session, campaign: Campaign) -> tuple[list[tuple[Post, SocialAccount | None]], list[AutopilotSkipped]]:
+    """Pair every post in the campaign with its connected channel (or None when
+    there's none). Auto-schedule plans all posts — unapproved / channel-less ones
+    are proposed as plan-only (the proposal carries the reason), so nothing is
+    skipped. `skipped` is kept for API compatibility and is currently empty."""
     posts = db.scalars(
         select(Post).where(Post.campaign_id == campaign.id).order_by(Post.platform, Post.position)
     ).all()
-    items: list[tuple[Post, SocialAccount]] = []
-    skipped: list[AutopilotSkipped] = []
-    for post in posts:
-        if post.approval_status != ApprovalStatus.approved:
-            skipped.append(AutopilotSkipped(
-                post_id=post.id, platform=post.platform.value, headline=post.headline or "",
-                reason="Awaiting approval",
-            ))
-            continue
-        channel = _connected_channel(db, campaign.client_id, post.platform.value)
-        if channel is None:
-            skipped.append(AutopilotSkipped(
-                post_id=post.id, platform=post.platform.value, headline=post.headline or "",
-                reason=f"No connected {post.platform.value} channel",
-            ))
-            continue
-        items.append((post, channel))
-    return items, skipped
+    items: list[tuple[Post, SocialAccount | None]] = [
+        (post, _connected_channel(db, campaign.client_id, post.platform.value))
+        for post in posts
+    ]
+    return items, []
 
 
 @router.post("/{campaign_id}/autopilot/preview", response_model=AutopilotPreviewResponse)
@@ -776,14 +818,10 @@ def autopilot_commit(
     created = []
     for item in body.items:
         post = _get_post_or_404(db, campaign_id, item.post_id)
-        if post.approval_status != ApprovalStatus.approved:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"Post {post.id} is not approved.")
+        # Approval and a connected channel are optional — channel-less / unapproved
+        # posts are committed as plan-only and the due sweep won't publish them
+        # until they're ready.
         channel = _connected_channel(db, campaign.client_id, post.platform.value)
-        if channel is None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"No connected {post.platform.value} channel for one of the posts.",
-            )
         when = item.scheduled_at
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
