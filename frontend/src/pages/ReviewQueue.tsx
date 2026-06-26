@@ -94,16 +94,20 @@ export default function ReviewQueue() {
 
   return (
     <div>
-      <div className="page-header">
+      <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h1>
             <CheckCircle2 size={20} style={{ verticalAlign: "-4px" }} /> Review Queue
           </h1>
-          <p className="muted">Posts and campaigns awaiting your approval.</p>
+          <p className="text-sm text-muted-foreground">Posts and campaigns awaiting your approval.</p>
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="mb-4 flex gap-2">
@@ -122,9 +126,13 @@ export default function ReviewQueue() {
       </div>
 
       {loading ? (
-        <div className="card"><p className="muted">Loading…</p></div>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        </div>
       ) : filtered.length === 0 ? (
-        <div className="card"><p className="muted">Nothing to review right now. 🎉</p></div>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <p className="text-sm text-muted-foreground">Nothing to review right now. 🎉</p>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map((item) => (

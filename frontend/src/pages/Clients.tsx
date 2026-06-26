@@ -7,14 +7,15 @@ import { ClientAvatar } from "../components/ClientAvatar";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import type { Client } from "../types";
 
 type DeletionSummary = { campaigns: number; competitors: number; articles: number };
 
-const ONBOARDING_BADGE: Record<string, { label: string; cls: string; spin?: boolean }> = {
-  running: { label: "Setting up…", cls: "onboarding-badge running", spin: true },
-  completed_with_errors: { label: "Setup incomplete", cls: "onboarding-badge error" },
-  failed: { label: "Setup failed", cls: "onboarding-badge error" },
+const ONBOARDING_BADGE: Record<string, { label: string; variant: "warning" | "destructive"; spin?: boolean }> = {
+  running: { label: "Setting up…", variant: "warning", spin: true },
+  completed_with_errors: { label: "Setup incomplete", variant: "destructive" },
+  failed: { label: "Setup failed", variant: "destructive" },
 };
 
 export default function Clients() {
@@ -47,7 +48,6 @@ export default function Clients() {
     loadStatuses();
   }, [loadStatuses]);
 
-  // Poll while any client is still onboarding.
   useEffect(() => {
     const anyRunning = Object.values(statuses).some((s) => s === "running");
     if (anyRunning && pollRef.current === null) {
@@ -70,7 +70,6 @@ export default function Clients() {
     setError("");
     setPendingDelete(client);
     setDeleteSummary(null);
-    // Fetch concrete counts to show in the warning (best-effort).
     api<DeletionSummary>(`/clients/${client.id}/deletion-summary`)
       .then(setDeleteSummary)
       .catch(() => setDeleteSummary(null));
@@ -103,7 +102,6 @@ export default function Clients() {
       setName("");
       setUrl("");
       setShowForm(false);
-      // Onboarding runs in the background; the client detail page shows live progress.
       navigate(`/clients/${client.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create client");
@@ -118,7 +116,7 @@ export default function Clients() {
 
   return (
     <div>
-      <div className="page-header">
+      <div className="mb-5 flex items-center justify-between gap-4">
         <h1>Clients</h1>
         {canEdit && (
           <Button variant={showForm ? "ghost" : "default"} onClick={() => setShowForm((v) => !v)}>
@@ -128,96 +126,103 @@ export default function Clients() {
       </div>
 
       {showForm && (
-        <form className="card form-inline" onSubmit={createClient}>
-          <label>
-            Company name
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
-          </label>
-          <label>
-            Website URL
-            <Input
-              type="url"
-              placeholder="https://example.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-            />
-          </label>
+        <form onSubmit={createClient} className="mb-4 flex flex-wrap items-end gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex-1 min-w-[200px]">
+            <label className="mb-0 block text-sm">Company name
+              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            </label>
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            <label className="mb-0 block text-sm">Website URL
+              <Input
+                type="url"
+                placeholder="https://example.com"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                required
+              />
+            </label>
+          </div>
           <Button type="submit" disabled={busy}>
             {busy ? "Creating…" : "Create"}
           </Button>
         </form>
       )}
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
 
-      {/* Search bar */}
-      <div className="client-filter-bar">
-        <div className="client-filter-search">
-          <Search size={15} className="client-search-icon" />
+      <div className="mb-4 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search clients…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ margin: 0, paddingLeft: "2rem" }}
+            className="pl-8"
           />
         </div>
-        <span className="muted small" style={{ marginLeft: "auto" }}>
+        <span className="ml-auto text-sm text-muted-foreground">
           {visible.length} client{visible.length !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <div className="card-grid">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
         {visible.map((c) => {
           const badge = ONBOARDING_BADGE[statuses[c.id]];
           const colors = c.brand_colors?.length ? c.brand_colors : null;
           return (
             <div
               key={c.id}
-              className={`card client-card client-card-v2 ${statuses[c.id] === "running" ? "onboarding-running" : ""}`}
+              className={cn(
+                "group relative block overflow-hidden rounded-xl border border-border bg-card text-inherit transition-all hover:-translate-y-0.5 hover:border-primary hover:shadow-md",
+                statuses[c.id] === "running" && "ring-2 ring-amber-400/30",
+              )}
             >
-              {/* Brand color banner */}
               <div
-                className="client-card-banner"
+                className="h-[52px] flex-shrink-0 bg-gradient-to-br from-primary to-indigo-400"
                 style={
                   colors
-                    ? {
-                        background: `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})`,
-                      }
+                    ? { background: `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` }
                     : undefined
                 }
               />
 
-              <Link to={`/clients/${c.id}`} className="client-card-body">
-                {/* Avatar overlapping the banner */}
-                <div className="client-card-avatar-wrap">
-                  <ClientAvatar client={c} />
+              <Link to={`/clients/${c.id}`} className="flex flex-1 flex-col px-4 pb-4 text-inherit no-underline">
+                <div className="-mt-[22px] mb-1.5">
+                  <ClientAvatar client={c} className="border-2 border-surface shadow-sm" />
                 </div>
 
-                <div className="client-card-content">
-                  <div className="client-card-name-row">
-                    <h3 className="client-card-name">{c.company_name}</h3>
-                  </div>
+                <div className="flex flex-col">
+                  <h3 className="mb-1">{c.company_name}</h3>
 
                   {c.industry && (
-                    <div className="client-card-industry">
+                    <div className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
                       <Building2 size={12} />
                       <span>{c.industry}</span>
                     </div>
                   )}
 
                   {badge && (
-                    <span className={badge.cls} style={{ marginBottom: "0.4rem" }}>
-                      {badge.spin && <span className="spinner-inline" />} {badge.label}
+                    <span
+                      className={cn(
+                        "mb-1.5 inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold",
+                        badge.variant === "warning" && "bg-amber-100 text-amber-800",
+                        badge.variant === "destructive" && "bg-red-100 text-red-700",
+                      )}
+                    >
+                      {badge.spin && <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+                      {badge.label}
                     </span>
                   )}
 
                   {colors && (
-                    <div className="client-card-colors">
+                    <div className="mb-1.5 flex flex-wrap gap-1">
                       {colors.slice(0, 5).map((col, i) => (
                         <span
                           key={i}
-                          className="client-color-dot"
+                          className="inline-block size-3 rounded-full border border-black/10 shadow-sm"
                           style={{ background: col }}
                           title={col}
                         />
@@ -225,7 +230,7 @@ export default function Clients() {
                     </div>
                   )}
 
-                  <p className="client-card-date">
+                  <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock size={11} />
                     {c.last_extraction_at
                       ? new Date(c.last_extraction_at).toLocaleDateString()
@@ -235,23 +240,25 @@ export default function Clients() {
               </Link>
 
               {canEdit && (
-                <button
-                  className="client-card-delete-v2"
+                <Button
+                  variant="ghost"
+                  size="icon"
                   title="Delete client"
                   onClick={(e) => openDeleteDialog(e, c)}
                   aria-label="Delete client"
+                  className="absolute right-2 top-2 size-7 opacity-0 transition-opacity group-hover:opacity-100"
                 >
                   <Trash2 size={14} />
-                </button>
+                </Button>
               )}
             </div>
           );
         })}
         {visible.length === 0 && clients.length > 0 && (
-          <p className="muted">No clients match your search.</p>
+          <p className="col-span-full text-sm text-muted-foreground">No clients match your search.</p>
         )}
         {clients.length === 0 && !error && (
-          <p className="muted">No clients yet. {canEdit ? "Create the first one." : ""}</p>
+          <p className="col-span-full text-sm text-muted-foreground">No clients yet. {canEdit ? "Create the first one." : ""}</p>
         )}
       </div>
 
@@ -267,20 +274,20 @@ export default function Clients() {
             setDeleteSummary(null);
           }}
         >
-          <p className="muted">
+          <p className="text-sm text-muted-foreground">
             This permanently deletes the client and everything associated with it.
             This cannot be undone.
           </p>
           {deleteSummary ? (
-            <ul className="deletion-summary-list">
+            <ul className="my-3 list-disc pl-5 text-sm">
               {deleteSummary.campaigns > 0 && <li>{deleteSummary.campaigns} campaign{deleteSummary.campaigns !== 1 ? "s" : ""}</li>}
               {deleteSummary.competitors > 0 && <li>{deleteSummary.competitors} competitor{deleteSummary.competitors !== 1 ? "s" : ""}</li>}
               {deleteSummary.articles > 0 && <li>{deleteSummary.articles} article{deleteSummary.articles !== 1 ? "s" : ""}</li>}
             </ul>
           ) : (
-            <p className="muted small">Calculating associated records…</p>
+            <p className="text-sm text-muted-foreground">Calculating associated records…</p>
           )}
-          <p className="muted small">This action cannot be undone.</p>
+          <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
         </ConfirmDialog>
       )}
     </div>

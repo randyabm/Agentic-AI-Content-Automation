@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Send } from "lucide-react";
 import { api } from "../api";
 import { getBlobUrl } from "../lib/blobCache";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
@@ -8,6 +9,7 @@ import { SendForApprovalModal } from "../components/SendForApprovalModal";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../auth";
 import type { CampaignDetail as Campaign, CampaignElement, Post } from "../types";
+import { cn } from "@/lib/utils";
 
 export default function CampaignPreview() {
   const { campaignId } = useParams();
@@ -34,8 +36,8 @@ export default function CampaignPreview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
-  if (loading) return <div className="page-loading">Loading…</div>;
-  if (!campaign) return <div className="page-loading">Campaign not found</div>;
+  if (loading) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
+  if (!campaign) return <div className="py-12 text-center text-muted-foreground">Campaign not found</div>;
 
   const posts = campaign.posts ?? [];
   const platforms = Array.from(new Set(posts.map((p) => p.platform)));
@@ -58,7 +60,6 @@ export default function CampaignPreview() {
         </p>
       </div>
 
-      {/* Summary card */}
       <div className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4 rounded-xl border border-border bg-card p-6 shadow-sm">
         <div>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">Client</p>
@@ -90,8 +91,7 @@ export default function CampaignPreview() {
         </div>
       </div>
 
-      {/* Elements grid — element-centric, grouped like the review view */}
-      <div className="element-grid mb-6">
+      <div className="mb-6 grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
         {[...campaign.elements]
           .sort((a, b) => a.position - b.position)
           .map((el) => (
@@ -105,10 +105,8 @@ export default function CampaignPreview() {
         {campaign.elements.length === 0 && <p className="text-muted-foreground">No elements in this campaign yet.</p>}
       </div>
 
-      {/* Workflow stepper */}
       <WorkflowStepper currentStep="preview" />
 
-      {/* Actions */}
       <div className="mt-6 flex items-center justify-between rounded-xl border border-border bg-card p-4 shadow-sm">
         <p className="text-xs text-muted-foreground">Preview Mode</p>
         <div className="flex gap-3">
@@ -117,7 +115,7 @@ export default function CampaignPreview() {
           </Button>
           {canSubmit && (
             <Button onClick={() => setShowApproval(true)}>
-              <span className="material-symbols-outlined mr-1 text-base">send</span> Send for Approval
+              <Send size={14} className="mr-1" /> Send for Approval
             </Button>
           )}
         </div>
@@ -136,9 +134,6 @@ export default function CampaignPreview() {
   );
 }
 
-/** Element-centric preview card — mirrors the review view's ElementCard: the
- *  shared visual once, the platforms it targets, type/ratio/count meta, and a
- *  schedule summary. Groups posts by element/type instead of per platform. */
 function ElementPreviewCard({
   campaignId,
   element,
@@ -199,32 +194,45 @@ function ElementPreviewCard({
   ).length;
 
   return (
-    <div className="card element-card">
-      <div className="element-thumb">
+    <div className="cursor-pointer overflow-hidden rounded-xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex aspect-square items-center justify-center overflow-hidden bg-slate-100">
         {imageUrl ? (
-          <img src={imageUrl} alt="" loading="lazy" />
+          <img src={imageUrl} alt="" loading="lazy" className="h-full w-full object-contain" />
         ) : videoUrl ? (
           <video src={videoUrl} muted playsInline preload="metadata" />
         ) : element.element_type === "text" ? (
-          <div className="image-empty muted">Text only</div>
+          <div className="p-8 text-sm text-muted-foreground">Text only</div>
         ) : (
-          <div className="image-empty">{videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}</div>
+          <div className="p-8 text-sm text-muted-foreground">
+            {videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}
+          </div>
         )}
       </div>
-      <div className="element-card-body">
-        <strong className="small element-headline">{headline}</strong>
-        <div className="platform-chips">
+      <div className="flex flex-col gap-1.5 p-3">
+        <strong className="line-clamp-2 text-sm font-semibold">{headline}</strong>
+        <div className="flex flex-wrap gap-1">
           {element.platforms.map((p) => (
-            <span key={p} className="chip">
+            <span
+              key={p}
+              className="inline-flex items-center gap-1 rounded-full border border-primary-soft-border bg-accent px-2 py-0.5 text-[0.7rem] font-medium capitalize text-primary"
+            >
               <PlatformIcon platform={p} size={12} /> {p}
             </span>
           ))}
         </div>
-        <div className="muted small element-meta">{meta.join(" · ")}</div>
+        <div className="text-xs text-muted-foreground">{meta.join(" · ")}</div>
         {(scheduledCount > 0 || publishedCount > 0) && (
-          <div className="platform-chips" style={{ marginTop: 4 }}>
-            {scheduledCount > 0 && <span className="tag">⏰ {scheduledCount} scheduled</span>}
-            {publishedCount > 0 && <span className="tag tag-green">✅ {publishedCount} published</span>}
+          <div className={cn("flex flex-wrap gap-1")} style={{ marginTop: 4 }}>
+            {scheduledCount > 0 && (
+              <span className="inline-block rounded-full border border-primary-soft-border bg-accent px-2.5 py-0.5 text-xs font-medium text-primary">
+                ⏰ {scheduledCount} scheduled
+              </span>
+            )}
+            {publishedCount > 0 && (
+              <span className="inline-block rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                ✅ {publishedCount} published
+              </span>
+            )}
           </div>
         )}
       </div>

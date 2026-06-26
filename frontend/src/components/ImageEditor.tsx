@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Plus, X } from "lucide-react";
 import { api, apiBlob, downloadFile } from "../api";
 import { TextareaZoom } from "./TextareaZoom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import type { CanvasState, Client, LayerGeom, PostAsset, PostImage, TextLayerState } from "../types";
 
 const STAGE_W = 460;
@@ -12,35 +17,30 @@ function ratioToHeight(aspect: string, width: number): number {
 }
 
 interface EditorLayer extends LayerGeom {
-  key: string;           // logo | asset:<id>
+  key: string;
   kind: "logo" | "asset";
-  url: string;           // object URL for display
+  url: string;
   label: string;
 }
 
-// CSS stacks matching the backend's DejaVu families so preview ≈ export.
 const TEXT_FONTS: Record<TextLayerState["font"], string> = {
   sans: "'DejaVu Sans', Verdana, Arial, sans-serif",
   serif: "'DejaVu Serif', Georgia, serif",
   mono: "'DejaVu Sans Mono', 'Courier New', monospace",
 };
 
-export function ImageEditor({
-  campaignId,
-  image,
-  client,
-  onClose,
-  onSaved,
-}: {
-  campaignId: string;
-  image: PostImage;
-  client: Client;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+// Resize-handle positioning — placed on a single base class with corner variants.
+const HANDLE_BASE = "absolute size-3.5 rounded-full border-2 border-primary bg-white shadow-md z-[2] touch-none";
+const HANDLE_CORNERS = {
+  tl: "top-0 left-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize",
+  tr: "top-0 right-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize",
+  bl: "bottom-0 left-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize",
+  br: "bottom-0 right-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize",
+  rotate: "top-0 left-1/2 -translate-x-1/2 -translate-y-[32px] cursor-grab bg-primary border-white",
+} as const;
+
+export function ImageEditor({ campaignId, image, client, onClose, onSaved }: { campaignId: string; image: PostImage; client: Client; onClose: () => void; onSaved: () => void }) {
   const [baseUrl, setBaseUrl] = useState("");
-  // Real aspect (h/w) of the loaded base image, so the stage matches the picture
-  // exactly and nothing is cropped — overlays stay aligned with the export.
   const [baseAspect, setBaseAspect] = useState(0);
   const [layers, setLayers] = useState<EditorLayer[]>([]);
   const [texts, setTexts] = useState<TextLayerState[]>([]);
@@ -50,34 +50,20 @@ export function ImageEditor({
   const [error, setError] = useState("");
   const stageRef = useRef<HTMLDivElement>(null);
   const wrapRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  // Direct-manipulation gesture: drag to move, corner handles to resize, top
-  // handle to rotate — all on the canvas, no sliders for size/rotation.
   const drag = useRef<
     | {
         key: string;
         mode: "move" | "resize" | "rotate";
         isText: boolean;
-        // move
-        dx?: number;
-        dy?: number;
-        // resize / rotate share a fixed center (in stage fractions)
-        cxFrac?: number;
-        cyFrac?: number;
-        // resize
-        startDist?: number;
-        startScale?: number;
-        startW?: number;
-        startH?: number;
-        // rotate
-        startAngle?: number;
-        startRot?: number;
-      }
-    | null
+        dx?: number; dy?: number;
+        cxFrac?: number; cyFrac?: number;
+        startDist?: number; startScale?: number; startW?: number; startH?: number;
+        startAngle?: number; startRot?: number;
+      } | null
   >(null);
 
   const stageH = baseAspect > 0 ? Math.round(STAGE_W * baseAspect) : ratioToHeight(image.aspect_ratio, STAGE_W);
 
-  // Load base image, logo, and campaign assets, then rebuild layers from canvas_state.
   useEffect(() => {
     let active = true;
     const urls: string[] = [];
@@ -100,19 +86,10 @@ export function ImageEditor({
           urls.push(lu);
           const g = state.logo;
           built.push({
-            key: "logo",
-            kind: "logo",
-            url: lu,
-            label: "Logo",
-            x: g?.x ?? 0.05,
-            y: g?.y ?? 0.05,
-            scale: g?.scale ?? 0.25,
-            opacity: g?.opacity ?? 1,
-            rotation: g?.rotation ?? 0,
-            locked: g?.locked ?? false,
-            // Visible by default: placing the logo is the editor's main purpose (§5.5.1).
-            visible: g?.visible ?? true,
-            z: 999,
+            key: "logo", kind: "logo", url: lu, label: "Logo",
+            x: g?.x ?? 0.05, y: g?.y ?? 0.05, scale: g?.scale ?? 0.25,
+            opacity: g?.opacity ?? 1, rotation: g?.rotation ?? 0,
+            locked: g?.locked ?? false, visible: g?.visible ?? true, z: 999,
           });
         }
 
@@ -122,53 +99,33 @@ export function ImageEditor({
           urls.push(au);
           const g = (state.assets || []).find((s) => s.asset_id === a.id);
           built.push({
-            key: `asset:${a.id}`,
-            kind: "asset",
-            asset_id: a.id,
-            url: au,
-            label: a.filename,
-            x: g?.x ?? 0.3,
-            y: g?.y ?? 0.3,
-            scale: g?.scale ?? 0.3,
-            opacity: g?.opacity ?? 1,
-            rotation: g?.rotation ?? 0,
-            z: g?.z ?? 1,
+            key: `asset:${a.id}`, kind: "asset", asset_id: a.id, url: au, label: a.filename,
+            x: g?.x ?? 0.3, y: g?.y ?? 0.3, scale: g?.scale ?? 0.3,
+            opacity: g?.opacity ?? 1, rotation: g?.rotation ?? 0, z: g?.z ?? 1,
             visible: g?.visible ?? Boolean(g),
           });
         }
-        if (active) {
-          setLayers(built);
-          setTexts(state.texts || []);
-        }
+        if (active) { setLayers(built); setTexts(state.texts || []); }
       } catch (e) {
         if (active) setError(e instanceof Error ? e.message : "Could not load editor");
       }
     })();
-    return () => {
-      active = false;
-      urls.forEach((u) => URL.revokeObjectURL(u));
-    };
+    return () => { active = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image.id]);
 
   function patch(key: string, p: Partial<EditorLayer>) {
     setLayers((prev) => prev.map((l) => (l.key === key ? { ...l, ...p } : l)));
   }
-
   function patchText(id: string, p: Partial<TextLayerState>) {
     setTexts((prev) => prev.map((t) => (t.id === id ? { ...t, ...p } : t)));
   }
-
-  // --- Direct manipulation: move / resize (corners) / rotate (top handle) ---
 
   function centerFrac(key: string): { cx: number; cy: number } {
     const box = wrapRefs.current[key]?.getBoundingClientRect();
     const stage = stageRef.current!.getBoundingClientRect();
     if (!box) return { cx: 0.5, cy: 0.5 };
-    return {
-      cx: (box.left + box.width / 2 - stage.left) / STAGE_W,
-      cy: (box.top + box.height / 2 - stage.top) / stageH,
-    };
+    return { cx: (box.left + box.width / 2 - stage.left) / STAGE_W, cy: (box.top + box.height / 2 - stage.top) / stageH };
   }
 
   function startMove(e: React.PointerEvent, key: string, x: number, y: number, locked?: boolean) {
@@ -176,13 +133,7 @@ export function ImageEditor({
     e.stopPropagation();
     setSelected(key);
     const rect = stageRef.current!.getBoundingClientRect();
-    drag.current = {
-      key,
-      mode: "move",
-      isText: key.startsWith("text:"),
-      dx: e.clientX - rect.left - x * STAGE_W,
-      dy: e.clientY - rect.top - y * stageH,
-    };
+    drag.current = { key, mode: "move", isText: key.startsWith("text:"), dx: e.clientX - rect.left - x * STAGE_W, dy: e.clientY - rect.top - y * stageH };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
@@ -190,22 +141,12 @@ export function ImageEditor({
     e.stopPropagation();
     const el = wrapRefs.current[key];
     if (!el) return;
-    const box = el.getBoundingClientRect(); // center (rotation-invariant)
+    const box = el.getBoundingClientRect();
     const cxS = box.left + box.width / 2;
     const cyS = box.top + box.height / 2;
     const { cx, cy } = centerFrac(key);
-    drag.current = {
-      key,
-      mode: "resize",
-      isText: key.startsWith("text:"),
-      cxFrac: cx,
-      cyFrac: cy,
-      startDist: Math.hypot(e.clientX - cxS, e.clientY - cyS) || 1,
-      startScale,
-      // Layout box (ignores the rotate transform) so the kept-fixed center is exact.
-      startW: el.offsetWidth,
-      startH: el.offsetHeight,
-    };
+    drag.current = { key, mode: "resize", isText: key.startsWith("text:"), cxFrac: cx, cyFrac: cy,
+      startDist: Math.hypot(e.clientX - cxS, e.clientY - cyS) || 1, startScale, startW: el.offsetWidth, startH: el.offsetHeight };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
@@ -216,15 +157,8 @@ export function ImageEditor({
     const cxS = box.left + box.width / 2;
     const cyS = box.top + box.height / 2;
     const { cx, cy } = centerFrac(key);
-    drag.current = {
-      key,
-      mode: "rotate",
-      isText: key.startsWith("text:"),
-      cxFrac: cx,
-      cyFrac: cy,
-      startAngle: Math.atan2(e.clientY - cyS, e.clientX - cxS),
-      startRot,
-    };
+    drag.current = { key, mode: "rotate", isText: key.startsWith("text:"), cxFrac: cx, cyFrac: cy,
+      startAngle: Math.atan2(e.clientY - cyS, e.clientX - cxS), startRot };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
@@ -259,10 +193,9 @@ export function ImageEditor({
       return;
     }
 
-    // rotate
     const ang = Math.atan2(e.clientY - cyS, e.clientX - cxS);
     let deg = Math.round(d.startRot! + ((ang - d.startAngle!) * 180) / Math.PI);
-    deg = ((deg + 180) % 360 + 360) % 360 - 180; // normalize to (-180, 180]
+    deg = ((deg + 180) % 360 + 360) % 360 - 180;
     for (const snap of [-180, -135, -90, -45, 0, 45, 90, 135, 180]) {
       if (Math.abs(deg - snap) <= 3) deg = snap;
     }
@@ -272,19 +205,9 @@ export function ImageEditor({
 
   function addText() {
     const t: TextLayerState = {
-      id: crypto.randomUUID(),
-      text: "Your text",
-      x: 0.1,
-      y: 0.45,
-      size: 0.06,
-      color: "#ffffff",
-      font: "sans",
-      bold: true,
-      italic: false,
-      rotation: 0,
-      opacity: 1,
-      z: texts.length + 1,
-      visible: true,
+      id: crypto.randomUUID(), text: "Your text", x: 0.1, y: 0.45, size: 0.06,
+      color: "#ffffff", font: "sans", bold: true, italic: false, rotation: 0,
+      opacity: 1, z: texts.length + 1, visible: true,
     };
     setTexts((prev) => [...prev, t]);
     setSelected(`text:${t.id}`);
@@ -295,20 +218,17 @@ export function ImageEditor({
     setSelected((s) => (s === `text:${id}` ? null : s));
   }
 
-  function onPointerUp() {
-    drag.current = null;
-  }
+  function onPointerUp() { drag.current = null; }
 
-  // Selection chrome: four corner handles (resize) + a top handle (rotate).
   function renderHandles(key: string, scale: number, rotation: number) {
     return (
       <>
-        <div className="rot-arm" />
-        <div className="ed-handle rotate" onPointerDown={(e) => startRotate(e, key, rotation)} title="Drag to rotate" />
-        <div className="ed-handle tl" onPointerDown={(e) => startResize(e, key, scale)} />
-        <div className="ed-handle tr" onPointerDown={(e) => startResize(e, key, scale)} />
-        <div className="ed-handle bl" onPointerDown={(e) => startResize(e, key, scale)} />
-        <div className="ed-handle br" onPointerDown={(e) => startResize(e, key, scale)} />
+        <div className="absolute left-1/2 top-0 z-[1] h-[25px] w-0.5 -translate-x-1/2 -translate-y-[25px] bg-primary" />
+        <div className={cn(HANDLE_BASE, HANDLE_CORNERS.rotate)} onPointerDown={(e) => startRotate(e, key, rotation)} title="Drag to rotate" />
+        <div className={cn(HANDLE_BASE, HANDLE_CORNERS.tl)} onPointerDown={(e) => startResize(e, key, scale)} />
+        <div className={cn(HANDLE_BASE, HANDLE_CORNERS.tr)} onPointerDown={(e) => startResize(e, key, scale)} />
+        <div className={cn(HANDLE_BASE, HANDLE_CORNERS.bl)} onPointerDown={(e) => startResize(e, key, scale)} />
+        <div className={cn(HANDLE_BASE, HANDLE_CORNERS.br)} onPointerDown={(e) => startResize(e, key, scale)} />
       </>
     );
   }
@@ -329,96 +249,50 @@ export function ImageEditor({
   }
 
   async function uploadAsset(file: File) {
-    setBusy("Uploading asset…");
-    setError("");
+    setBusy("Uploading asset…"); setError("");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
+      const fd = new FormData(); fd.append("file", file);
       const created = await api<PostAsset>(`/campaigns/${campaignId}/assets`, { method: "POST", formData: fd });
       const ab = await apiBlob(`/campaigns/${campaignId}/assets/${created.id}/file`);
       const au = URL.createObjectURL(ab);
       setAssets((prev) => [...prev, created]);
-      setLayers((prev) => [
-        ...prev,
-        {
-          key: `asset:${created.id}`,
-          kind: "asset",
-          asset_id: created.id,
-          url: au,
-          label: created.filename,
-          x: 0.3,
-          y: 0.3,
-          scale: 0.3,
-          opacity: 1,
-          rotation: 0,
-          z: prev.filter((l) => l.kind === "asset").length + 1,
-          visible: true,
-        },
-      ]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setBusy("");
-    }
+      setLayers((prev) => [...prev, {
+        key: `asset:${created.id}`, kind: "asset", asset_id: created.id, url: au, label: created.filename,
+        x: 0.3, y: 0.3, scale: 0.3, opacity: 1, rotation: 0,
+        z: prev.filter((l) => l.kind === "asset").length + 1, visible: true,
+      }]);
+    } catch (e) { setError(e instanceof Error ? e.message : "Upload failed"); }
+    finally { setBusy(""); }
   }
 
   function serialize(): CanvasState {
     const state: CanvasState = { assets: [], texts: texts.filter((t) => t.text.trim()) };
     for (const l of layers) {
-      const geom: LayerGeom = {
-        x: l.x,
-        y: l.y,
-        scale: l.scale,
-        opacity: l.opacity,
-        rotation: l.rotation ?? 0,
-        visible: l.visible !== false,
-      };
-      if (l.kind === "logo") {
-        state.logo = { ...geom, locked: l.locked ?? false };
-      } else {
-        state.assets!.push({ ...geom, asset_id: l.asset_id, z: l.z ?? 0 });
-      }
+      const geom: LayerGeom = { x: l.x, y: l.y, scale: l.scale, opacity: l.opacity, rotation: l.rotation ?? 0, visible: l.visible !== false };
+      if (l.kind === "logo") state.logo = { ...geom, locked: l.locked ?? false };
+      else state.assets!.push({ ...geom, asset_id: l.asset_id, z: l.z ?? 0 });
     }
     return state;
   }
 
   async function save() {
-    setBusy("Saving…");
-    setError("");
+    setBusy("Saving…"); setError("");
     try {
-      await api(`/campaigns/${campaignId}/images/${image.id}/canvas`, {
-        method: "PUT",
-        body: { canvas_state: serialize() },
-      });
+      await api(`/campaigns/${campaignId}/images/${image.id}/canvas`, { method: "PUT", body: { canvas_state: serialize() } });
       onSaved();
       onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Save failed"); }
+    finally { setBusy(""); }
   }
 
-  // Persist the current canvas, then download the freshly composited PNG so the
-  // file reflects exactly what's on screen (logo + assets + text).
   async function downloadComposite() {
-    setBusy("Preparing download…");
-    setError("");
+    setBusy("Preparing download…"); setError("");
     try {
-      await api(`/campaigns/${campaignId}/images/${image.id}/canvas`, {
-        method: "PUT",
-        body: { canvas_state: serialize() },
-      });
+      await api(`/campaigns/${campaignId}/images/${image.id}/canvas`, { method: "PUT", body: { canvas_state: serialize() } });
       onSaved();
-      await downloadFile(
-        `/campaigns/${campaignId}/images/${image.id}/composite`,
-        `image-${image.aspect_ratio.replace(":", "x")}.png`,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Download failed");
-    } finally {
-      setBusy("");
-    }
+      await downloadFile(`/campaigns/${campaignId}/images/${image.id}/composite`, `image-${image.aspect_ratio.replace(":", "x")}.png`);
+    } catch (e) { setError(e instanceof Error ? e.message : "Download failed"); }
+    finally { setBusy(""); }
   }
 
   const sel = layers.find((l) => l.key === selected) || null;
@@ -426,200 +300,143 @@ export function ImageEditor({
   const ordered = [...layers].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal editor-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Image Editor</h2>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-ghost" onClick={downloadComposite} disabled={!!busy}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex max-h-[92vh] w-full max-w-[900px] flex-col gap-4 overflow-y-auto rounded-xl bg-surface p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="m-0 text-xl font-semibold">Image Editor</h2>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={downloadComposite} disabled={!!busy}>
               ⬇ Download
-            </button>
-            <button className="btn btn-ghost" onClick={onClose}>
-              Close
-            </button>
+            </Button>
+            <Button variant="ghost" onClick={onClose}>Close</Button>
           </div>
         </div>
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && (
+          <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        )}
 
-        <div className="editor-layout">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[auto_1fr]">
           <div
-            className="editor-stage"
             ref={stageRef}
             style={{ width: STAGE_W, height: stageH }}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            className="relative flex-shrink-0 touch-none overflow-hidden rounded-lg bg-slate-200 select-none"
           >
             {baseUrl && (
               <img
-                className="editor-base"
-                src={baseUrl}
-                alt="base"
-                draggable={false}
-                onLoad={(e) => {
-                  const img = e.currentTarget;
-                  if (img.naturalWidth) setBaseAspect(img.naturalHeight / img.naturalWidth);
-                }}
+                src={baseUrl} alt="base" draggable={false}
+                onLoad={(e) => { const img = e.currentTarget; if (img.naturalWidth) setBaseAspect(img.naturalHeight / img.naturalWidth); }}
+                className="pointer-events-none absolute inset-0 h-full w-full object-contain"
               />
             )}
-            {ordered
-              .filter((l) => l.visible !== false)
-              .map((l) => {
-                const isSel = selected === l.key;
-                return (
+            {ordered.filter((l) => l.visible !== false).map((l) => {
+              const isSel = selected === l.key;
+              return (
+                <div
+                  key={l.key}
+                  ref={(el) => { wrapRefs.current[l.key] = el; }}
+                  onPointerDown={(e) => startMove(e, l.key, l.x, l.y, l.locked)}
+                  className={cn(
+                    "absolute cursor-grab touch-none outline outline-1 outline-dashed outline-transparent transition-[outline-color] active:cursor-grabbing",
+                    isSel && "outline-primary outline-[1.5px]",
+                    l.locked && "cursor-not-allowed",
+                  )}
+                  style={{ left: l.x * STAGE_W, top: l.y * stageH, width: l.scale * STAGE_W, transform: `rotate(${l.rotation ?? 0}deg)`, transformOrigin: "center center" }}
+                >
+                  <img src={l.url} alt={l.label} draggable={false} className="pointer-events-none block h-auto w-full select-none" style={{ opacity: l.opacity }} />
+                  {isSel && !l.locked && renderHandles(l.key, l.scale, l.rotation ?? 0)}
+                </div>
+              );
+            })}
+            {texts.filter((t) => t.visible !== false).map((t) => {
+              const key = `text:${t.id}`;
+              const isSel = selected === key;
+              return (
+                <div
+                  key={t.id}
+                  ref={(el) => { wrapRefs.current[key] = el; }}
+                  onPointerDown={(e) => startMove(e, key, t.x, t.y)}
+                  className={cn("absolute cursor-grab touch-none outline outline-1 outline-dashed outline-transparent transition-[outline-color] active:cursor-grabbing", isSel && "outline-primary outline-[1.5px]")}
+                  style={{ left: t.x * STAGE_W, top: t.y * stageH, transform: `rotate(${t.rotation ?? 0}deg)`, transformOrigin: "center center" }}
+                >
                   <div
-                    key={l.key}
-                    ref={(el) => {
-                      wrapRefs.current[l.key] = el;
-                    }}
-                    onPointerDown={(e) => startMove(e, l.key, l.x, l.y, l.locked)}
-                    className={`editor-layer-wrap ${isSel ? "selected" : ""} ${l.locked ? "locked" : ""}`}
-                    style={{
-                      left: l.x * STAGE_W,
-                      top: l.y * stageH,
-                      width: l.scale * STAGE_W,
-                      transform: `rotate(${l.rotation ?? 0}deg)`,
-                    }}
+                    className="pointer-events-none select-none"
+                    style={{ fontSize: t.size * STAGE_W, color: t.color, fontFamily: TEXT_FONTS[t.font] || TEXT_FONTS.sans, fontWeight: t.bold ? 700 : 400, fontStyle: t.italic ? "italic" : "normal", opacity: t.opacity, whiteSpace: "pre", lineHeight: 1.2 }}
                   >
-                    <img
-                      src={l.url}
-                      alt={l.label}
-                      draggable={false}
-                      className="editor-layer-img"
-                      style={{ opacity: l.opacity }}
-                    />
-                    {isSel && !l.locked && renderHandles(l.key, l.scale, l.rotation ?? 0)}
+                    {t.text}
                   </div>
-                );
-              })}
-            {texts
-              .filter((t) => t.visible !== false)
-              .map((t) => {
-                const key = `text:${t.id}`;
-                const isSel = selected === key;
-                return (
-                  <div
-                    key={t.id}
-                    ref={(el) => {
-                      wrapRefs.current[key] = el;
-                    }}
-                    onPointerDown={(e) => startMove(e, key, t.x, t.y)}
-                    className={`editor-layer-wrap text ${isSel ? "selected" : ""}`}
-                    style={{
-                      left: t.x * STAGE_W,
-                      top: t.y * stageH,
-                      transform: `rotate(${t.rotation ?? 0}deg)`,
-                    }}
-                  >
-                    <div
-                      className="editor-text-content"
-                      style={{
-                        fontSize: t.size * STAGE_W,
-                        color: t.color,
-                        fontFamily: TEXT_FONTS[t.font] || TEXT_FONTS.sans,
-                        fontWeight: t.bold ? 700 : 400,
-                        fontStyle: t.italic ? "italic" : "normal",
-                        opacity: t.opacity,
-                        whiteSpace: "pre",
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {t.text}
-                    </div>
-                    {isSel && renderHandles(key, t.size, t.rotation ?? 0)}
-                  </div>
-                );
-              })}
+                  {isSel && renderHandles(key, t.size, t.rotation ?? 0)}
+                </div>
+              );
+            })}
           </div>
 
-          <div className="editor-panel">
-            <label className="file-btn btn btn-ghost">
-              + Upload asset
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/svg+xml,image/webp"
-                hidden
-                onChange={(e) => e.target.files?.[0] && uploadAsset(e.target.files[0])}
-              />
-            </label>
-            <button className="btn btn-ghost" onClick={addText}>
-              + Add text
-            </button>
+          <div className="flex min-w-[240px] flex-col gap-3">
+            <Button asChild variant="ghost">
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <Plus size={14} /> Upload asset
+                <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" hidden
+                  onChange={(e) => e.target.files?.[0] && uploadAsset(e.target.files[0])} />
+              </label>
+            </Button>
+            <Button variant="ghost" onClick={addText}>
+              <Plus size={14} /> Add text
+            </Button>
 
-            <div className="layer-list">
-              {ordered
-                .slice()
-                .reverse()
-                .map((l) => (
-                  <div
-                    key={l.key}
-                    className={`layer-row ${selected === l.key ? "selected" : ""}`}
-                    onClick={() => {
-                      setSelected(l.key);
-                      if (l.visible === false) patch(l.key, { visible: true });
-                    }}
-                  >
-                    <span className="layer-name">{l.label}</span>
-                    <div className="layer-actions">
+            <div className="flex flex-col gap-0.5">
+              {ordered.slice().reverse().map((l) => (
+                <div
+                  key={l.key}
+                  className={cn("flex cursor-pointer items-center justify-between rounded-md border border-border p-1.5", selected === l.key && "border-primary bg-accent")}
+                  onClick={() => { setSelected(l.key); if (l.visible === false) patch(l.key, { visible: true }); }}
+                >
+                  <span className="max-w-[130px] truncate text-sm">{l.label}</span>
+                  <div className="flex gap-0.5">
+                    <button
+                      className="cursor-pointer rounded p-0.5 text-base hover:bg-bg"
+                      title="Toggle visibility"
+                      onClick={(e) => { e.stopPropagation(); patch(l.key, { visible: l.visible === false }); }}
+                    >
+                      {l.visible === false ? "🚫" : "👁"}
+                    </button>
+                    {l.kind === "asset" && (
+                      <>
+                        <button className="cursor-pointer rounded p-0.5 text-base hover:bg-bg" title="Bring forward" onClick={(e) => { e.stopPropagation(); reorder(l.key, 1); }}>↑</button>
+                        <button className="cursor-pointer rounded p-0.5 text-base hover:bg-bg" title="Send backward" onClick={(e) => { e.stopPropagation(); reorder(l.key, -1); }}>↓</button>
+                      </>
+                    )}
+                    {l.kind === "logo" && (
                       <button
-                        className="btn-icon"
-                        title="Toggle visibility"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          patch(l.key, { visible: l.visible === false });
-                        }}
+                        className="cursor-pointer rounded p-0.5 text-base hover:bg-bg"
+                        title="Lock position"
+                        onClick={(e) => { e.stopPropagation(); patch(l.key, { locked: !l.locked }); }}
                       >
-                        {l.visible === false ? "🚫" : "👁"}
+                        {l.locked ? "🔒" : "🔓"}
                       </button>
-                      {l.kind === "asset" && (
-                        <>
-                          <button className="btn-icon" title="Bring forward" onClick={(e) => { e.stopPropagation(); reorder(l.key, 1); }}>
-                            ↑
-                          </button>
-                          <button className="btn-icon" title="Send backward" onClick={(e) => { e.stopPropagation(); reorder(l.key, -1); }}>
-                            ↓
-                          </button>
-                        </>
-                      )}
-                      {l.kind === "logo" && (
-                        <button
-                          className="btn-icon"
-                          title="Lock position"
-                          onClick={(e) => { e.stopPropagation(); patch(l.key, { locked: !l.locked }); }}
-                        >
-                          {l.locked ? "🔒" : "🔓"}
-                        </button>
-                      )}
-                    </div>
+                    )}
                   </div>
-                ))}
+                </div>
+              ))}
               {texts.map((t) => (
                 <div
                   key={t.id}
-                  className={`layer-row ${selected === `text:${t.id}` ? "selected" : ""}`}
-                  onClick={() => {
-                    setSelected(`text:${t.id}`);
-                    if (t.visible === false) patchText(t.id, { visible: true });
-                  }}
+                  className={cn("flex cursor-pointer items-center justify-between rounded-md border border-border p-1.5", selected === `text:${t.id}` && "border-primary bg-accent")}
+                  onClick={() => { setSelected(`text:${t.id}`); if (t.visible === false) patchText(t.id, { visible: true }); }}
                 >
-                  <span className="layer-name">T: {t.text.slice(0, 18) || "(empty)"}</span>
-                  <div className="layer-actions">
+                  <span className="max-w-[130px] truncate text-sm">T: {t.text.slice(0, 18) || "(empty)"}</span>
+                  <div className="flex gap-0.5">
                     <button
-                      className="btn-icon"
+                      className="cursor-pointer rounded p-0.5 text-base hover:bg-bg"
                       title="Toggle visibility"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        patchText(t.id, { visible: t.visible === false });
-                      }}
+                      onClick={(e) => { e.stopPropagation(); patchText(t.id, { visible: t.visible === false }); }}
                     >
                       {t.visible === false ? "🚫" : "👁"}
                     </button>
                     <button
-                      className="btn-icon"
+                      className="cursor-pointer rounded p-0.5 text-base hover:bg-bg"
                       title="Delete text"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeText(t.id);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); removeText(t.id); }}
                     >
                       🗑
                     </button>
@@ -627,105 +444,62 @@ export function ImageEditor({
                 </div>
               ))}
               {layers.length === 0 && (
-                <p className="muted small">
+                <p className="text-sm text-muted-foreground">
                   {client.logo_object_key ? "Loading layers…" : "This client has no logo. Upload assets to overlay."}
                 </p>
               )}
             </div>
 
             {sel && (
-              <div className="layer-controls">
-                <strong className="small">{sel.label}</strong>
-                <p className="muted small" style={{ margin: 0 }}>
-                  Drag the image to move · pull a corner to resize · use the top handle to rotate.
-                </p>
-                <label className="small">
-                  Opacity: {Math.round(sel.opacity * 100)}%
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={Math.round(sel.opacity * 100)}
-                    onChange={(e) => patch(sel.key, { opacity: Number(e.target.value) / 100 })}
-                  />
-                </label>
+              <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+                <strong className="text-sm font-semibold">{sel.label}</strong>
+                <p className="m-0 text-sm text-muted-foreground">Drag the image to move · pull a corner to resize · use the top handle to rotate.</p>
+                <Label className="text-sm">Opacity: {Math.round(sel.opacity * 100)}%
+                  <Input type="range" min={0} max={100} value={Math.round(sel.opacity * 100)}
+                    onChange={(e) => patch(sel.key, { opacity: Number(e.target.value) / 100 })} />
+                </Label>
               </div>
             )}
 
             {selText && (
-              <div className="layer-controls">
-                <strong className="small">Text layer</strong>
-                <label className="small">
-                  Text
-                  <TextareaZoom
-                    label="Text"
-                    rows={2}
-                    value={selText.text}
-                    onChange={(v) => patchText(selText.id, { text: v })}
-                  />
-                </label>
-                <div className="row" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <label className="small" style={{ flex: 1 }}>
-                    Font
+              <div className="flex flex-col gap-1.5 border-t border-border pt-2.5">
+                <strong className="text-sm font-semibold">Text layer</strong>
+                <Label className="text-sm">Text
+                  <TextareaZoom label="Text" rows={2} value={selText.text} onChange={(v) => patchText(selText.id, { text: v })} />
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Label className="flex-1 text-sm">Font
                     <select
                       value={selText.font}
                       onChange={(e) => patchText(selText.id, { font: e.target.value as TextLayerState["font"] })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       <option value="sans">Sans-serif</option>
                       <option value="serif">Serif</option>
                       <option value="mono">Monospace</option>
                     </select>
-                  </label>
-                  <label className="small">
-                    Color
-                    <input
-                      type="color"
-                      value={selText.color}
-                      onChange={(e) => patchText(selText.id, { color: e.target.value })}
-                    />
-                  </label>
+                  </Label>
+                  <Label className="text-sm">Color
+                    <Input type="color" value={selText.color} onChange={(e) => patchText(selText.id, { color: e.target.value })} className="h-[30px] w-[42px] cursor-pointer rounded-md border border-border p-0.5" />
+                  </Label>
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button
-                    className={`btn btn-ghost ${selText.bold ? "active" : ""}`}
-                    style={{ fontWeight: 700 }}
-                    onClick={() => patchText(selText.id, { bold: !selText.bold })}
-                  >
-                    B
-                  </button>
-                  <button
-                    className={`btn btn-ghost ${selText.italic ? "active" : ""}`}
-                    style={{ fontStyle: "italic" }}
-                    onClick={() => patchText(selText.id, { italic: !selText.italic })}
-                  >
-                    I
-                  </button>
+                <div className="flex gap-1.5">
+                  <Button variant="ghost" className={cn(selText.bold && "border-primary text-primary bg-accent")} style={{ fontWeight: 700 }} onClick={() => patchText(selText.id, { bold: !selText.bold })}>B</Button>
+                  <Button variant="ghost" className={cn(selText.italic && "border-primary text-primary bg-accent")} style={{ fontStyle: "italic" }} onClick={() => patchText(selText.id, { italic: !selText.italic })}>I</Button>
                 </div>
-                <p className="muted small" style={{ margin: 0 }}>
-                  Drag the text to move · pull a corner to resize · use the top handle to rotate.
-                </p>
-                <label className="small">
-                  Opacity: {Math.round(selText.opacity * 100)}%
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={Math.round(selText.opacity * 100)}
-                    onChange={(e) => patchText(selText.id, { opacity: Number(e.target.value) / 100 })}
-                  />
-                </label>
+                <p className="m-0 text-sm text-muted-foreground">Drag the text to move · pull a corner to resize · use the top handle to rotate.</p>
+                <Label className="text-sm">Opacity: {Math.round(selText.opacity * 100)}%
+                  <Input type="range" min={0} max={100} value={Math.round(selText.opacity * 100)}
+                    onChange={(e) => patchText(selText.id, { opacity: Number(e.target.value) / 100 })} />
+                </Label>
               </div>
             )}
           </div>
         </div>
 
-        <div className="modal-actions form-actions">
-          <button className="btn btn-primary" onClick={save} disabled={!!busy}>
-            {busy || "Save composition"}
-          </button>
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
+        <div className="mt-3 flex justify-end gap-2 border-t border-border pt-4">
+          <Button onClick={save} disabled={!!busy}>{busy || "Save composition"}</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>
     </div>

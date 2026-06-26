@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 /**
  * Reusable confirmation modal: centered card over a blurred backdrop. Optionally
@@ -45,18 +48,23 @@ export function ConfirmDialog({
   }, [onCancel]);
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <div className="modal-header">
-          <h2>{title}</h2>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-6 backdrop-blur-sm" onClick={onCancel}>
+      <div
+        className="w-full max-w-[460px] rounded-xl bg-surface p-6 max-h-[88vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <h2 className="m-0 text-xl font-semibold">{title}</h2>
         </div>
 
-        <div className="confirm-body">{children}</div>
+        <div className="mt-2 mb-1 text-foreground">{children}</div>
 
         {confirmWord && (
-          <label className="confirm-type">
-            Type <strong className="confirm-word">{confirmWord}</strong> to confirm
-            <input
+          <label className="mt-4 mb-1 flex flex-col gap-1 text-sm">
+            Type <strong className="font-bold text-red-600">{confirmWord}</strong> to confirm
+            <Input
               ref={inputRef}
               value={typed}
               onChange={(e) => { setTyped(e.target.value); setInvalid(false); }}
@@ -68,23 +76,27 @@ export function ConfirmDialog({
               }}
               placeholder={confirmWord}
               autoComplete="off"
-              className={invalid ? "input-invalid" : ""}
+              className={cn(invalid && "border-red-600 ring-[3px] ring-red-600/20")}
             />
-            {invalid && <span className="confirm-invalid">That's not correct — type <strong>{confirmWord}</strong> to confirm.</span>}
+            {invalid && (
+              <span className="mt-0.5 text-xs text-red-600">
+                That's not correct — type <strong>{confirmWord}</strong> to confirm.
+              </span>
+            )}
           </label>
         )}
 
-        <div className="form-actions">
-          <button
-            className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
+        <div className="mt-3 flex gap-2">
+          <Button
+            variant={danger ? "destructive" : "default"}
             onClick={onConfirm}
             disabled={!canConfirm}
           >
             {busy ? "Deleting…" : confirmLabel}
-          </button>
-          <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>
+          </Button>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

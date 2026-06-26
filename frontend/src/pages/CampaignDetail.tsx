@@ -21,45 +21,27 @@ import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DateTimePicker } from "@/components/ui/date-picker";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { RATIO_PRIORITY } from "../ratios";
 import { useAuth } from "../auth";
 import type {
-  CampaignDetail as Campaign,
-  CampaignApprovalStatus,
-  CampaignElement,
-  Client,
-  ElementType,
-  ImageModel,
-  Post,
-  PostImage,
-  PostVideo,
-  PublishState,
-  User,
-  VideoModel,
+  CampaignDetail as Campaign, CampaignApprovalStatus, CampaignElement, Client, ElementType,
+  ImageModel, Post, PostImage, PostVideo, PublishState, User, VideoModel,
 } from "../types";
 
 const PLATFORM_LIMITS: Record<string, number> = {
-  facebook: 63206,
-  instagram: 2200,
-  linkedin: 3000,
-  tiktok: 2200,
-  x: 280,
-  youtube: 5000,
+  facebook: 63206, instagram: 2200, linkedin: 3000, tiktok: 2200, x: 280, youtube: 5000,
 };
 
-// Campaign posts are grouped by *content type* (not platform) so the user scans
-// by what the asset is — images, videos/reels, carousels, text.
-type PostType = ElementType; // image | carousel | video | text
+type PostType = ElementType;
 const POST_TYPE_ORDER: PostType[] = ["image", "carousel", "video", "text"];
 const POST_TYPE_META: Record<PostType, { label: string; singular: string; icon: string }> = {
   image: { label: "Images", singular: "Image", icon: "image" },
@@ -68,11 +50,19 @@ const POST_TYPE_META: Record<PostType, { label: string; singular: string; icon: 
   text: { label: "Text", singular: "Text", icon: "article" },
 };
 
-// A post inherits its type from its element; orphan posts (no element) are text.
 function postType(post: Post, elements: CampaignElement[]): PostType {
   const el = elements.find((e) => e.id === post.element_id);
   return (el?.element_type as PostType) ?? "text";
 }
+
+const APPROVAL_LABELS: Record<string, string> = {
+  draft: "Draft", pending_review: "Pending review", approved: "Approved", rejected: "Rejected",
+};
+
+const APPROVAL_STATUS_VARIANT: Record<string, "secondary" | "warning" | "success" | "destructive"> = {
+  draft: "secondary", pending_review: "warning", changes_requested: "warning",
+  approved: "success", rejected: "destructive",
+};
 
 export default function CampaignDetail() {
   const { campaignId } = useParams();
@@ -114,12 +104,9 @@ export default function CampaignDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
-  const mediaGenerating =
-    campaign?.elements.some(
-      (el) =>
-        el.videos.some((v) => v.status === "generating") ||
-        el.images.some((i) => i.status === "generating")
-    ) ?? false;
+  const mediaGenerating = campaign?.elements.some(
+    (el) => el.videos.some((v) => v.status === "generating") || el.images.some((i) => i.status === "generating"),
+  ) ?? false;
 
   useEffect(() => {
     if (campaign?.status !== "generating" && !mediaGenerating) return;
@@ -128,9 +115,8 @@ export default function CampaignDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaign?.status, mediaGenerating]);
 
-  if (!campaign) return <div className="page-loading">Loading…</div>;
+  if (!campaign) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
 
-  // Posts not linked to any element (legacy campaigns) get their own cards.
   const orphanPosts = campaign.posts.filter((p) => !p.element_id);
   const openElement = campaign.elements.find((el) => el.id === openElementId) ?? null;
   const openOrphan = openElementId?.startsWith("post:")
@@ -142,17 +128,14 @@ export default function CampaignDetail() {
     try {
       await api(`/campaigns/${campaign!.id}/regenerate`, { method: "POST", body: {} });
       await load();
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
   async function remove() {
     const ok = await confirm({
       title: "Delete campaign",
       description: "This permanently deletes the campaign and all its posts. This cannot be undone.",
-      confirmLabel: "Delete",
-      destructive: true,
+      confirmLabel: "Delete", destructive: true,
     });
     if (!ok) return;
     await api(`/campaigns/${campaign!.id}`, { method: "DELETE" });
@@ -167,29 +150,20 @@ export default function CampaignDetail() {
       toast.success("Campaign approved");
       setReviewNote("");
       await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Approval failed");
-    } finally {
-      setBusyApproval("");
-    }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Approval failed"); }
+    finally { setBusyApproval(""); }
   }
 
   async function handleRequestChanges() {
-    if (!reviewNote.trim()) {
-      toast.error("Add feedback describing the changes needed.");
-      return;
-    }
+    if (!reviewNote.trim()) { toast.error("Add feedback describing the changes needed."); return; }
     setBusyApproval("Requesting changes…");
     try {
       await api(`/campaigns/${campaign!.id}/request-changes`, { method: "POST", body: { note: reviewNote } });
       toast.success("Changes requested");
       setReviewNote("");
       await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setBusyApproval("");
-    }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusyApproval(""); }
   }
 
   async function handleReject() {
@@ -199,31 +173,24 @@ export default function CampaignDetail() {
       toast.success("Campaign rejected");
       setReviewNote("");
       await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setBusyApproval("");
-    }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusyApproval(""); }
   }
 
   async function handleCancelRequest() {
     const ok = await confirm({
       title: "Cancel approval request",
       description: "This will withdraw the approval request and return the campaign to draft.",
-      confirmLabel: "Cancel Request",
-      destructive: true,
+      confirmLabel: "Cancel Request", destructive: true,
     });
     if (!ok) return;
     try {
       await api(`/campaigns/${campaign!.id}/submit-for-approval`, {
-        method: "POST",
-        body: { assigned_approver_id: "", approval_scope: "full_campaign", message: "" },
+        method: "POST", body: { assigned_approver_id: "", approval_scope: "full_campaign", message: "" },
       });
       toast.success("Approval request cancelled");
       await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
   }
 
   function approverName(id: string | null): string {
@@ -238,73 +205,30 @@ export default function CampaignDetail() {
   const workflowStep: "draft" | "preview" | "approval" | "live" =
     approvalStatus === "pending_review" ? "approval" : approvalStatus === "approved" ? "live" : "draft";
 
-  // Real activity timeline derived from the campaign's approval fields.
   function buildTimeline(c: Campaign): TimelineEvent[] {
     const events: TimelineEvent[] = [
-      {
-        label: "Campaign created",
-        description: "Initial draft",
-        timestamp: new Date(c.created_at).toLocaleString(),
-        icon: "check_circle",
-        tone: "bg-primary",
-      },
+      { label: "Campaign created", description: "Initial draft", timestamp: new Date(c.created_at).toLocaleString(), icon: "check_circle", tone: "bg-primary" },
     ];
     if (c.approval_status !== "draft") {
-      events.push({
-        label: "Submitted for approval",
-        description: c.approval_message || "No message",
-        timestamp: "",
-        icon: "send",
-        tone: "bg-primary",
-      });
+      events.push({ label: "Submitted for approval", description: c.approval_message || "No message", timestamp: "", icon: "send", tone: "bg-primary" });
     }
     if (c.approval_status === "pending_review") {
-      events.push({
-        label: "Pending review",
-        description: `Waiting for ${approverName(c.assigned_approver_id)}`,
-        timestamp: c.approval_due_date ? `Due ${new Date(c.approval_due_date).toLocaleDateString()}` : "",
-        icon: "pending",
-        tone: "bg-status-pending",
-      });
+      events.push({ label: "Pending review", description: `Waiting for ${approverName(c.assigned_approver_id)}`, timestamp: c.approval_due_date ? `Due ${new Date(c.approval_due_date).toLocaleDateString()}` : "", icon: "pending", tone: "bg-status-pending" });
     } else if (c.approval_status === "approved") {
-      events.push({
-        label: `Approved${c.reviewed_by ? ` by ${approverName(c.reviewed_by)}` : ""}`,
-        description: c.review_note || "",
-        timestamp: c.reviewed_at ? new Date(c.reviewed_at).toLocaleString() : "",
-        icon: "verified",
-        tone: "bg-emerald-500",
-      });
+      events.push({ label: `Approved${c.reviewed_by ? ` by ${approverName(c.reviewed_by)}` : ""}`, description: c.review_note || "", timestamp: c.reviewed_at ? new Date(c.reviewed_at).toLocaleString() : "", icon: "verified", tone: "bg-emerald-500" });
     } else if (c.approval_status === "rejected") {
-      events.push({
-        label: `Rejected${c.reviewed_by ? ` by ${approverName(c.reviewed_by)}` : ""}`,
-        description: c.review_note || "",
-        timestamp: c.reviewed_at ? new Date(c.reviewed_at).toLocaleString() : "",
-        icon: "cancel",
-        tone: "bg-red-500",
-      });
+      events.push({ label: `Rejected${c.reviewed_by ? ` by ${approverName(c.reviewed_by)}` : ""}`, description: c.review_note || "", timestamp: c.reviewed_at ? new Date(c.reviewed_at).toLocaleString() : "", icon: "cancel", tone: "bg-red-500" });
     } else if (c.approval_status === "changes_requested") {
-      events.push({
-        label: `Changes requested${c.reviewed_by ? ` by ${approverName(c.reviewed_by)}` : ""}`,
-        description: c.review_note || "",
-        timestamp: c.reviewed_at ? new Date(c.reviewed_at).toLocaleString() : "",
-        icon: "edit_note",
-        tone: "bg-status-pending",
-      });
+      events.push({ label: `Changes requested${c.reviewed_by ? ` by ${approverName(c.reviewed_by)}` : ""}`, description: c.review_note || "", timestamp: c.reviewed_at ? new Date(c.reviewed_at).toLocaleString() : "", icon: "edit_note", tone: "bg-status-pending" });
     }
     return events;
   }
 
   return (
     <div>
-      {/* ===== HEADER ===== */}
       <div className="mb-6">
         <nav className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <button
-            onClick={() => navigate("/campaigns")}
-            className="cursor-pointer text-xs font-semibold text-primary hover:underline"
-          >
-            Campaigns
-          </button>
+          <button onClick={() => navigate("/campaigns")} className="cursor-pointer text-xs font-semibold text-primary hover:underline">Campaigns</button>
           <ChevronRight className="size-3.5 text-border" />
           <span className="font-medium text-foreground">{campaign.name}</span>
         </nav>
@@ -317,25 +241,14 @@ export default function CampaignDetail() {
             <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
               {client?.company_name && <span>{client.company_name}</span>}
               <span className="capitalize">· {campaign.objective} ·</span>
-              <span
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-xs font-semibold",
-                  campaign.status === "ready"
-                    ? "bg-emerald-100 text-emerald-700"
-                    : campaign.status === "failed"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-muted text-muted-foreground",
-                )}
-              >
+              <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", campaign.status === "ready" ? "bg-emerald-100 text-emerald-700" : campaign.status === "failed" ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground")}>
                 {campaign.status}
               </span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canSubmit && approvalStatus === "pending_review" && (
-              <Button variant="outline" className="text-destructive" onClick={handleCancelRequest}>
-                Cancel Request
-              </Button>
+              <Button variant="outline" className="text-destructive" onClick={handleCancelRequest}>Cancel Request</Button>
             )}
             {approvalStatus === "approved" && (
               <Button variant="outline" onClick={() => setShowEditWarning(true)}>
@@ -354,23 +267,18 @@ export default function CampaignDetail() {
             )}
             {isEditorMode && (
               <>
-                <Button variant="outline" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>
-                  Regenerate all
-                </Button>
-                <Button variant="outline" className="text-destructive" onClick={remove}>
-                  Delete
-                </Button>
+                <Button variant="outline" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>Regenerate all</Button>
+                <Button variant="outline" className="text-destructive" onClick={remove}>Delete</Button>
               </>
             )}
           </div>
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
-      {campaign.status === "failed" && <div className="alert alert-error">{campaign.error}</div>}
-      {busy && <div className="alert alert-success">{busy}</div>}
+      {error && <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {campaign.status === "failed" && <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{campaign.error}</div>}
+      {busy && <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{busy}</div>}
 
-      {/* ===== APPROVAL BANNERS ===== */}
       {approvalStatus === "approved" && campaign.reviewed_by && (
         <ApprovedBanner reviewerName={approverName(campaign.reviewed_by)} reviewedAt={campaign.reviewed_at ?? ""} quote={campaign.review_note || "Looks great, proceed with the launch!"} />
       )}
@@ -395,44 +303,42 @@ export default function CampaignDetail() {
             <span className="material-symbols-outlined">cancel</span>
           </div>
           <div>
-            <h3 className="text-sm font-bold text-red-800">
-              Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}
-            </h3>
+            <h3 className="text-sm font-bold text-red-800">Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}</h3>
             {campaign.review_note && <p className="mt-1 text-sm text-red-700">"{campaign.review_note}"</p>}
           </div>
         </div>
       )}
 
-      {/* ===== GENERATING PROGRESS ===== */}
       {campaign.status === "generating" && (
-        <div className="card progress-card">
-          <strong>Generating campaign…</strong>
-          <div className="progress-bar"><div className="progress-fill indeterminate" /></div>
-          <p className="muted small">The Editorial and Visual agents are working. This can take a minute.</p>
-        </div>
+        <Card className="mb-4">
+          <CardContent className="py-4">
+            <strong>Generating campaign…</strong>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-border">
+              <div className="h-full w-[35%] animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">The Editorial and Visual agents are working. This can take a minute.</p>
+          </CardContent>
+        </Card>
       )}
 
-      {/* ===== MAIN CONTENT: CONCEPT UI LAYOUT ===== */}
       {campaign.status !== "generating" && (
         <>
-          {/* Editor mode: two-column concept layout */}
           {isEditorMode && (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[5fr_7fr]">
-              {/* LEFT COLUMN: Campaign Details + Smart Suggestion */}
               <div className="flex flex-col gap-6">
-                <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                  <h3 className="mb-4 text-lg font-semibold">Campaign Details</h3>
-                  <div className="flex flex-col gap-3">
+                <Card>
+                  <CardContent className="space-y-3 py-5">
+                    <h3 className="text-lg font-semibold">Campaign Details</h3>
                     <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Campaign Name</label>
+                      <Label className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Campaign Name</Label>
                       <div className="rounded-lg bg-accent p-3 text-sm text-foreground">{campaign.name}</div>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Goal</label>
+                      <Label className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Goal</Label>
                       <div className="rounded-lg bg-accent p-3 text-sm font-semibold capitalize text-primary">{campaign.objective}</div>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Platforms</label>
+                      <Label className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Platforms</Label>
                       <div className="flex flex-wrap gap-2">
                         {activePlatforms.map((p) => (
                           <span key={p.platform} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1 text-xs font-semibold capitalize text-primary-foreground">
@@ -442,7 +348,7 @@ export default function CampaignDetail() {
                       </div>
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date Range</label>
+                      <Label className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date Range</Label>
                       <div className="flex items-center gap-3">
                         <div className="flex-1 rounded-lg bg-accent p-3 text-sm">
                           {campaign.start_date ? new Date(campaign.start_date).toLocaleDateString() : "—"}
@@ -453,10 +359,8 @@ export default function CampaignDetail() {
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Smart Suggestion */}
+                  </CardContent>
+                </Card>
                 <div className="rounded-xl border border-primary/20 bg-accent p-6">
                   <div className="flex items-start gap-4">
                     <div className="rounded-lg bg-primary p-2 text-primary-foreground">
@@ -464,40 +368,28 @@ export default function CampaignDetail() {
                     </div>
                     <div>
                       <h4 className="mb-1 text-sm font-bold text-primary">Smart Suggestion</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Based on previous campaigns, we recommend scheduling posts mid-week for peak engagement.
-                      </p>
+                      <p className="text-sm text-muted-foreground">Based on previous campaigns, we recommend scheduling posts mid-week for peak engagement.</p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: Posts List */}
               <div>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">
-                    Campaign Posts ({new Set(campaign.posts.map((p) => p.element_id ?? p.id)).size})
-                  </h3>
+                  <h3 className="text-lg font-semibold">Campaign Posts ({new Set(campaign.posts.map((p) => p.element_id ?? p.id)).size})</h3>
                 </div>
                 {(() => {
-                  // Tabs by content type (image / carousel / video / text), in a fixed order.
-                  const present = POST_TYPE_ORDER.filter((t) =>
-                    campaign.posts.some((p) => postType(p, campaign.elements) === t),
-                  );
+                  const present = POST_TYPE_ORDER.filter((t) => campaign.posts.some((p) => postType(p, campaign.elements) === t));
                   if (present.length > 1) {
                     return (
                       <Tabs value={postTypeTab} onValueChange={setPostTypeTab} className="mb-3">
                         <TabsList className="flex-wrap h-auto">
-                          <TabsTrigger value="all" className="gap-1.5">
-                            All <span className="text-[0.65rem] opacity-70">{campaign.posts.length}</span>
-                          </TabsTrigger>
+                          <TabsTrigger value="all" className="gap-1.5">All <span className="text-[0.65rem] opacity-70">{campaign.posts.length}</span></TabsTrigger>
                           {present.map((t) => (
                             <TabsTrigger key={t} value={t} className="gap-1.5">
                               <span className="material-symbols-outlined text-base">{POST_TYPE_META[t].icon}</span>
                               {POST_TYPE_META[t].label}
-                              <span className="text-[0.65rem] opacity-70">
-                                {campaign.posts.filter((p) => postType(p, campaign.elements) === t).length}
-                              </span>
+                              <span className="text-[0.65rem] opacity-70">{campaign.posts.filter((p) => postType(p, campaign.elements) === t).length}</span>
                             </TabsTrigger>
                           ))}
                         </TabsList>
@@ -511,9 +403,6 @@ export default function CampaignDetail() {
                     <p className="text-sm text-muted-foreground">No posts yet. Generate the campaign first.</p>
                   )}
                   {(() => {
-                    // One card per element (the same content reused across platforms),
-                    // plus a card per orphan post that has no element. Clicking opens
-                    // the element editor, which shows the per-platform detail.
                     const visible = campaign.posts.filter(
                       (post) => postTypeTab === "all" || postType(post, campaign.elements) === postTypeTab,
                     );
@@ -537,9 +426,7 @@ export default function CampaignDetail() {
                       const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
                       const ptype = postType(rep, campaign.elements);
                       const typeMeta = POST_TYPE_META[ptype];
-                      // Platforms this element/content is published to.
                       const platforms = Array.from(new Set(group.posts.map((p) => p.platform)));
-                      // Ratios available for the element (image renditions, else configured ratios).
                       const ratios = el
                         ? Array.from(new Set(
                             el.images.map((i) => i.aspect_ratio).filter(Boolean).length > 0
@@ -548,25 +435,16 @@ export default function CampaignDetail() {
                           ))
                         : [];
                       return (
-                        <div
-                          key={group.key}
+                        <div key={group.key}
                           onClick={() => { if (group.elementId) setOpenElementId(group.elementId); }}
-                          className={cn(
-                            "overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow",
-                            group.elementId && "cursor-pointer hover:shadow-md",
-                          )}
-                        >
+                          className={cn("overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow", group.elementId && "cursor-pointer hover:shadow-md")}>
                           <div className="flex min-h-32">
                             <div className="size-32 flex-shrink-0 bg-muted">
-                              {cover ? (
-                                <PostThumbnail campaignId={campaign.id} image={cover} />
-                              ) : coverVid ? (
-                                <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
-                              ) : ptype === "text" ? (
+                              {cover ? <PostThumbnail campaignId={campaign.id} image={cover} />
+                              : coverVid ? <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
+                              : ptype === "text" ? (
                                 <div className="flex size-full items-center justify-center bg-accent p-2">
-                                  <p className="line-clamp-4 text-center text-[0.65rem] font-medium leading-snug text-accent-foreground">
-                                    {rep.headline || rep.copy || "Text post"}
-                                  </p>
+                                  <p className="line-clamp-4 text-center text-[0.65rem] font-medium leading-snug text-accent-foreground">{rep.headline || rep.copy || "Text post"}</p>
                                 </div>
                               ) : ptype === "video" ? (
                                 <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground/50">
@@ -587,20 +465,13 @@ export default function CampaignDetail() {
                                 </p>
                                 <h4 className="line-clamp-1 text-sm font-semibold">{rep.headline || "Untitled"}</h4>
                               </div>
-                              {/* Platforms this content is available on */}
                               <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                                {platforms.map((p) => (
-                                  <PlatformIcon key={p} platform={p} size={15} />
-                                ))}
-                                <span className="text-[0.7rem]">
-                                  {platforms.length} platform{platforms.length !== 1 ? "s" : ""}
-                                </span>
+                                {platforms.map((p) => <PlatformIcon key={p} platform={p} size={15} />)}
+                                <span className="text-[0.7rem]">{platforms.length} platform{platforms.length !== 1 ? "s" : ""}</span>
                                 {ratios.length > 0 && (
                                   <span className="ml-1 flex flex-wrap gap-1">
                                     {ratios.map((r) => (
-                                      <span key={r} className="rounded-full bg-accent px-1.5 py-0.5 text-[0.65rem] font-medium text-accent-foreground">
-                                        {r}
-                                      </span>
+                                      <span key={r} className="rounded-full bg-accent px-1.5 py-0.5 text-[0.65rem] font-medium text-accent-foreground">{r}</span>
                                     ))}
                                   </span>
                                 )}
@@ -620,151 +491,115 @@ export default function CampaignDetail() {
             </div>
           )}
 
-          {/* Non-editor mode (pending_review, approved, rejected): content + contextual sidebar */}
           {!isEditorMode && (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px]">
-              {/* LEFT: campaign content (locked while pending review) */}
               <div className="relative">
-                {isLocked && (
-                  <div className="pointer-events-none absolute inset-0 z-10 rounded-xl bg-background/15 backdrop-blur-[1px]" />
-                )}
-                <div className="element-grid">
+                {isLocked && <div className="pointer-events-none absolute inset-0 z-10 rounded-xl bg-background/15 backdrop-blur-[1px]" />}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
                   {[...campaign.elements].sort((a, b) => a.position - b.position).map((el) => (
                     <ElementCard key={el.id} campaignId={campaign.id} element={el}
                       posts={campaign.posts.filter((p) => p.element_id === el.id)}
                       onOpen={() => setOpenElementId(el.id)} />
                   ))}
                   {orphanPosts.map((post) => (
-                    <div key={post.id} className="card element-card" onClick={() => setOpenElementId(`post:${post.id}`)}>
-                      <div className="element-thumb"><div className="image-empty">📝</div></div>
-                      <div className="element-card-body">
-                        <strong className="small">{post.headline || "Post"}</strong>
-                        <div className="platform-chips"><span className="chip"><PlatformIcon platform={post.platform} size={12} /> {post.platform}</span></div>
+                    <div key={post.id} className="cursor-pointer overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md" onClick={() => setOpenElementId(`post:${post.id}`)}>
+                      <div className="flex aspect-square items-center justify-center overflow-hidden bg-slate-100"><div className="p-8 text-2xl">📝</div></div>
+                      <div className="flex flex-col gap-1.5 p-3">
+                        <strong className="text-sm font-semibold">{post.headline || "Post"}</strong>
+                        <div className="flex flex-wrap gap-1">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-primary-soft-border bg-accent px-2 py-0.5 text-[0.7rem] font-medium capitalize text-primary">
+                            <PlatformIcon platform={post.platform} size={12} /> {post.platform}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* RIGHT: status sidebar */}
               <aside className="flex flex-col gap-4">
-                {/* Reviewer decision panel (approver only) */}
                 {approvalStatus === "pending_review" && canReview && (
-                  <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                    <h4 className="mb-4 text-xs font-bold uppercase tracking-widest text-primary">Review Decision</h4>
-                    <ApproverMeta
-                      name={approverName(campaign.assigned_approver_id)}
-                      dueDate={campaign.approval_due_date}
-                      scope={campaign.approval_scope}
-                    />
-                    <div className="mt-4">
-                      <TextareaZoom
-                        label="Reviewer feedback"
-                        rows={3}
-                        value={reviewNote}
-                        onChange={setReviewNote}
-                        placeholder="Add your feedback… (required to request changes)"
-                      />
-                    </div>
-                    <div className="mt-3 flex flex-col gap-2">
-                      <Button
-                        className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
-                        onClick={handleApprove}
-                        disabled={!!busyApproval}
-                      >
-                        <span className="material-symbols-outlined mr-1 text-base">check_circle</span> Approve Campaign
-                      </Button>
-                      <div className="flex gap-2">
-                        <Button
-                          className="flex-1 bg-amber-500 text-white hover:bg-amber-600"
-                          onClick={handleRequestChanges}
-                          disabled={!!busyApproval}
-                        >
-                          Request Changes
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          className="flex-1"
-                          onClick={handleReject}
-                          disabled={!!busyApproval}
-                        >
-                          Reject
-                        </Button>
+                  <Card>
+                    <CardContent className="space-y-3 py-5">
+                      <h4 className="text-xs font-bold uppercase tracking-widest text-primary">Review Decision</h4>
+                      <ApproverMeta name={approverName(campaign.assigned_approver_id)} dueDate={campaign.approval_due_date} scope={campaign.approval_scope} />
+                      <div className="mt-4">
+                        <TextareaZoom label="Reviewer feedback" rows={3} value={reviewNote} onChange={setReviewNote} placeholder="Add your feedback… (required to request changes)" />
                       </div>
-                    </div>
-                  </div>
+                      <div className="mt-3 flex flex-col gap-2">
+                        <Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700" onClick={handleApprove} disabled={!!busyApproval}>
+                          <span className="material-symbols-outlined mr-1 text-base">check_circle</span> Approve Campaign
+                        </Button>
+                        <div className="flex gap-2">
+                          <Button className="flex-1 bg-amber-500 text-white hover:bg-amber-600" onClick={handleRequestChanges} disabled={!!busyApproval}>
+                            Request Changes
+                          </Button>
+                          <Button variant="destructive" className="flex-1" onClick={handleReject} disabled={!!busyApproval}>
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
 
-                {/* Read-only approval details (submitter / non-reviewer) */}
                 {approvalStatus === "pending_review" && !canReview && (
-                  <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                    <h4 className="mb-4 text-xs font-bold uppercase tracking-widest text-primary">Approval Details</h4>
-                    <ApproverMeta
-                      name={approverName(campaign.assigned_approver_id)}
-                      dueDate={campaign.approval_due_date}
-                      scope={campaign.approval_scope}
-                    />
-                    <div className="mt-4 flex items-start gap-3 rounded-lg bg-accent p-3">
-                      <span className="material-symbols-outlined text-base text-amber-600">info</span>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        Changes are disabled until a decision is made or the request is cancelled.
-                      </p>
-                    </div>
-                  </div>
+                  <Card>
+                    <CardContent className="space-y-3 py-5">
+                      <h4 className="text-xs font-bold uppercase tracking-widest text-primary">Approval Details</h4>
+                      <ApproverMeta name={approverName(campaign.assigned_approver_id)} dueDate={campaign.approval_due_date} scope={campaign.approval_scope} />
+                      <div className="mt-4 flex items-start gap-3 rounded-lg bg-accent p-3">
+                        <span className="material-symbols-outlined text-base text-amber-600">info</span>
+                        <p className="text-xs leading-relaxed text-muted-foreground">Changes are disabled until a decision is made or the request is cancelled.</p>
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
 
-                {/* Approved: campaign info */}
                 {approvalStatus === "approved" && (
-                  <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                    <h4 className="mb-4 text-xs font-bold uppercase tracking-widest text-primary">Campaign Info</h4>
-                    <dl className="space-y-3 text-sm">
-                      <div>
-                        <dt className="text-xs uppercase tracking-wider text-muted-foreground">Objective</dt>
-                        <dd className="font-semibold capitalize">{campaign.objective}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs uppercase tracking-wider text-muted-foreground">Dates</dt>
-                        <dd className="font-semibold">
-                          {campaign.start_date ? new Date(campaign.start_date).toLocaleDateString() : "—"} –{" "}
-                          {campaign.end_date ? new Date(campaign.end_date).toLocaleDateString() : "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Platforms</dt>
-                        <dd className="flex flex-wrap gap-1.5">
-                          {activePlatforms.map((p) => (
-                            <span key={p.platform} className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-xs font-semibold capitalize text-accent-foreground">
-                              <PlatformIcon platform={p.platform} size={11} /> {p.platform}
-                            </span>
-                          ))}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
+                  <Card>
+                    <CardContent className="space-y-3 py-5">
+                      <h4 className="text-xs font-bold uppercase tracking-widest text-primary">Campaign Info</h4>
+                      <dl className="space-y-3 text-sm">
+                        <div>
+                          <dt className="text-xs uppercase tracking-wider text-muted-foreground">Objective</dt>
+                          <dd className="font-semibold capitalize">{campaign.objective}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs uppercase tracking-wider text-muted-foreground">Dates</dt>
+                          <dd className="font-semibold">{campaign.start_date ? new Date(campaign.start_date).toLocaleDateString() : "—"} – {campaign.end_date ? new Date(campaign.end_date).toLocaleDateString() : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Platforms</dt>
+                          <dd className="flex flex-wrap gap-1.5">
+                            {activePlatforms.map((p) => (
+                              <span key={p.platform} className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-xs font-semibold capitalize text-accent-foreground">
+                                <PlatformIcon platform={p.platform} size={11} /> {p.platform}
+                              </span>
+                            ))}
+                          </dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
                 )}
 
-                <ApprovalTimeline
-                  events={buildTimeline(campaign)}
-                  title={approvalStatus === "approved" ? "Workflow History" : "Activity Timeline"}
-                />
+                <ApprovalTimeline events={buildTimeline(campaign)} title={approvalStatus === "approved" ? "Workflow History" : "Activity Timeline"} />
               </aside>
             </div>
           )}
 
-          {/* Export bar for ready campaigns */}
           {campaign.status === "ready" && !isEditorMode && (
-            <div className="card export-bar" style={{ marginTop: "1rem" }}>
+            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-4 shadow-sm">
               <strong>Export:</strong>
               {(["zip", "pdf", "json", "csv"] as const).map((fmt) => (
-                <Button key={fmt} variant="ghost" size="sm"
-                  onClick={() => downloadFile(`/campaigns/${campaign.id}/export?format=${fmt}`, `campaign_${campaign.id}.${fmt}`)}>
+                <Button key={fmt} variant="ghost" size="sm" onClick={() => downloadFile(`/campaigns/${campaign.id}/export?format=${fmt}`, `campaign_${campaign.id}.${fmt}`)}>
                   {fmt.toUpperCase()}
                 </Button>
               ))}
             </div>
           )}
 
-          {/* ===== APPROVAL WORKFLOW ===== */}
           <div className="mt-6">
             <WorkflowStepper currentStep={workflowStep} />
           </div>
@@ -779,7 +614,6 @@ export default function CampaignDetail() {
         </>
       )}
 
-      {/* ===== MODALS ===== */}
       {openElement && (
         <ElementModal campaignId={campaign.id} element={openElement}
           posts={campaign.posts.filter((p) => p.element_id === openElement.id)}
@@ -793,31 +627,17 @@ export default function CampaignDetail() {
           canEdit={canEdit && campaign.status !== "generating"}
           onChange={load} onClose={() => setOpenElementId(null)} />
       )}
-      {showAutopilot && (
-        <AutopilotModal campaignId={campaign.id} onClose={() => setShowAutopilot(false)} onDone={load} />
-      )}
+      {showAutopilot && <AutopilotModal campaignId={campaign.id} onClose={() => setShowAutopilot(false)} onDone={load} />}
       {showScheduler && (
-        <CampaignSchedulerModal
-          campaignId={campaign.id}
-          startDate={campaign.start_date}
-          endDate={campaign.end_date}
-          onClose={() => setShowScheduler(false)}
-          onDone={load}
-        />
+        <CampaignSchedulerModal campaignId={campaign.id}
+          startDate={campaign.start_date} endDate={campaign.end_date}
+          onClose={() => setShowScheduler(false)} onDone={load} />
       )}
     </div>
   );
 }
 
-function ApproverMeta({
-  name,
-  dueDate,
-  scope,
-}: {
-  name: string;
-  dueDate: string | null;
-  scope: string;
-}) {
+function ApproverMeta({ name, dueDate, scope }: { name: string; dueDate: string | null; scope: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -843,9 +663,6 @@ function ApproverMeta({
   );
 }
 
-/** Inline quick-schedule on a post card: click the time chip to set/change the
- *  publish date & time without opening the full Schedule modal. Reschedules an
- *  existing ScheduledPost (PATCH) or creates one (POST). */
 function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post: Post; onDone: () => void }) {
   const ps = post.publish_state;
   const isScheduled = ps?.status === "scheduled" && !!ps.scheduled_at;
@@ -853,93 +670,51 @@ function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post:
   const [when, setWhen] = useState<Date | null>(ps?.scheduled_at ? new Date(ps.scheduled_at) : null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    setWhen(ps?.scheduled_at ? new Date(ps.scheduled_at) : null);
-  }, [ps?.scheduled_at]);
+  useEffect(() => { setWhen(ps?.scheduled_at ? new Date(ps.scheduled_at) : null); }, [ps?.scheduled_at]);
 
   async function save() {
     if (!when) return;
-    if (when <= new Date()) {
-      toast.error("Pick a future date and time");
-      return;
-    }
+    if (when <= new Date()) { toast.error("Pick a future date and time"); return; }
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     setBusy(true);
     try {
       if (isScheduled && ps?.id) {
-        await api(`/scheduled-posts/${ps.id}`, {
-          method: "PATCH",
-          body: { scheduled_at: when.toISOString(), timezone: tz },
-        });
+        await api(`/scheduled-posts/${ps.id}`, { method: "PATCH", body: { scheduled_at: when.toISOString(), timezone: tz } });
       } else {
-        await api(`/campaigns/${campaignId}/posts/${post.id}/schedule`, {
-          method: "POST",
-          body: { scheduled_at: when.toISOString(), timezone: tz },
-        });
+        await api(`/campaigns/${campaignId}/posts/${post.id}/schedule`, { method: "POST", body: { scheduled_at: when.toISOString(), timezone: tz } });
       }
       toast.success("Schedule updated");
       setOpen(false);
       onDone();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Scheduling failed");
-    } finally {
-      setBusy(false);
-    }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Scheduling failed"); }
+    finally { setBusy(false); }
   }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={(e) => e.stopPropagation()}
+        <button type="button" onClick={(e) => e.stopPropagation()}
           className={cn(
             "group/qs inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 transition-colors",
-            isScheduled
-              ? "border-primary/20 bg-primary/5 font-medium text-foreground hover:bg-primary/10"
+            isScheduled ? "border-primary/20 bg-primary/5 font-medium text-foreground hover:bg-primary/10"
               : "border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/30 hover:bg-muted",
           )}
-          title={
-            isScheduled
-              ? "Click to change date & time"
-              : post.best_time
-                ? `AI suggested: ${post.best_time} — click to set a date & time`
-                : "Click to set date & time"
-          }
-        >
-          <span className="material-symbols-outlined shrink-0 text-sm leading-none">
-            {isScheduled ? "event_available" : "schedule"}
-          </span>
+          title={isScheduled ? "Click to change date & time" : post.best_time ? `AI suggested: ${post.best_time} — click to set a date & time` : "Click to set date & time"}>
+          <span className="material-symbols-outlined shrink-0 text-sm leading-none">{isScheduled ? "event_available" : "schedule"}</span>
           <span className="truncate leading-none">
             {isScheduled && ps?.scheduled_at
-              ? new Date(ps.scheduled_at).toLocaleString(undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
+              ? new Date(ps.scheduled_at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
               : "Set schedule"}
           </span>
-          <span className="material-symbols-outlined shrink-0 text-sm leading-none opacity-0 transition-opacity group-hover/qs:opacity-60">
-            edit
-          </span>
+          <span className="material-symbols-outlined shrink-0 text-sm leading-none opacity-0 transition-opacity group-hover/qs:opacity-60">edit</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-auto space-y-3 p-3"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <PopoverContent align="start" className="w-auto space-y-3 p-3" onClick={(e) => e.stopPropagation()}>
         <p className="text-xs font-medium">Schedule this post</p>
         <DateTimePicker value={when} onChange={setWhen} />
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={save} disabled={busy || !when}>
-            {busy ? "Saving…" : "Save"}
-          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={busy || !when}>{busy ? "Saving…" : "Save"}</Button>
         </div>
       </PopoverContent>
     </Popover>
@@ -956,95 +731,65 @@ function PostThumbnail({ campaignId, image }: { campaignId: string; image: PostI
     });
     return () => { active = false; };
   }, [campaignId, image.id, image.base_object_key]);
-  return url ? <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" /> : null;
+  return url ? <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" /> : null;
 }
 
-function ElementCard({
-  campaignId,
-  element,
-  posts,
-  onOpen,
-}: {
-  campaignId: string;
-  element: CampaignElement;
-  posts: Post[];
-  onOpen: () => void;
-}) {
+function ElementCard({ campaignId, element, posts, onOpen }: { campaignId: string; element: CampaignElement; posts: Post[]; onOpen: () => void }) {
   const cover = element.images.find((i) => i.base_object_key) ?? null;
   const coverVideo = element.videos.find((v) => v.base_object_key && v.status === "ready") ?? null;
-  const isGenerating =
-    element.images.some((i) => i.status === "generating") ||
-    element.videos.some((v) => v.status === "generating");
-  const ratios = Array.from(
-    new Set([...element.images.map((i) => i.aspect_ratio), ...element.videos.map((v) => v.aspect_ratio)])
-  );
+  const isGenerating = element.images.some((i) => i.status === "generating") || element.videos.some((v) => v.status === "generating");
+  const ratios = Array.from(new Set([...element.images.map((i) => i.aspect_ratio), ...element.videos.map((v) => v.aspect_ratio)]));
   const generatedCount = element.images.filter((i) => i.base_object_key).length;
   const videoCount = element.videos.length;
   const readyVideos = element.videos.filter((v) => v.base_object_key).length;
   const headline = posts[0]?.headline || element.theme;
   const meta = [
-    element.element_type as string,
-    ratios.join(", "),
+    element.element_type as string, ratios.join(", "),
     element.images.length > 0 ? `${generatedCount}/${element.images.length} images` : "",
     videoCount > 0 ? `${readyVideos}/${videoCount} video${videoCount > 1 ? "s" : ""}` : "",
   ].filter(Boolean);
 
-  // Publish summary across this element's posts (shown as a card badge)
   const publishedCount = posts.filter((p) => p.publish_state?.status === "published").length;
   const publishingCount = posts.filter((p) => p.publish_state?.status === "publishing").length;
   const scheduledCount = posts.filter((p) => p.publish_state?.status === "scheduled").length;
   const failedCount = posts.filter((p) => p.publish_state?.status === "failed").length;
 
   return (
-    <div className="card element-card" onClick={onOpen}>
-      <div className="element-thumb">
+    <div className="cursor-pointer overflow-hidden rounded-xl border border-border bg-card transition-shadow hover:shadow-md" onClick={onOpen}>
+      <div className="flex aspect-square items-center justify-center overflow-hidden bg-slate-100">
         {isGenerating ? (
-          <div className="image-empty">
+          <div className="p-8 text-sm text-muted-foreground">
             Generating image…
-            <div className="progress-bar" style={{ width: "80%" }}>
-              <div className="progress-fill indeterminate" />
+            <div className="mt-2 h-2 w-[80%] overflow-hidden rounded-full bg-border">
+              <div className="h-full w-[35%] animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
             </div>
           </div>
-        ) : cover ? (
-          <ElementThumb campaignId={campaignId} image={cover} />
-        ) : coverVideo ? (
-          <ElementVideoThumb campaignId={campaignId} video={coverVideo} />
-        ) : element.element_type === "text" ? (
-          <div className="image-empty muted">Text only</div>
-        ) : (
-          <div className="image-empty">{videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}</div>
-        )}
+        ) : cover ? <ElementThumb campaignId={campaignId} image={cover} />
+        : coverVideo ? <ElementVideoThumb campaignId={campaignId} video={coverVideo} />
+        : element.element_type === "text" ? <div className="p-8 text-sm text-muted-foreground">Text only</div>
+        : <div className="p-8 text-sm text-muted-foreground">{videoCount > 0 && element.images.length === 0 ? "🎬 No video yet" : "No image yet"}</div>}
       </div>
-      <div className="element-card-body">
-        <strong className="small element-headline">{headline}</strong>
-        <div className="platform-chips">
+      <div className="flex flex-col gap-1.5 p-3">
+        <strong className="line-clamp-2 text-sm font-semibold">{headline}</strong>
+        <div className="flex flex-wrap gap-1">
           {element.platforms.map((p) => (
-            <span key={p} className="chip">
+            <span key={p} className="inline-flex items-center gap-1 rounded-full border border-primary-soft-border bg-accent px-2 py-0.5 text-[0.7rem] font-medium capitalize text-primary">
               <PlatformIcon platform={p} size={12} /> {p}
             </span>
           ))}
         </div>
-        <div className="muted small element-meta">
+        <div className="text-xs text-muted-foreground">
           {meta.join(" · ")}
-          {(element.images.some((i) => i.status === "generating") ||
-            element.videos.some((v) => v.status === "generating")) && (
-            <span className="tag"> generating…</span>
+          {(element.images.some((i) => i.status === "generating") || element.videos.some((v) => v.status === "generating")) && (
+            <Badge className="ml-1">generating…</Badge>
           )}
         </div>
         {(publishedCount > 0 || publishingCount > 0 || scheduledCount > 0 || failedCount > 0) && (
-          <div className="platform-chips" style={{ marginTop: 4 }}>
-            {publishedCount > 0 && (
-              <span className="tag approval-approved">✓ {publishedCount} published</span>
-            )}
-            {publishingCount > 0 && (
-              <span className="tag approval-pending_review">⏳ {publishingCount} publishing</span>
-            )}
-            {scheduledCount > 0 && (
-              <span className="tag">⏰ {scheduledCount} scheduled</span>
-            )}
-            {failedCount > 0 && (
-              <span className="tag approval-rejected">✗ {failedCount} failed</span>
-            )}
+          <div className="mt-1 flex flex-wrap gap-1">
+            {publishedCount > 0 && <Badge variant="success">✓ {publishedCount} published</Badge>}
+            {publishingCount > 0 && <Badge variant="warning">⏳ {publishingCount} publishing</Badge>}
+            {scheduledCount > 0 && <Badge variant="secondary">⏰ {scheduledCount} scheduled</Badge>}
+            {failedCount > 0 && <Badge variant="destructive">✗ {failedCount} failed</Badge>}
           </div>
         )}
       </div>
@@ -1056,59 +801,33 @@ function ElementVideoThumb({ campaignId, video }: { campaignId: string; video: P
   const [url, setUrl] = useState("");
   useEffect(() => {
     let active = true;
-    getBlobUrl(`/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`).then((u) => {
-      if (active) setUrl(u);
-    });
-    return () => {
-      active = false;
-    };
+    getBlobUrl(`/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`).then((u) => { if (active) setUrl(u); });
+    return () => { active = false; };
   }, [campaignId, video.id, video.base_object_key]);
-  return url ? (
-    <video src={url} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-  ) : (
-    <div className="image-empty">🎬</div>
-  );
+  return url ? <video src={url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+    : <div className="p-8 text-2xl">🎬</div>;
 }
 
 function ElementThumb({ campaignId, image }: { campaignId: string; image: PostImage }) {
   const { preview } = useImageUrl(campaignId, image);
-  return preview ? <img src={preview} alt="element" loading="lazy" /> : <div className="image-empty">…</div>;
+  return preview ? <img src={preview} alt="element" loading="lazy" /> : <div className="p-8 text-muted-foreground">…</div>;
 }
 
-// Resolve blob URLs for an image: a small WebP preview (≤800px) and a larger
-// WebP for the lightbox (≤1600px). Both go through the /display route which
-// serves the appropriate variant (composite or base) and falls back to the
-// full-res base for legacy images without display variants.
 function useImageUrl(campaignId: string, image: PostImage): { preview: string; full: string } {
   const [preview, setPreview] = useState("");
   const [full, setFull] = useState("");
   const state = image.canvas_state || {};
-  const hasLayers =
-    (state.logo?.visible !== false && !!state.logo) ||
-    (state.assets || []).some((a) => a.visible !== false) ||
-    (state.texts || []).some((t) => t.visible !== false);
+  const hasLayers = (state.logo?.visible !== false && !!state.logo) || (state.assets || []).some((a) => a.visible !== false) || (state.texts || []).some((t) => t.visible !== false);
   useEffect(() => {
-    if (!image.base_object_key) {
-      setPreview("");
-      setFull("");
-      return;
-    }
+    if (!image.base_object_key) { setPreview(""); setFull(""); return; }
     let active = true;
     const isComposite = image.composited_object_key || hasLayers;
-    const version = isComposite
-      ? hashKey(`${image.base_object_key}|${JSON.stringify(image.canvas_state || {})}`)
-      : image.base_object_key;
+    const version = isComposite ? hashKey(`${image.base_object_key}|${JSON.stringify(image.canvas_state || {})}`) : image.base_object_key;
     const previewPath = `/campaigns/${campaignId}/images/${image.id}/display?v=${version}`;
     const fullPath = `/campaigns/${campaignId}/images/${image.id}/display?v=${version}&w=1600`;
-    getBlobUrl(previewPath).then((u) => {
-      if (active) setPreview(u);
-    });
-    getBlobUrl(fullPath).then((u) => {
-      if (active) setFull(u);
-    });
-    return () => {
-      active = false;
-    };
+    getBlobUrl(previewPath).then((u) => { if (active) setPreview(u); });
+    getBlobUrl(fullPath).then((u) => { if (active) setFull(u); });
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, image.id, image.base_object_key, image.composited_object_key, hasLayers, image.canvas_state]);
   return { preview, full };
@@ -1118,18 +837,7 @@ function makeDraft(p: Post): PreviewDraft {
   return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
 }
 
-/** Platform switcher: a single scrollable row with a right-edge gradient +
- *  chevron shown only when more tabs are hidden off-screen. Clicking the
- *  chevron scrolls the row forward. */
-function PlatformTabs({
-  posts,
-  value,
-  onValueChange,
-}: {
-  posts: Post[];
-  value: string;
-  onValueChange: (v: string) => void;
-}) {
+function PlatformTabs({ posts, value, onValueChange }: { posts: Post[]; value: string; onValueChange: (v: string) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showFade, setShowFade] = useState(false);
 
@@ -1140,10 +848,7 @@ function PlatformTabs({
     update();
     el.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update);
-    return () => {
-      el.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
+    return () => { el.removeEventListener("scroll", update); window.removeEventListener("resize", update); };
   }, [posts.length]);
 
   return (
@@ -1160,12 +865,9 @@ function PlatformTabs({
         </Tabs>
       </div>
       {showFade && (
-        <button
-          type="button"
-          aria-label="Show more platforms"
+        <button type="button" aria-label="Show more platforms"
           onClick={() => scrollRef.current?.scrollBy({ left: 160, behavior: "smooth" })}
-          className="absolute right-0 top-0 bottom-0 flex w-12 items-center justify-end rounded-r-lg bg-gradient-to-l from-muted via-muted/85 to-transparent pr-1.5"
-        >
+          className="absolute right-0 top-0 bottom-0 flex w-12 items-center justify-end rounded-r-lg bg-gradient-to-l from-muted via-muted/85 to-transparent pr-1.5">
           <ChevronRight className="size-4 text-muted-foreground" />
         </button>
       )}
@@ -1173,118 +875,64 @@ function PlatformTabs({
   );
 }
 
-function ElementModal({
-  campaignId,
-  element,
-  posts,
-  client,
-  models,
-  videoModels,
-  canEdit,
-  onChange,
-  onClose,
-}: {
-  campaignId: string;
-  element: CampaignElement | null;
-  posts: Post[];
-  client: Client | null;
-  models: ImageModel[];
-  videoModels: VideoModel[];
-  canEdit: boolean;
-  onChange: () => Promise<void>;
-  onClose: () => void;
-}) {
+function ElementModal({ campaignId, element, posts, client, models, videoModels, canEdit, onChange, onClose }: { campaignId: string; element: CampaignElement | null; posts: Post[]; client: Client | null; models: ImageModel[]; videoModels: VideoModel[]; canEdit: boolean; onChange: () => Promise<void>; onClose: () => void }) {
   const [tab, setTab] = useState(posts[0]?.platform ?? "");
-  // Live drafts feed the right-hand preview column in real time. Each CopyForm
-  // reports its in-progress edits here so the preview updates as you type —
-  // without saving or reopening anything.
-  const [drafts, setDrafts] = useState<Record<string, PreviewDraft>>(() =>
-    Object.fromEntries(posts.map((p) => [p.id, makeDraft(p)])),
-  );
+  const [drafts, setDrafts] = useState<Record<string, PreviewDraft>>(() => Object.fromEntries(posts.map((p) => [p.id, makeDraft(p)])));
   const activePost = posts.find((p) => p.platform === tab) ?? posts[0] ?? null;
   const showPreview = !!element && !!client && posts.length > 0;
 
-  // Platforms sharing each image's ratio, so a visual is shown once with its audience.
   function platformsForRatio(ratio: string): string[] {
     if (!element) return [];
     return element.platforms.filter((p) => (element.platform_ratios?.[p] ?? ratio) === ratio);
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-6 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={`modal element-modal ${showPreview ? "composer-modal" : ""}`}
+        className={cn(
+          "flex max-h-[92vh] w-[95vw] max-w-[1100px] flex-col overflow-hidden rounded-xl bg-surface shadow-xl",
+          showPreview && "w-[min(95vw,1100px)]",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="modal-header">
-          <h2>{element ? element.theme || element.element_type : activePost?.headline || "Post"}</h2>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="m-0 text-xl font-semibold">{element ? element.theme || element.element_type : activePost?.headline || "Post"}</h2>
+          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
 
-        <div className={showPreview ? "composer-layout" : "element-modal-layout"}>
-          <div className="composer-editor">
+        <div className={cn("grid flex-1 overflow-y-auto", showPreview ? "lg:grid-cols-[380px_1fr_400px]" : "lg:grid-cols-[380px_1fr]")}>
+          <div className="space-y-4 border-r border-border p-6">
             {element && (
-              <div className="element-visuals">
-                <h3 className="composer-section-title">Visual (shared across platforms)</h3>
+              <div>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Visual (shared across platforms)</h3>
                 {element.images.length > 0 && (
-                  <ElementVisual
-                    campaignId={campaignId}
-                    images={element.images}
-                    client={client}
-                    models={models}
-                    canEdit={canEdit}
-                    onChange={onChange}
-                    platformsForRatio={platformsForRatio}
-                  />
+                  <ElementVisual campaignId={campaignId} images={element.images} client={client} models={models}
+                    canEdit={canEdit} onChange={onChange} platformsForRatio={platformsForRatio} />
                 )}
                 {element.videos.length > 0 && (
-                  <VideoVisual
-                    campaignId={campaignId}
-                    videos={element.videos}
-                    client={client}
-                    models={videoModels}
-                    canEdit={canEdit}
-                    onChange={onChange}
-                    platformsForRatio={platformsForRatio}
-                  />
+                  <VideoVisual campaignId={campaignId} videos={element.videos} client={client} models={videoModels}
+                    canEdit={canEdit} onChange={onChange} platformsForRatio={platformsForRatio} />
                 )}
               </div>
             )}
+          </div>
 
-            <div className="element-copy">
-              {posts.length > 1 && (
-                <PlatformTabs posts={posts} value={tab} onValueChange={(v) => setTab(v as typeof tab)} />
-              )}
-              {activePost && (
-                <CopyForm
-                  key={activePost.id}
-                  campaignId={campaignId}
-                  post={activePost}
-                  canEdit={canEdit}
-                  onChange={onChange}
-                  setDrafts={setDrafts}
-                />
-              )}
-              {posts.length === 0 && <p className="muted small">This element has no posts.</p>}
-            </div>
+          <div className="space-y-4 p-6">
+            {posts.length > 1 && <PlatformTabs posts={posts} value={tab} onValueChange={(v) => setTab(v as typeof tab)} />}
+            {activePost && (
+              <CopyForm key={activePost.id} campaignId={campaignId} post={activePost}
+                canEdit={canEdit} onChange={onChange} setDrafts={setDrafts} />
+            )}
+            {posts.length === 0 && <p className="text-sm text-muted-foreground">This element has no posts.</p>}
           </div>
 
           {showPreview && (
-            <aside className="composer-preview">
-              <div className="composer-preview-head">
-                <span className="small muted">Live preview</span>
-                <span className="small muted">updates as you type</span>
+            <aside className="space-y-2 border-l border-border bg-surface-alt p-6">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Live preview</span>
+                <span className="text-xs text-muted-foreground">updates as you type</span>
               </div>
-              <LivePreviewColumn
-                campaignId={campaignId}
-                element={element!}
-                posts={posts}
-                client={client!}
-                drafts={drafts}
-                activePlatform={tab}
-              />
+              <LivePreviewColumn campaignId={campaignId} element={element!} posts={posts} client={client!} drafts={drafts} activePlatform={tab} />
             </aside>
           )}
         </div>
@@ -1293,19 +941,7 @@ function ElementModal({
   );
 }
 
-function CopyForm({
-  campaignId,
-  post,
-  canEdit,
-  onChange,
-  setDrafts,
-}: {
-  campaignId: string;
-  post: Post;
-  canEdit: boolean;
-  onChange: () => Promise<void>;
-  setDrafts?: Dispatch<SetStateAction<Record<string, PreviewDraft>>>;
-}) {
+function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaignId: string; post: Post; canEdit: boolean; onChange: () => Promise<void>; setDrafts?: Dispatch<SetStateAction<Record<string, PreviewDraft>>> }) {
   const [copy, setCopy] = useState(post.copy);
   const [headline, setHeadline] = useState(post.headline);
   const [cta, setCta] = useState(post.cta);
@@ -1316,60 +952,39 @@ function CopyForm({
   const promptDialog = usePrompt();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
 
-  const canReview =
-    !!user?.is_platform_admin || user?.org_role === "reviewer" || user?.org_role === "org_admin";
-  const canSubmit =
-    canReview || user?.org_role === "analyst" || user?.org_role === "creative";
-
-  // Persistent publish status comes from the server (post.publish_state).
-  // Publishing/scheduling itself is handled from the global Calendar.
+  const canReview = !!user?.is_platform_admin || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+  const canSubmit = canReview || user?.org_role === "analyst" || user?.org_role === "creative";
   const ps = post.publish_state;
 
   async function review(action: "submit" | "approve" | "reject") {
     let note = "";
     if (action === "reject") {
       const reason = await promptDialog({
-        title: "Reject post",
-        description: "Add an optional note explaining why (the author will see it).",
-        placeholder: "Reason for rejection (optional)",
-        confirmLabel: "Reject",
-        destructive: true,
+        title: "Reject post", description: "Add an optional note explaining why (the author will see it).",
+        placeholder: "Reason for rejection (optional)", confirmLabel: "Reject", destructive: true,
       });
-      if (reason === null) return; // cancelled
+      if (reason === null) return;
       note = reason;
     }
     setBusy(action === "submit" ? "Submitting…" : action === "approve" ? "Approving…" : "Rejecting…");
     try {
-      await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, {
-        method: "POST",
-        body: action === "reject" ? { note } : {},
-      });
-      toast.success(
-        action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected",
-      );
+      await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, { method: "POST", body: action === "reject" ? { note } : {} });
+      toast.success(action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected");
       await onChange();
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
   useEffect(() => {
-    setCopy(post.copy);
-    setHeadline(post.headline);
-    setCta(post.cta);
+    setCopy(post.copy); setHeadline(post.headline); setCta(post.cta);
     setHashtags(post.hashtags.join(" "));
     setDirty(false);
   }, [post.copy, post.headline, post.cta, post.hashtags]);
 
-  // Mirror in-progress edits into the shared drafts map so the live preview
-  // column reflects them immediately. Guarded to avoid a re-render loop.
   useEffect(() => {
     if (!setDrafts) return;
     setDrafts((prev) => {
       const cur = prev[post.id];
-      if (cur && cur.headline === headline && cur.copy === copy && cur.hashtags === hashtags) {
-        return prev;
-      }
+      if (cur && cur.headline === headline && cur.copy === copy && cur.hashtags === hashtags) return prev;
       return { ...prev, [post.id]: { headline, copy, hashtags } };
     });
   }, [headline, copy, hashtags, post.id, setDrafts]);
@@ -1378,14 +993,11 @@ function CopyForm({
     setBusy("Saving…");
     try {
       await api(`/campaigns/${campaignId}/posts/${post.id}`, {
-        method: "PATCH",
-        body: { headline, copy, cta, hashtags: hashtags.split(/\s+/).filter(Boolean) },
+        method: "PATCH", body: { headline, copy, cta, hashtags: hashtags.split(/\s+/).filter(Boolean) },
       });
       setDirty(false);
       await onChange();
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
   async function regenerate() {
@@ -1393,112 +1005,71 @@ function CopyForm({
     try {
       await api(`/campaigns/${campaignId}/posts/${post.id}/regenerate`, { method: "POST", body: {} });
       await onChange();
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
-  const mark = <T,>(setter: (v: T) => void) => (v: T) => {
-    setter(v);
-    setDirty(true);
-  };
+  const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setDirty(true); };
 
   return (
-    <div className="post-copy">
-      <div className="post-field">
-        <span className="field-label small">Headline</span>
-        <div className="relative">
+    <div className="space-y-3">
+      <div className="mb-3">
+        <Label className="text-sm">Headline</Label>
+        <div className="relative mt-1">
           <Input className="pr-9" value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
-          {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline} onApply={(v) => mark(setHeadline)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />
-          )}
+          {canEdit && <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline} onApply={(v) => mark(setHeadline)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />}
         </div>
       </div>
-      <div className="post-field">
-        <span className="field-label small">
-          Copy{" "}
-          <span className={copy.length > limit ? "char-over" : "muted"}>
-            {copy.length}/{limit}
-          </span>
-        </span>
-        <TextareaZoom
-          label="Copy"
-          rows={6}
-          value={copy}
-          onChange={(v) => mark(setCopy)(v)}
-          readOnly={!canEdit}
-          footerSlot={
-            canEdit ? (
-              <AiAssist
-                campaignId={campaignId}
-                postId={post.id}
-                field="copy"
-                value={copy}
-                onApply={(v) => mark(setCopy)(v)}
-                label="Improve with AI"
-              />
-            ) : undefined
-          }
-        />
+      <div className="mb-3">
+        <Label className="text-sm">
+          Copy <span className={cn("ml-1 text-xs", copy.length > limit ? "text-red-600" : "text-muted-foreground")}>{copy.length}/{limit}</span>
+        </Label>
+        <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit}
+          footerSlot={canEdit ? <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy} onApply={(v) => mark(setCopy)(v)} label="Improve with AI" /> : undefined} />
       </div>
-      <div className="post-field">
-        <span className="field-label small">Call to action</span>
-        <div className="relative">
+      <div className="mb-3">
+        <Label className="text-sm">Call to action</Label>
+        <div className="relative mt-1">
           <Input className="pr-9" value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
-          {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta} onApply={(v) => mark(setCta)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />
-          )}
+          {canEdit && <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta} onApply={(v) => mark(setCta)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />}
         </div>
       </div>
-      <div className="post-field">
-        <span className="field-label small">Hashtags</span>
-        <div className="relative">
+      <div className="mb-3">
+        <Label className="text-sm">Hashtags</Label>
+        <div className="relative mt-1">
           <Input className="pr-9" value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
-          {canEdit && (
-            <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags} onApply={(v) => mark(setHashtags)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />
-          )}
+          {canEdit && <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags} onApply={(v) => mark(setHashtags)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />}
         </div>
       </div>
-      {post.rationale && <p className="post-hint">💡 {post.rationale}</p>}
+      {post.rationale && <p className="text-sm text-muted-foreground">💡 {post.rationale}</p>}
 
-      <div className="approval-bar">
-        <span className={`tag approval-${post.approval_status}`}>
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-alt p-3">
+        <Badge variant={APPROVAL_STATUS_VARIANT[post.approval_status] ?? "secondary"}>
           {APPROVAL_LABELS[post.approval_status] ?? post.approval_status}
-        </span>
+        </Badge>
         {post.approval_status === "rejected" && post.review_note && (
-          <span className="muted small">— {post.review_note}</span>
+          <span className="text-sm text-muted-foreground">— {post.review_note}</span>
         )}
         {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
-          <Button variant="ghost" size="sm" onClick={() => review("submit")} disabled={!!busy}>
-            Submit for review
-          </Button>
+          <Button variant="ghost" size="sm" onClick={() => review("submit")} disabled={!!busy}>Submit for review</Button>
         )}
         {canReview && post.approval_status !== "approved" && (
-          <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
-            Approve
-          </Button>
+          <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>Approve</Button>
         )}
         {canReview && post.approval_status === "pending_review" && (
-          <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
-            Reject
-          </Button>
+          <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>Reject</Button>
         )}
         {ps && <PublishBadge ps={ps} busy={!!busy} />}
       </div>
 
       {post.best_time && (
-        <p className="publish-suggestion">🕐 <strong>Suggested time:</strong> {post.best_time}</p>
+        <p className="text-sm text-muted-foreground">🕐 <strong>Suggested time:</strong> {post.best_time}</p>
       )}
 
       {canEdit && (
-        <div className="form-actions">
-          <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>
-            Save
-          </Button>
-          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>
-            Regenerate copy
-          </Button>
-          {busy && <span className="muted small">{busy}</span>}
+        <div className="flex gap-2">
+          <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>Save</Button>
+          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>Regenerate copy</Button>
+          {busy && <span className="self-center text-sm text-muted-foreground">{busy}</span>}
         </div>
       )}
     </div>
@@ -1508,90 +1079,44 @@ function CopyForm({
 function PublishBadge({ ps }: { ps: PublishState; busy?: boolean }) {
   if (ps.status === "published") {
     return (
-      <span className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-        <span className="tag approval-approved">
-          ✓ Published
-        </span>
+      <span className="inline-flex items-center gap-2 text-sm">
+        <Badge variant="success">✓ Published</Badge>
         {ps.published_url && (
-          <a href={ps.published_url} target="_blank" rel="noreferrer">
-            View post ↗
-          </a>
+          <a href={ps.published_url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline">View post ↗</a>
         )}
       </span>
     );
   }
-  if (ps.status === "publishing") {
-    return <span className="tag approval-pending_review">Publishing…</span>;
-  }
+  if (ps.status === "publishing") return <Badge variant="warning">Publishing…</Badge>;
   if (ps.status === "scheduled") {
-    return (
-      <span className="muted small">
-        ⏰ Scheduled{ps.scheduled_at ? ` for ${new Date(ps.scheduled_at).toLocaleString()}` : ""}
-      </span>
-    );
+    return <span className="text-sm text-muted-foreground">⏰ Scheduled{ps.scheduled_at ? ` for ${new Date(ps.scheduled_at).toLocaleString()}` : ""}</span>;
   }
   if (ps.status === "retrying" || ps.status === "throttled") {
     return (
-      <span
-        className="tag"
-        style={{ background: "var(--tag-amber, #fef3c7)", color: "#92400e" }}
-        title={ps.error}
-      >
+      <span title={ps.error} className="inline-block rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
         {ps.status === "throttled" ? "⏳ Throttled" : "↻ Retrying…"}
-        {ps.retry_count > 0 ? ` (${ps.retry_count}/${4})` : ""}
+        {ps.retry_count > 0 ? ` (${ps.retry_count}/4)` : ""}
       </span>
     );
   }
-  if (ps.status === "failed") {
-    return (
-      <span className="char-over small" title={ps.error}>
-        ✗ Failed{ps.error ? `: ${ps.error.slice(0, 120)}` : ""}
-      </span>
-    );
-  }
+  if (ps.status === "failed") return <span className="text-sm text-red-600" title={ps.error}>✗ Failed{ps.error ? `: ${ps.error.slice(0, 120)}` : ""}</span>;
   return null;
 }
-
-const APPROVAL_LABELS: Record<string, string> = {
-  draft: "Draft",
-  pending_review: "Pending review",
-  approved: "Approved",
-  rejected: "Rejected",
-};
 
 function ratioRank(r: string): number {
   const i = RATIO_PRIORITY.indexOf(r);
   return i === -1 ? RATIO_PRIORITY.length : i;
 }
 
-// Radix Select forbids an empty-string item value, so the "Default model"
-// option uses a sentinel that maps back to "" (= use the system default).
 const DEFAULT_MODEL = "__default__";
 
-function ModelSelect({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { id: string; display_name: string }[];
-}) {
+function ModelSelect({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { id: string; display_name: string }[] }) {
   return (
-    <Select
-      value={value || DEFAULT_MODEL}
-      onValueChange={(v) => onChange(v === DEFAULT_MODEL ? "" : v)}
-    >
-      <SelectTrigger size="sm" className="w-[170px]">
-        <SelectValue />
-      </SelectTrigger>
+    <Select value={value || DEFAULT_MODEL} onValueChange={(v) => onChange(v === DEFAULT_MODEL ? "" : v)}>
+      <SelectTrigger size="sm" className="w-[170px]"><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value={DEFAULT_MODEL}>Default model</SelectItem>
-        {options.map((m) => (
-          <SelectItem key={m.id} value={m.id}>
-            {m.display_name}
-          </SelectItem>
-        ))}
+        {options.map((m) => <SelectItem key={m.id} value={m.id}>{m.display_name}</SelectItem>)}
       </SelectContent>
     </Select>
   );
@@ -1599,64 +1124,36 @@ function ModelSelect({
 
 function statusDot(item?: { status: string; base_object_key: string }) {
   if (!item) return null;
-  if (item.status === "generating") return <span className="ratio-dot busy" />;
-  if (item.status === "ready" && item.base_object_key) return <span className="ratio-dot ok" />;
+  if (item.status === "generating") return <span className="inline-block size-2 animate-pulse rounded-full bg-amber-600" />;
+  if (item.status === "ready" && item.base_object_key) return <span className="inline-block size-2 rounded-full bg-emerald-600" />;
   return null;
 }
 
-/** One element = one visual concept. Carousels have several slides (slot_index),
- *  each with its own prompt; within a slide, the ratio variants are auto-derived
- *  from the base ratio. So we navigate slides first, then ratios. */
-function ElementVisual({
-  campaignId,
-  images,
-  client,
-  models,
-  canEdit,
-  onChange,
-  platformsForRatio,
-}: {
-  campaignId: string;
-  images: PostImage[];
-  client: Client | null;
-  models: ImageModel[];
-  canEdit: boolean;
-  onChange: () => Promise<void>;
-  platformsForRatio: (ratio: string) => string[];
-}) {
+function ElementVisual({ campaignId, images, client, models, canEdit, onChange, platformsForRatio }: { campaignId: string; images: PostImage[]; client: Client | null; models: ImageModel[]; canEdit: boolean; onChange: () => Promise<void>; platformsForRatio: (ratio: string) => string[] }) {
   const slots = Array.from(new Set(images.map((i) => i.slot_index))).sort((a, b) => a - b);
   const isCarousel = slots.length > 1;
   const [slot, setSlot] = useState(slots[0] ?? 0);
 
-  const slotImages = images
-    .filter((i) => i.slot_index === (slots.includes(slot) ? slot : slots[0]))
+  const slotImages = images.filter((i) => i.slot_index === (slots.includes(slot) ? slot : slots[0]))
     .sort((a, b) => ratioRank(a.aspect_ratio) - ratioRank(b.aspect_ratio));
   const primaryId = slotImages[0]?.id;
   const [selId, setSelId] = useState(primaryId);
   const current = slotImages.find((i) => i.id === selId) ?? slotImages[0];
-  // While any ratio of this slide is generating, lock generation on all of them —
-  // one base generation drives the rest, so a rival generation must be blocked.
   const slotBusy = slotImages.some((i) => i.status === "generating");
 
-  useEffect(() => {
-    if (!slotImages.some((i) => i.id === selId)) setSelId(primaryId);
-  }, [slotImages, selId, primaryId]);
+  useEffect(() => { if (!slotImages.some((i) => i.id === selId)) setSelId(primaryId); }, [slotImages, selId, primaryId]);
 
   if (!current) return null;
   return (
-    <div className="element-visual">
+    <div className="flex flex-col gap-2">
       {isCarousel && (
-        <div className="ratio-switch slide-switch">
+        <div className="flex flex-wrap gap-1">
           {slots.map((s, idx) => {
-            const slotPrimary = images
-              .filter((i) => i.slot_index === s)
+            const slotPrimary = images.filter((i) => i.slot_index === s)
               .sort((a, b) => ratioRank(a.aspect_ratio) - ratioRank(b.aspect_ratio))[0];
             return (
-              <button
-                key={s}
-                className={`ratio-tab ${s === slot ? "active" : ""}`}
-                onClick={() => setSlot(s)}
-              >
+              <button key={s} onClick={() => setSlot(s)}
+                className={cn("flex items-center gap-1 rounded-md border px-2 py-1 text-xs", s === slot ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent")}>
                 Slide {idx + 1}
                 {statusDot(slotPrimary)}
               </button>
@@ -1665,66 +1162,33 @@ function ElementVisual({
         </div>
       )}
       {slotImages.length > 1 && (
-        <div className="ratio-switch">
+        <div className="flex flex-wrap gap-1">
           {slotImages.map((img) => (
-            <button
-              key={img.id}
-              className={`ratio-tab ${img.id === selId ? "active" : ""}`}
-              onClick={() => setSelId(img.id)}
-              title={img.id === primaryId ? "Base ratio" : "Derived from the base ratio"}
-            >
+            <button key={img.id} onClick={() => setSelId(img.id)} title={img.id === primaryId ? "Base ratio" : "Derived from the base ratio"}
+              className={cn("flex items-center gap-1 rounded-md border px-2 py-1 text-xs", img.id === selId ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent")}>
               {img.aspect_ratio}
               {statusDot(img)}
             </button>
           ))}
         </div>
       )}
-      <p className="muted small ratio-platforms">
-        <span className="ratio-pill">{current.aspect_ratio}</span>
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        <span className="rounded-md bg-accent px-1.5 py-0.5 text-[0.65rem] font-semibold text-accent-foreground">{current.aspect_ratio}</span>
         {platformsForRatio(current.aspect_ratio).length
           ? platformsForRatio(current.aspect_ratio).map((p) => <PlatformIcon key={p} platform={p} size={14} />)
           : "all"}
       </p>
-      <ImageSlot
-        key={current.id}
-        campaignId={campaignId}
-        image={current}
-        client={client}
-        models={models}
-        canEdit={canEdit}
-        onChange={onChange}
-        cascades={current.id === primaryId && slotImages.length > 1}
-        lockGenerate={slotBusy}
-      />
+      <ImageSlot key={current.id} campaignId={campaignId} image={current} client={client} models={models}
+        canEdit={canEdit} onChange={onChange} cascades={current.id === primaryId && slotImages.length > 1} lockGenerate={slotBusy} />
     </div>
   );
 }
 
-function ImageSlot({
-  campaignId,
-  image,
-  client,
-  models,
-  canEdit,
-  onChange,
-  cascades = false,
-  lockGenerate = false,
-}: {
-  campaignId: string;
-  image: PostImage;
-  client: Client | null;
-  models: ImageModel[];
-  canEdit: boolean;
-  onChange: () => Promise<void>;
-  cascades?: boolean;
-  lockGenerate?: boolean;
-}) {
+function ImageSlot({ campaignId, image, client, models, canEdit, onChange, cascades = false, lockGenerate = false }: { campaignId: string; image: PostImage; client: Client | null; models: ImageModel[]; canEdit: boolean; onChange: () => Promise<void>; cascades?: boolean; lockGenerate?: boolean }) {
   const [prompt, setPrompt] = useState(image.prompt);
   const [negative, setNegative] = useState(image.negative_prompt);
   const [guidance, setGuidance] = useState(image.additional_guidance);
   const [modelId, setModelId] = useState(image.image_model_id ?? "");
-  // Surface the prompt before the first generation so it can be tuned upfront.
-  // Generation prompts are always visible in the editor (no toggle).
   const [editorOpen, setEditorOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const [busy, setBusy] = useState("");
@@ -1732,10 +1196,7 @@ function ImageSlot({
   const { preview, full } = useImageUrl(campaignId, image);
 
   async function savePrompt() {
-    await api(`/campaigns/${campaignId}/images/${image.id}/prompt`, {
-      method: "PATCH",
-      body: { prompt, negative_prompt: negative, additional_guidance: guidance },
-    });
+    await api(`/campaigns/${campaignId}/images/${image.id}/prompt`, { method: "PATCH", body: { prompt, negative_prompt: negative, additional_guidance: guidance } });
     await onChange();
   }
 
@@ -1743,460 +1204,289 @@ function ImageSlot({
     setBusy("Queuing…");
     setError("");
     try {
-      if (prompt !== image.prompt || negative !== image.negative_prompt || guidance !== image.additional_guidance) {
-        await savePrompt();
-      }
-      // Generation runs in a background worker; the page polls while it runs,
-      // so navigating away never interrupts it.
-      await api(`/campaigns/${campaignId}/images/${image.id}/generate`, {
-        method: "POST",
-        body: { image_model_id: modelId || null },
-      });
+      if (prompt !== image.prompt || negative !== image.negative_prompt || guidance !== image.additional_guidance) await savePrompt();
+      await api(`/campaigns/${campaignId}/images/${image.id}/generate`, { method: "POST", body: { image_model_id: modelId || null } });
       await onChange();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Generation failed"); }
+    finally { setBusy(""); }
   }
 
   async function upload(file: File) {
     setBusy("Uploading…");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
+      const fd = new FormData(); fd.append("file", file);
       await api(`/campaigns/${campaignId}/images/${image.id}/upload`, { method: "POST", formData: fd });
       await onChange();
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
   async function download() {
-    setBusy("Preparing…");
-    setError("");
+    setBusy("Preparing…"); setError("");
     try {
-      // The composite endpoint renders the final PNG (base + logo + layers + text).
       const name = `image-${image.aspect_ratio.replace(":", "x")}.png`;
       await downloadFile(`/campaigns/${campaignId}/images/${image.id}/composite`, name);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Download failed");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Download failed"); }
+    finally { setBusy(""); }
   }
 
   const logoOn = (image.canvas_state?.logo_enabled ?? true) !== false;
   async function toggleLogo() {
-    setBusy("Updating…");
-    setError("");
+    setBusy("Updating…"); setError("");
     try {
-      await api(`/campaigns/${campaignId}/images/${image.id}/logo`, {
-        method: "PATCH",
-        body: { enabled: !logoOn },
-      });
+      await api(`/campaigns/${campaignId}/images/${image.id}/logo`, { method: "PATCH", body: { enabled: !logoOn } });
       await onChange();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not update logo");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not update logo"); }
+    finally { setBusy(""); }
   }
 
   return (
-    <div className="image-slot">
-      <div className="image-thumb" style={{ aspectRatio: image.aspect_ratio.replace(":", "/") }}>
-        {image.status === "generating" ? (
-          <MediaSkeleton loading label="Generating image…" />
-        ) : preview ? (
-          <img src={preview} alt="post" className="image-zoomable" onClick={() => setLightbox(true)} />
-        ) : image.base_object_key ? (
-          // Generated already — the blob is still downloading.
-          <MediaSkeleton loading label="Loading…" />
-        ) : (
-          <MediaSkeleton label="No image yet" />
-        )}
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <div className="relative" style={{ aspectRatio: image.aspect_ratio.replace(":", "/") }}>
+        {image.status === "generating" ? <MediaSkeleton loading label="Generating image…" />
+        : preview ? <img src={preview} alt="post" className="h-full w-full cursor-zoom-in object-contain" onClick={() => setLightbox(true)} />
+        : image.base_object_key ? <MediaSkeleton loading label="Loading…" />
+        : <MediaSkeleton label="No image yet" />}
         {preview && image.status !== "generating" && (
-          <div className="image-overlay">
-            <button className="icon-btn" title="View full size" onClick={() => setLightbox(true)}>
+          <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity hover:opacity-100">
+            <button title="View full size" onClick={() => setLightbox(true)} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80">
               <Maximize2 size={18} />
             </button>
             {canEdit && image.base_object_key && (
-              <button className="icon-btn" title="Edit image" onClick={() => setEditorOpen(true)}>
+              <button title="Edit image" onClick={() => setEditorOpen(true)} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80">
                 <Pencil size={18} />
               </button>
             )}
-            <button className="icon-btn" title="Download image" onClick={download} disabled={!!busy}>
+            <button title="Download image" onClick={download} disabled={!!busy} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80 disabled:opacity-50">
               <Download size={18} />
             </button>
           </div>
         )}
-        {busy && <div className="image-busy">{busy}</div>}
+        {busy && <div className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2 py-1 text-xs text-white">{busy}</div>}
       </div>
       {lightbox && preview && (
-        <div className="lightbox" onClick={() => setLightbox(false)}>
-          <button className="lightbox-close icon-btn" title="Close" onClick={() => setLightbox(false)}>
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setLightbox(false)}>
+          <button title="Close" onClick={() => setLightbox(false)} className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-md bg-white/20 text-white hover:bg-white/30">
             <X size={20} />
           </button>
-          <img src={full || preview} alt="full size" className="lightbox-img" onClick={(e) => e.stopPropagation()} />
+          <img src={full || preview} alt="full size" className="max-h-[90vh] max-w-[90vw] rounded-2xl bg-white object-contain shadow-2xl" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
-      <div className="image-meta small muted">
-        <span className="ratio-pill">{image.aspect_ratio}</span>
-        {image.status === "failed" && <span className="tag tag-red">failed</span>}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="rounded-md bg-accent px-1.5 py-0.5 text-[0.65rem] font-semibold text-accent-foreground">{image.aspect_ratio}</span>
+        {image.status === "failed" && <Badge variant="destructive">failed</Badge>}
       </div>
-      {(error || image.error) && <div className="alert alert-error small">{error || image.error}</div>}
+      {(error || image.error) && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error || image.error}</div>}
 
       {canEdit && (
-        <div className="image-actions">
+        <div className="flex flex-wrap gap-2">
           <ModelSelect value={modelId} onChange={setModelId} options={models} />
-          <Button
-            size="sm"
-            onClick={generate}
-            disabled={!!busy || image.status === "generating" || lockGenerate}
-            title={lockGenerate && image.status !== "generating" ? "The base ratio is generating — it will create this one too" : undefined}
-          >
+          <Button size="sm" onClick={generate} disabled={!!busy || image.status === "generating" || lockGenerate}
+            title={lockGenerate && image.status !== "generating" ? "The base ratio is generating — it will create this one too" : undefined}>
             <Sparkles size={14} />
             {image.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : image.base_object_key ? "Regenerate" : "Generate"}
           </Button>
-          <Button asChild variant="ghost" size="sm" className={lockGenerate ? "pointer-events-none opacity-50" : ""}>
-            <label className="file-btn">
+          <Button asChild variant="ghost" size="sm" className={cn(lockGenerate && "pointer-events-none opacity-50")}>
+            <label className="flex cursor-pointer items-center gap-1.5">
               <UploadIcon size={14} /> Upload
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                hidden
-                disabled={!!busy || lockGenerate}
-                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-              />
+              <input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={!!busy || lockGenerate}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
             </label>
           </Button>
           {client?.logo_object_key && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleLogo}
-              disabled={!!busy}
-              title="Include the brand logo in the generated image (applied next time you generate)"
-            >
+            <Button variant="ghost" size="sm" onClick={toggleLogo} disabled={!!busy}
+              title="Include the brand logo in the generated image (applied next time you generate)">
               {logoOn ? <Eye size={14} /> : <EyeOff size={14} />} Logo {logoOn ? "on" : "off"}
             </Button>
           )}
         </div>
       )}
       {canEdit && cascades && (
-        <p className="muted small cascade-note">
+        <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <Sparkles size={12} /> Generating this base also creates the other ratios automatically.
         </p>
       )}
 
       {canEdit && (
-        <div className="prompt-editor">
-          <label className="small">
-            Image prompt
+        <div className="space-y-2">
+          <Label className="text-sm">Image prompt
             <TextareaZoom label="Image prompt" rows={4} value={prompt} onChange={setPrompt} />
-          </label>
-          <label className="small">
-            Negative prompt
+          </Label>
+          <Label className="text-sm">Negative prompt
             <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
-          </label>
-          <label className="small">
-            Additional guidance (appended)
+          </Label>
+          <Label className="text-sm">Additional guidance (appended)
             <Input value={guidance} onChange={(e) => setGuidance(e.target.value)} />
-          </label>
-          <div className="form-actions">
-            <Button variant="ghost" size="sm" onClick={savePrompt}>
-              Save prompt
-            </Button>
+          </Label>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={savePrompt}>Save prompt</Button>
             {image.prompt_history.length > 0 && (
-              <span className="muted small">{image.prompt_history.length} previous version(s)</span>
+              <span className="self-center text-sm text-muted-foreground">{image.prompt_history.length} previous version(s)</span>
             )}
           </div>
         </div>
       )}
 
       {editorOpen && client && (
-        <ImageEditor
-          campaignId={campaignId}
-          image={image}
-          client={client}
-          onClose={() => setEditorOpen(false)}
-          onSaved={onChange}
-        />
+        <ImageEditor campaignId={campaignId} image={image} client={client} onClose={() => setEditorOpen(false)} onSaved={onChange} />
       )}
     </div>
   );
 }
 
-/** Videos of an element grouped by ratio (same presentation as images). The base
- *  ratio is generated; the rest are reframed from it on demand (manual, for cost). */
-function VideoVisual({
-  campaignId,
-  videos,
-  client,
-  models,
-  canEdit,
-  onChange,
-  platformsForRatio,
-}: {
-  campaignId: string;
-  videos: PostVideo[];
-  client: Client | null;
-  models: VideoModel[];
-  canEdit: boolean;
-  onChange: () => Promise<void>;
-  platformsForRatio: (ratio: string) => string[];
-}) {
+function VideoVisual({ campaignId, videos, client, models, canEdit, onChange, platformsForRatio }: { campaignId: string; videos: PostVideo[]; client: Client | null; models: VideoModel[]; canEdit: boolean; onChange: () => Promise<void>; platformsForRatio: (ratio: string) => string[] }) {
   const ordered = [...videos].sort((a, b) => ratioRank(a.aspect_ratio) - ratioRank(b.aspect_ratio));
   const primaryId = ordered[0]?.id;
   const [selId, setSelId] = useState(primaryId);
   const current = ordered.find((v) => v.id === selId) ?? ordered[0];
-  useEffect(() => {
-    if (!ordered.some((v) => v.id === selId)) setSelId(primaryId);
-  }, [ordered, selId, primaryId]);
+  useEffect(() => { if (!ordered.some((v) => v.id === selId)) setSelId(primaryId); }, [ordered, selId, primaryId]);
   const slotBusy = ordered.some((v) => v.status === "generating");
   if (!current) return null;
   return (
-    <div className="element-visual">
+    <div className="flex flex-col gap-2">
       {ordered.length > 1 && (
-        <div className="ratio-switch">
+        <div className="flex flex-wrap gap-1">
           {ordered.map((v) => (
-            <button
-              key={v.id}
-              className={`ratio-tab ${v.id === selId ? "active" : ""}`}
-              onClick={() => setSelId(v.id)}
-              title={v.id === primaryId ? "Base ratio" : "Reframed from the base ratio"}
-            >
+            <button key={v.id} onClick={() => setSelId(v.id)} title={v.id === primaryId ? "Base ratio" : "Reframed from the base ratio"}
+              className={cn("flex items-center gap-1 rounded-md border px-2 py-1 text-xs", v.id === selId ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent")}>
               {v.aspect_ratio}
               {statusDot(v)}
             </button>
           ))}
         </div>
       )}
-      <p className="muted small ratio-platforms">
-        <span className="ratio-pill">{current.aspect_ratio}</span>
+      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+        <span className="rounded-md bg-accent px-1.5 py-0.5 text-[0.65rem] font-semibold text-accent-foreground">{current.aspect_ratio}</span>
         {platformsForRatio(current.aspect_ratio).length
           ? platformsForRatio(current.aspect_ratio).map((p) => <PlatformIcon key={p} platform={p} size={14} />)
           : "all"}
       </p>
-      <VideoSlot
-        key={current.id}
-        campaignId={campaignId}
-        video={current}
-        client={client}
-        models={models}
-        canEdit={canEdit}
-        onChange={onChange}
-        isPrimary={current.id === primaryId}
-        hasSiblings={ordered.length > 1}
-        lockGenerate={slotBusy}
-      />
+      <VideoSlot key={current.id} campaignId={campaignId} video={current} client={client} models={models}
+        canEdit={canEdit} onChange={onChange} isPrimary={current.id === primaryId}
+        hasSiblings={ordered.length > 1} lockGenerate={slotBusy} />
     </div>
   );
 }
 
-function VideoSlot({
-  campaignId,
-  video,
-  client,
-  models,
-  canEdit,
-  onChange,
-  isPrimary = false,
-  hasSiblings = false,
-  lockGenerate = false,
-}: {
-  campaignId: string;
-  video: PostVideo;
-  client?: Client | null;
-  models: VideoModel[];
-  canEdit: boolean;
-  onChange: () => Promise<void>;
-  isPrimary?: boolean;
-  hasSiblings?: boolean;
-  lockGenerate?: boolean;
-}) {
+function VideoSlot({ campaignId, video, client, models, canEdit, onChange, isPrimary = false, hasSiblings = false, lockGenerate = false }: { campaignId: string; video: PostVideo; client?: Client | null; models: VideoModel[]; canEdit: boolean; onChange: () => Promise<void>; isPrimary?: boolean; hasSiblings?: boolean; lockGenerate?: boolean }) {
   const [url, setUrl] = useState("");
   const [prompt, setPrompt] = useState(video.prompt);
   const [negative, setNegative] = useState(video.negative_prompt);
   const [modelId, setModelId] = useState(video.video_model_id ?? "");
-  // Surface the prompt before the first generation so it can be tuned upfront.
-  // Generation prompts are always visible in the editor (no toggle).
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setPrompt(video.prompt);
-    setNegative(video.negative_prompt);
-  }, [video.prompt, video.negative_prompt]);
+  useEffect(() => { setPrompt(video.prompt); setNegative(video.negative_prompt); }, [video.prompt, video.negative_prompt]);
 
-  // Load the video file once it's ready (or replaced).
   useEffect(() => {
-    if (!video.base_object_key || video.status !== "ready") {
-      setUrl("");
-      return;
-    }
+    if (!video.base_object_key || video.status !== "ready") { setUrl(""); return; }
     let active = true;
-    getBlobUrl(`/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`).then((u) => {
-      if (active) setUrl(u);
-    });
-    return () => {
-      active = false;
-    };
+    getBlobUrl(`/campaigns/${campaignId}/videos/${video.id}/file?v=${video.base_object_key}`).then((u) => { if (active) setUrl(u); });
+    return () => { active = false; };
   }, [campaignId, video.id, video.base_object_key, video.status]);
 
   async function savePrompt() {
-    await api(`/campaigns/${campaignId}/videos/${video.id}/prompt`, {
-      method: "PATCH",
-      body: { prompt, negative_prompt: negative },
-    });
+    await api(`/campaigns/${campaignId}/videos/${video.id}/prompt`, { method: "PATCH", body: { prompt, negative_prompt: negative } });
     await onChange();
   }
 
   async function generate() {
-    setBusy("Queuing…");
-    setError("");
+    setBusy("Queuing…"); setError("");
     try {
       if (prompt !== video.prompt || negative !== video.negative_prompt) await savePrompt();
-      await api(`/campaigns/${campaignId}/videos/${video.id}/generate`, {
-        method: "POST",
-        body: { video_model_id: modelId || null },
-      });
+      await api(`/campaigns/${campaignId}/videos/${video.id}/generate`, { method: "POST", body: { video_model_id: modelId || null } });
       await onChange();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Generation failed"); }
+    finally { setBusy(""); }
   }
 
   async function upload(file: File) {
     setBusy("Uploading…");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
+      const fd = new FormData(); fd.append("file", file);
       await api(`/campaigns/${campaignId}/videos/${video.id}/upload`, { method: "POST", formData: fd });
       await onChange();
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   }
 
   const logoOn = (video.logo_enabled ?? true) !== false;
   async function toggleLogo() {
-    setBusy("Updating…");
-    setError("");
+    setBusy("Updating…"); setError("");
     try {
       await api(`/campaigns/${campaignId}/videos/${video.id}/logo`, { method: "PATCH", body: { enabled: !logoOn } });
       await onChange();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not update logo");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not update logo"); }
+    finally { setBusy(""); }
   }
 
   async function deriveVariants() {
-    setBusy("Queuing variants…");
-    setError("");
+    setBusy("Queuing variants…"); setError("");
     try {
       await api(`/campaigns/${campaignId}/videos/${video.id}/derive-ratios`, { method: "POST" });
       await onChange();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not generate variants");
-    } finally {
-      setBusy("");
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not generate variants"); }
+    finally { setBusy(""); }
   }
 
   return (
-    <div className="image-slot video-slot">
-      <div className="image-thumb" style={{ aspectRatio: video.aspect_ratio.replace(":", "/") }}>
-        {video.status === "generating" ? (
-          <MediaSkeleton kind="video" loading label="Generating video…" />
-        ) : url ? (
-          <video src={url} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : video.base_object_key && video.status === "ready" ? (
-          <MediaSkeleton kind="video" loading label="Loading…" />
-        ) : (
-          <MediaSkeleton kind="video" label="No video yet" />
-        )}
-        {busy && <div className="image-busy">{busy}</div>}
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <div className="relative" style={{ aspectRatio: video.aspect_ratio.replace(":", "/") }}>
+        {video.status === "generating" ? <MediaSkeleton kind="video" loading label="Generating video…" />
+        : url ? <video src={url} controls className="h-full w-full object-cover" />
+        : video.base_object_key && video.status === "ready" ? <MediaSkeleton kind="video" loading label="Loading…" />
+        : <MediaSkeleton kind="video" label="No video yet" />}
+        {busy && <div className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2 py-1 text-xs text-white">{busy}</div>}
       </div>
-      <div className="image-meta small muted">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         Video · {video.aspect_ratio} · {video.duration_seconds}s
-        {video.status === "failed" && <span className="tag tag-red"> failed</span>}
+        {video.status === "failed" && <Badge variant="destructive">failed</Badge>}
       </div>
-      {(error || video.error) && <div className="alert alert-error small">{error || video.error}</div>}
+      {(error || video.error) && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error || video.error}</div>}
 
       {canEdit && (
-        <div className="image-actions">
+        <div className="flex flex-wrap gap-2">
           {isPrimary ? (
             <>
               <ModelSelect value={modelId} onChange={setModelId} options={models} />
-              <Button
-                size="sm"
-                onClick={generate}
-                disabled={!!busy || video.status === "generating" || lockGenerate}
-              >
+              <Button size="sm" onClick={generate} disabled={!!busy || video.status === "generating" || lockGenerate}>
                 <Sparkles size={14} />
                 {video.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : video.base_object_key ? "Regenerate" : "Generate"}
               </Button>
               {client?.logo_object_key && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleLogo}
-                  disabled={!!busy}
-                  title="Overlay the brand logo on the video (applied next time you generate)"
-                >
+                <Button variant="ghost" size="sm" onClick={toggleLogo} disabled={!!busy}
+                  title="Overlay the brand logo on the video (applied next time you generate)">
                   {logoOn ? <Eye size={14} /> : <EyeOff size={14} />} Logo {logoOn ? "on" : "off"}
                 </Button>
               )}
               {hasSiblings && video.base_object_key && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={deriveVariants}
-                  disabled={!!busy || lockGenerate}
-                  title="Reframe this base video into the other aspect ratios"
-                >
+                <Button variant="secondary" size="sm" onClick={deriveVariants} disabled={!!busy || lockGenerate}
+                  title="Reframe this base video into the other aspect ratios">
                   <Sparkles size={14} /> Generate other ratios
                 </Button>
               )}
             </>
           ) : (
-            <span className="muted small">↳ Reframed from the base ratio</span>
+            <span className="text-sm text-muted-foreground">↳ Reframed from the base ratio</span>
           )}
-          <Button asChild variant="ghost" size="sm" className={lockGenerate ? "pointer-events-none opacity-50" : ""}>
-            <label className="file-btn">
+          <Button asChild variant="ghost" size="sm" className={cn(lockGenerate && "pointer-events-none opacity-50")}>
+            <label className="flex cursor-pointer items-center gap-1.5">
               <UploadIcon size={14} /> Upload
-              <input
-                type="file"
-                accept="video/mp4,video/webm,video/quicktime"
-                hidden
-                disabled={!!busy || lockGenerate}
-                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-              />
+              <input type="file" accept="video/mp4,video/webm,video/quicktime" hidden disabled={!!busy || lockGenerate}
+                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
             </label>
           </Button>
         </div>
       )}
 
       {canEdit && isPrimary && (
-        <div className="prompt-editor">
-          <label className="small">
-            Video prompt
+        <div className="space-y-2">
+          <Label className="text-sm">Video prompt
             <TextareaZoom label="Video prompt" rows={4} value={prompt} onChange={setPrompt} />
-          </label>
-          <label className="small">
-            Negative prompt
+          </Label>
+          <Label className="text-sm">Negative prompt
             <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
-          </label>
-          <div className="form-actions">
-            <Button variant="ghost" size="sm" onClick={savePrompt}>
-              Save prompt
-            </Button>
+          </Label>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={savePrompt}>Save prompt</Button>
           </div>
         </div>
       )}

@@ -132,7 +132,11 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-6 p-6">
-            {error && <div className="alert alert-error">{error}</div>}
+            {error && (
+              <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Approver</Label>

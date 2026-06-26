@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, RefreshCw, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Client, Competitor, CompetitorSearchJob } from "../types";
 import { useConfirm } from "@/components/ui/dialogs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 const RUNNING_ANALYSIS = ["pending", "crawling", "extracting", "comparing"];
 const RUNNING_SEARCH = ["pending", "identifying"];
+
+const COMP_DOT: Record<string, string> = {
+  ok: "bg-emerald-600",
+  err: "bg-red-700",
+  busy: "bg-amber-600",
+  idle: "bg-stone-300",
+};
 
 export function Competitors({ client, onboardingRunning }: { client: Client; onboardingRunning?: boolean }) {
   const confirm = useConfirm();
@@ -18,14 +32,11 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
   const [manualUrl, setManualUrl] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Collapsible "Find competitors" form. Always starts collapsed; opens only
-  // on first load if there are no competitors yet.
   const [searchOpen, setSearchOpen] = useState(false);
   const searchDecided = useRef(false);
   const [error, setError] = useState("");
   const pollRef = useRef<number | null>(null);
   const tabsRef = useRef<HTMLDivElement | null>(null);
-  // Whether the tab strip can scroll further left / right (drives the arrows).
   const [tabScroll, setTabScroll] = useState({ left: false, right: false });
 
   const updateTabArrows = useCallback(() => {
@@ -50,7 +61,6 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
     ]);
     setCompetitors(list);
     setSearchJob(job);
-    // Auto-collapse the form once if competitors already exist; expand if none yet.
     if (!searchDecided.current) {
       setSearchOpen(list.length === 0);
       searchDecided.current = true;
@@ -84,7 +94,6 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
     }
   }, [busy, load]);
 
-  // Recompute arrow visibility when the tab set changes or the window resizes.
   useEffect(() => {
     updateTabArrows();
     window.addEventListener("resize", updateTabArrows);
@@ -142,195 +151,220 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
 
   const searching = !!(searchJob && RUNNING_SEARCH.includes(searchJob.status));
   const selected = competitors.find((c) => c.id === selectedId) ?? competitors[0] ?? null;
+  const isOpen = searchOpen && !onboardingRunning;
 
   return (
-    <div className="competitors">
+    <div className="flex flex-col gap-5">
       {canEdit && (
-        <div className={`card comp-search ${searchOpen && !onboardingRunning ? "open" : "collapsed"} ${onboardingRunning ? "comp-search-disabled" : ""}`}>
+        <Card className={cn(!isOpen && "pb-4", onboardingRunning && "opacity-50")}>
           <button
             type="button"
-            className="comp-search-header"
-            aria-expanded={searchOpen && !onboardingRunning}
+            aria-expanded={isOpen}
             disabled={onboardingRunning}
             onClick={() => !onboardingRunning && setSearchOpen((o) => !o)}
+            className="flex w-full cursor-pointer items-center justify-between gap-4 border-none bg-transparent p-0 text-left font-inherit text-inherit disabled:cursor-not-allowed"
           >
             <div>
-              <h2>Find competitors automatically</h2>
-              <span className="muted small">
+              <h2 className="m-0">Find competitors automatically</h2>
+              <span className="text-sm text-muted-foreground">
                 {onboardingRunning
                   ? "Client setup in progress — available once onboarding completes"
                   : "Click to find or manually add competitors"}
               </span>
             </div>
-            {!onboardingRunning && <span className="comp-search-chevron" aria-hidden>▾</span>}
+            {!onboardingRunning && (
+              <ChevronDown
+                size={18}
+                className={cn(
+                  "flex-shrink-0 text-muted-foreground transition-transform duration-200",
+                  isOpen && "rotate-180",
+                )}
+              />
+            )}
           </button>
-          {searchOpen && !onboardingRunning && (
-          <div className="comp-search-body">
-          <p className="muted">
-            Uses the configured LLM with web search to identify the most relevant competitors,
-            then crawls and analyzes each one against this client.
-          </p>
-          <form className="comp-search-grid" onSubmit={startSearch}>
-            <label>
-              Number of competitors (1–20)
-              <input type="number" min={1} max={20} value={params.num_competitors}
-                onChange={(e) => setParams({ ...params, num_competitors: Number(e.target.value) })} />
-            </label>
-            <label>
-              Type
-              <select value={params.competitor_type}
-                onChange={(e) => setParams({ ...params, competitor_type: e.target.value })}>
-                <option value="direct">Direct</option>
-                <option value="indirect">Indirect</option>
-              </select>
-            </label>
-            <label>
-              Geographic scope
-              <select value={params.geographic_scope}
-                onChange={(e) => setParams({ ...params, geographic_scope: e.target.value })}>
-                <option value="local">Local</option>
-                <option value="national">National</option>
-                <option value="international">International</option>
-              </select>
-            </label>
-            <button className="btn btn-primary" disabled={searching}>
-              {searching ? "Searching…" : "Find competitors"}
-            </button>
-          </form>
-          {searching && (
-            <div className="progress-bar"><div className="progress-fill indeterminate" /></div>
+          {isOpen && (
+            <CardContent className="space-y-4 px-0 pt-3">
+              <p className="text-sm text-muted-foreground">
+                Uses the configured LLM with web search to identify the most relevant competitors,
+                then crawls and analyzes each one against this client.
+              </p>
+              <form onSubmit={startSearch} className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="comp-num">Number of competitors (1–20)</Label>
+                  <Input id="comp-num" type="number" min={1} max={20} value={params.num_competitors} onChange={(e) => setParams({ ...params, num_competitors: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="comp-type">Type</Label>
+                  <select id="comp-type" value={params.competitor_type} onChange={(e) => setParams({ ...params, competitor_type: e.target.value })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="direct">Direct</option>
+                    <option value="indirect">Indirect</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="comp-scope">Geographic scope</Label>
+                  <select id="comp-scope" value={params.geographic_scope} onChange={(e) => setParams({ ...params, geographic_scope: e.target.value })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="local">Local</option>
+                    <option value="national">National</option>
+                    <option value="international">International</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <Button type="submit" disabled={searching} className="h-[42px] w-full">
+                    {searching ? "Searching…" : "Find competitors"}
+                  </Button>
+                </div>
+              </form>
+              {searching && (
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-border">
+                  <div className="h-full w-[35%] animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
+                </div>
+              )}
+              {searchJob?.status === "failed" && (
+                <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+                  Last search failed: {searchJob.error}
+                </div>
+              )}
+              <div className="rounded-lg border border-dashed border-border bg-surface-alt p-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">or add one manually</span>
+                <form onSubmit={addManual} className="mt-2 flex gap-2">
+                  <Input type="url" placeholder="https://competitor.com" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} required className="flex-1" />
+                  <Button type="submit" variant="secondary">Add competitor</Button>
+                </form>
+              </div>
+            </CardContent>
           )}
-          {searchJob?.status === "failed" && (
-            <div className="alert alert-error">Last search failed: {searchJob.error}</div>
-          )}
-          <div className="comp-manual">
-            <span className="comp-or">or add one manually</span>
-            <form className="comp-manual-row" onSubmit={addManual}>
-              <input type="url" placeholder="https://competitor.com" value={manualUrl}
-                onChange={(e) => setManualUrl(e.target.value)} required />
-              <button className="btn btn-secondary">Add competitor</button>
-            </form>
-          </div>
-          </div>
-          )}
-        </div>
+        </Card>
       )}
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
 
       {competitors.length === 0 ? (
-        <div className="card empty-state">
-          <p className="muted">
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
             No competitors yet — run an automatic search above or add one by URL.
-          </p>
-        </div>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="card comp-workspace">
-          <div className="comp-tabs-wrap">
-          <button
-            type="button"
-            className="comp-tabs-arrow left"
-            aria-label="Scroll tabs left"
-            hidden={!tabScroll.left}
-            onClick={() => scrollTabs(-1)}
-          >
-            ‹
-          </button>
-          <div
-            className="comp-tabs"
-            role="tablist"
-            ref={tabsRef}
-            onScroll={updateTabArrows}
-            onWheel={(e) => {
-              // Let vertical wheel/trackpad scroll the tab strip horizontally,
-              // like browser tab bars, when there's overflow to scroll.
-              const el = tabsRef.current;
-              if (el && el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
-                el.scrollLeft += e.deltaY;
-              }
-            }}
-          >
-            {competitors.map((c) => (
-              <button
-                key={c.id}
-                role="tab"
-                type="button"
-                aria-selected={selected?.id === c.id}
-                className={`comp-tab ${selected?.id === c.id ? "active" : ""}`}
-                onClick={() => setSelectedId(c.id)}
-                title={c.company_name}
-              >
-                <Dot status={c.analysis_status} />
-                <span className="comp-tab-name">{c.company_name}</span>
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="comp-tabs-arrow right"
-            aria-label="Scroll tabs right"
-            hidden={!tabScroll.right}
-            onClick={() => scrollTabs(1)}
-          >
-            ›
-          </button>
+        <Card className="overflow-hidden p-0">
+          <div className="relative -mx-5">
+            <button
+              type="button"
+              aria-label="Scroll tabs left"
+              hidden={!tabScroll.left}
+              onClick={() => scrollTabs(-1)}
+              className="absolute left-0 top-0 z-10 flex h-full cursor-pointer items-center bg-gradient-to-r from-surface to-transparent pl-2 pr-4 text-2xl text-muted-foreground transition-colors hover:text-primary"
+            >
+              ‹
+            </button>
+            <div
+              role="tablist"
+              ref={tabsRef}
+              onScroll={updateTabArrows}
+              onWheel={(e) => {
+                const el = tabsRef.current;
+                if (el && el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
+                  el.scrollLeft += e.deltaY;
+                }
+              }}
+              className="scrollbar-thin flex overflow-x-auto scroll-smooth border-b border-border [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5"
+            >
+              {competitors.map((c) => (
+                <button
+                  key={c.id}
+                  role="tab"
+                  type="button"
+                  aria-selected={selected?.id === c.id}
+                  onClick={() => setSelectedId(c.id)}
+                  title={c.company_name}
+                  className={cn(
+                    "inline-flex max-w-[220px] flex-shrink-0 cursor-pointer items-center gap-2 rounded-t-lg border border-b-0 border-border bg-surface-alt px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-white hover:text-foreground",
+                    selected?.id === c.id && "z-10 -mb-px border-border-b border-b border-surface bg-surface font-semibold text-primary",
+                  )}
+                >
+                  <Dot status={c.analysis_status} />
+                  <span className="overflow-hidden text-ellipsis whitespace-nowrap">{c.company_name}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              aria-label="Scroll tabs right"
+              hidden={!tabScroll.right}
+              onClick={() => scrollTabs(1)}
+              className="absolute right-0 top-0 z-10 flex h-full cursor-pointer items-center bg-gradient-to-l from-surface to-transparent pr-2 pl-4 text-2xl text-muted-foreground transition-colors hover:text-primary"
+            >
+              ›
+            </button>
           </div>
 
           {selected && (
-            <div className="comp-detail" role="tabpanel">
-              <div className="comp-detail-head">
+            <div className="p-5 pt-5" role="tabpanel">
+              <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-start">
                 <div>
-                  <h3>
+                  <h3 className="mb-0.5">
                     {selected.company_name}{" "}
-                    <span className={`tag ${selected.source === "auto" ? "" : "tag-green"}`}>{selected.source}</span>
+                    <Badge variant={selected.source === "auto" ? "secondary" : "success"}>{selected.source}</Badge>
                   </h3>
-                  <a href={selected.website_url} target="_blank" rel="noreferrer" className="muted small">
+                  <a href={selected.website_url} target="_blank" rel="noreferrer" className="text-sm text-muted-foreground hover:underline">
                     {selected.website_url}
                   </a>
                 </div>
-                <div className="competitor-actions">
+                <div className="flex flex-shrink-0 items-center gap-2">
                   <StatusBadge status={selected.analysis_status} pages={selected.pages_crawled} />
                   {canEdit && !RUNNING_ANALYSIS.includes(selected.analysis_status) && (
-                    <button className="btn btn-ghost" onClick={() => reanalyze(selected.id)}>Re-analyze</button>
+                    <Button variant="ghost" size="sm" onClick={() => reanalyze(selected.id)}>
+                      <RefreshCw size={14} /> Re-analyze
+                    </Button>
                   )}
                   {canEdit && (
-                    <button className="btn btn-ghost danger" onClick={() => remove(selected.id)}>Remove</button>
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => remove(selected.id)}>
+                      <Trash2 size={14} /> Remove
+                    </Button>
                   )}
                 </div>
               </div>
 
               {selected.identification_reason && (
-                <p className="comp-reason">{selected.identification_reason}</p>
+                <p className="my-2.5 rounded-r-md border-l-[3px] border-primary bg-surface-alt p-3 text-[0.92rem] leading-relaxed">
+                  {selected.identification_reason}
+                </p>
               )}
 
               {selected.analysis_status === "failed" && (
-                <div className="alert alert-error">{selected.analysis_error}</div>
+                <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+                  {selected.analysis_error}
+                </div>
               )}
 
               {RUNNING_ANALYSIS.includes(selected.analysis_status) && (
-                <div className="progress-bar"><div className="progress-fill indeterminate" /></div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-border">
+                  <div className="h-full w-[35%] animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
+                </div>
               )}
 
               {selected.analysis_status === "completed" && (
                 <>
-                  <div className="versus-grid">
-                    <div className="versus-col strengths">
-                      <h4>Strengths vs {client.company_name}</h4>
-                      <ul>{selected.strengths.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                  <div className="my-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+                      <h4 className="mb-2 font-semibold text-emerald-700">Strengths vs {client.company_name}</h4>
+                      <ul className="m-0 pl-4 text-[0.92rem]">
+                        {selected.strengths.map((s, i) => <li key={i} className="mb-1.5 leading-relaxed">{s}</li>)}
+                      </ul>
                     </div>
-                    <div className="versus-col weaknesses">
-                      <h4>Weaknesses vs {client.company_name}</h4>
-                      <ul>{selected.weaknesses.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                    <div className="rounded-md border border-red-200 bg-red-50 p-4">
+                      <h4 className="mb-2 font-semibold text-red-700">Weaknesses vs {client.company_name}</h4>
+                      <ul className="m-0 pl-4 text-[0.92rem]">
+                        {selected.weaknesses.map((w, i) => <li key={i} className="mb-1.5 leading-relaxed">{w}</li>)}
+                      </ul>
                     </div>
                   </div>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => setExpanded(expanded === selected.id ? null : selected.id)}
-                  >
+                  <Button variant="ghost" onClick={() => setExpanded(expanded === selected.id ? null : selected.id)}>
                     {expanded === selected.id ? "Hide full profile" : "Show full profile"}
-                  </button>
+                  </Button>
                   {expanded === selected.id && (
-                    <div className="competitor-profile">
+                    <div className="mt-2.5 whitespace-pre-wrap border-t border-border pt-3">
                       <Row label="Differential positioning" value={selected.positioning} />
                       <Row label="Industry" value={selected.industry} />
                       <Row label="Description" value={selected.description} />
@@ -345,7 +379,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
               )}
             </div>
           )}
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -355,23 +389,23 @@ function Dot({ status }: { status: string }) {
   const state =
     status === "completed" ? "ok" : status === "failed" ? "err"
     : RUNNING_ANALYSIS.includes(status) ? "busy" : "idle";
-  return <span className={`comp-dot ${state}`} aria-hidden />;
+  return <span className={cn("size-2 flex-shrink-0 rounded-full", COMP_DOT[state])} aria-hidden />;
 }
 
 function StatusBadge({ status, pages }: { status: string; pages: number }) {
-  const cls =
-    status === "completed" ? "tag-green" : status === "failed" ? "tag-red" : "";
+  const variant: "success" | "destructive" | "secondary" =
+    status === "completed" ? "success" : status === "failed" ? "destructive" : "secondary";
   const label = RUNNING_ANALYSIS.includes(status)
     ? `${status}${status === "crawling" && pages ? ` (${pages} pages)` : ""}…`
     : status;
-  return <span className={`tag ${cls}`}>{label}</span>;
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   if (!value) return null;
   return (
-    <div className="profile-row">
-      <div className="profile-label">{label}</div>
+    <div className="grid grid-cols-1 gap-4 border-b border-border py-2 last:border-0 sm:grid-cols-[200px_1fr]">
+      <div className="text-sm text-muted-foreground">{label}</div>
       <div>{value}</div>
     </div>
   );

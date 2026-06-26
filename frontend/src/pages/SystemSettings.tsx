@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Plus, X } from "lucide-react";
 import { api } from "../api";
 import { ArticleSources } from "../components/ArticleSources";
 import { TextareaZoom } from "../components/TextareaZoom";
@@ -11,6 +12,13 @@ import type {
   Setting,
   VideoModel,
 } from "../types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 type TabKey = "providers" | "llm" | "image" | "video" | "sources" | "integrations" | "global";
 
@@ -24,8 +32,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "global", label: "Global" },
 ];
 
-// Per-domain provider options. The model ID is auto-fetched per provider; the
-// API key is resolved centrally from the matching Provider credential.
 const LLM_PROVIDERS = [
   { value: "anthropic", label: "Anthropic (Claude)" },
   { value: "openai", label: "OpenAI" },
@@ -48,27 +54,21 @@ export default function SystemSettings() {
   const [tab, setTab] = useState<TabKey>("providers");
   return (
     <div>
-      <div className="page-header">
-        <h1>System Settings</h1>
-      </div>
-      <div className="tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            className={`tab ${tab === t.key ? "tab-active" : ""}`}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {tab === "providers" && <ProvidersSection />}
-      {tab === "llm" && <LLMConfigSection />}
-      {tab === "image" && <ImageModelSection />}
-      {tab === "video" && <VideoModelSection />}
-      {tab === "sources" && <ArticleSources />}
-      {tab === "integrations" && <IntegrationsSection />}
-      {tab === "global" && <GlobalSettingsSection />}
+      <div className="mb-5"><h1>System Settings</h1></div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
+        <TabsList>
+          {TABS.map((t) => (
+            <TabsTrigger key={t.key} value={t.key}>{t.label}</TabsTrigger>
+          ))}
+        </TabsList>
+        <TabsContent value="providers" className="mt-5"><ProvidersSection /></TabsContent>
+        <TabsContent value="llm" className="mt-5"><LLMConfigSection /></TabsContent>
+        <TabsContent value="image" className="mt-5"><ImageModelSection /></TabsContent>
+        <TabsContent value="video" className="mt-5"><VideoModelSection /></TabsContent>
+        <TabsContent value="sources" className="mt-5"><ArticleSources /></TabsContent>
+        <TabsContent value="integrations" className="mt-5"><IntegrationsSection /></TabsContent>
+        <TabsContent value="global" className="mt-5"><GlobalSettingsSection /></TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -88,22 +88,18 @@ const SOCIAL_APP_PLATFORMS: { provider: string; label: string; idLabel: string; 
   { provider: "oauth_linkedin", label: "LinkedIn", idLabel: "Client ID", secretLabel: "Client Secret" },
 ];
 
-/** Integrations tab: toggle between Zernio middleman, direct platform APIs, or the mock simulator. */
 function IntegrationsSection() {
-  // Publishing mode (from settings table)
   const [mode, setMode] = useState<"zernio" | "direct" | "mock">("zernio");
   const [modeMsg, setModeMsg] = useState("");
   const [modeError, setModeError] = useState("");
   const [allSettings, setAllSettings] = useState<Setting[]>([]);
 
-  // Zernio key
   const [zernioStatus, setZernioStatus] = useState<{ has_key: boolean; api_key_hint: string } | null>(null);
   const [zernioKey, setZernioKey] = useState("");
   const [zernioMsg, setZernioMsg] = useState("");
   const [zernioError, setZernioError] = useState("");
   const [zernioBusy, setZernioBusy] = useState("");
 
-  // Direct: OAuth app credentials + URL settings
   const [socialApps, setSocialApps] = useState<SocialAppStatus[]>([]);
   const [appCreds, setAppCreds] = useState<Record<string, { app_id: string; app_secret: string }>>({});
   const [directMsg, setDirectMsg] = useState("");
@@ -112,7 +108,6 @@ function IntegrationsSection() {
   const [urlMsg, setUrlMsg] = useState("");
   const [urlError, setUrlError] = useState("");
 
-  // OAuth advanced settings (scopes + Instagram URL)
   const [oauthSettings, setOauthSettings] = useState({
     facebook_oauth_scopes: "",
     instagram_oauth_scopes: "",
@@ -194,8 +189,6 @@ function IntegrationsSection() {
   }
 
   async function saveSocialApp(provider: string) {
-    // provider = 'oauth_facebook' | 'oauth_twitter' | 'oauth_linkedin'
-    // extract the platform key: facebook | twitter | linkedin
     const platform = provider.replace("oauth_", "");
     const creds = appCreds[provider] ?? { app_id: "", app_secret: "" };
     setDirectError("");
@@ -242,223 +235,195 @@ function IntegrationsSection() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* --- Mode selector --- */}
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>Social Publishing Connector</h2>
-        <p className="muted">
-          Choose how the platform connects client social accounts and publishes content.
-          Zernio is a third-party middleman; Direct uses each platform's API directly;
-          Mock is a local simulator for development and previewing the publish flow.
-        </p>
-        <label>
-          Active connector
-          <select
-            value={mode}
-            onChange={(e) => {
-              const v = e.target.value as "zernio" | "direct" | "mock";
-              setMode(v);
-              saveMode(v);
-            }}
-          >
-            <option value="zernio">Zernio (social publishing middleman)</option>
-            <option value="direct">Direct Platform APIs</option>
-            <option value="mock">Mock (local simulator)</option>
-          </select>
-        </label>
-        {modeError && <div className="alert alert-error">{modeError}</div>}
-        {modeMsg && <div className="alert alert-success">{modeMsg}</div>}
-      </div>
-
-      {/* --- Zernio section (always shown so admin can keep it configured) --- */}
-      <div className="card" style={{ opacity: mode === "zernio" ? 1 : 0.6 }}>
-        <h2 style={{ marginTop: 0 }}>
-          Zernio — Social Publishing
-          {mode !== "zernio" && <span className="tag" style={{ marginLeft: 8 }}>inactive</span>}
-        </h2>
-        {mode === "mock" && (
-          <p className="muted small">Mock mode is on — Zernio is bypassed at publish time.</p>
-        )}
-        <p className="muted">
-          One app-wide key powers connecting client social accounts and publishing across all
-          organizations. Stored encrypted; only ever shown masked.
-        </p>
-        <div className="form-row" style={{ alignItems: "center", gap: 8 }}>
-          <span className="tag">{zernioStatus?.has_key ? `Key set: ${zernioStatus.api_key_hint}` : "No key set"}</span>
-        </div>
-        <label>
-          API key
-          <input
-            type="password"
-            placeholder={zernioStatus?.has_key ? "Enter a new key to replace" : "sk_…"}
-            value={zernioKey}
-            onChange={(e) => setZernioKey(e.target.value)}
-          />
-        </label>
-        {zernioError && <div className="alert alert-error">{zernioError}</div>}
-        {zernioMsg && <div className="alert alert-success">{zernioMsg}</div>}
-        <div className="form-actions">
-          <button className="btn btn-primary" onClick={saveZernioKey} disabled={!zernioKey || !!zernioBusy}>
-            {zernioBusy === "save" ? "Saving…" : "Save key"}
-          </button>
-          <button className="btn btn-ghost" onClick={testZernio} disabled={!zernioStatus?.has_key || !!zernioBusy}>
-            {zernioBusy === "test" ? "Testing…" : "Test connection"}
-          </button>
-        </div>
-      </div>
-
-      {/* --- Direct API section --- */}
-      <div className="card" style={{ opacity: mode === "direct" ? 1 : 0.6 }}>
-        <h2 style={{ marginTop: 0 }}>
-          Direct Platform APIs
-          {mode !== "direct" && <span className="tag" style={{ marginLeft: 8 }}>inactive</span>}
-        </h2>
-        {mode === "mock" && (
-          <p className="muted small">Mock mode is on — Direct APIs are bypassed at publish time.</p>
-        )}
-        <p className="muted">
-          Create an app in each platform's developer console, paste the credentials below.
-          Users authorize your app directly on each platform — no third-party middleman.
-        </p>
-
-        {/* URL settings */}
-        <div style={{ marginBottom: 20 }}>
-          <h3 style={{ marginTop: 0 }}>Callback URLs</h3>
-          <p className="muted small">
-            Register these as allowed redirect URIs in each platform's developer console:
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader><CardTitle>Social Publishing Connector</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Choose how the platform connects client social accounts and publishes content.
+            Zernio is a third-party middleman; Direct uses each platform's API directly;
+            Mock is a local simulator for development and previewing the publish flow.
           </p>
-          {["facebook", "instagram", "twitter", "linkedin"].map((p) => (
-            <div key={p} className="mono small" style={{ marginBottom: 4 }}>
-              {urlSettings.app_public_url || "http://localhost:8000"}/auth/{p}/callback
-            </div>
-          ))}
-          <div className="form-grid" style={{ marginTop: 12 }}>
-            <label>
-              Backend public URL
-              <input
-                value={urlSettings.app_public_url}
-                onChange={(e) => setUrlSettings((u) => ({ ...u, app_public_url: e.target.value }))}
-                placeholder="https://yourplatform.com"
-              />
-            </label>
-            <label>
-              Frontend URL
-              <input
-                value={urlSettings.app_frontend_url}
-                onChange={(e) => setUrlSettings((u) => ({ ...u, app_frontend_url: e.target.value }))}
-                placeholder="https://yourplatform.com"
-              />
-            </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="ss-mode">Active connector</Label>
+            <select
+              id="ss-mode"
+              value={mode}
+              onChange={(e) => {
+                const v = e.target.value as "zernio" | "direct" | "mock";
+                setMode(v);
+                saveMode(v);
+              }}
+              className="flex h-10 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="zernio">Zernio (social publishing middleman)</option>
+              <option value="direct">Direct Platform APIs</option>
+              <option value="mock">Mock (local simulator)</option>
+            </select>
           </div>
-          {urlError && <div className="alert alert-error">{urlError}</div>}
-          {urlMsg && <div className="alert alert-success">{urlMsg}</div>}
-          <div className="form-actions">
-            <button className="btn btn-primary" onClick={saveUrls}>Save URLs</button>
+          {modeError && <Alert kind="error">{modeError}</Alert>}
+          {modeMsg && <Alert kind="success">{modeMsg}</Alert>}
+        </CardContent>
+      </Card>
+
+      <Card className={cn(mode !== "zernio" && "opacity-60")}>
+        <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+          <CardTitle>Zernio — Social Publishing</CardTitle>
+          {mode !== "zernio" && <Badge>inactive</Badge>}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {mode === "mock" && (
+            <p className="text-sm text-muted-foreground">Mock mode is on — Zernio is bypassed at publish time.</p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            One app-wide key powers connecting client social accounts and publishing across all
+            organizations. Stored encrypted; only ever shown masked.
+          </p>
+          <div className="flex items-center gap-2">
+            <Badge variant={zernioStatus?.has_key ? "success" : "secondary"}>
+              {zernioStatus?.has_key ? `Key set: ${zernioStatus.api_key_hint}` : "No key set"}
+            </Badge>
           </div>
-        </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ss-zernio-key">API key</Label>
+            <Input
+              id="ss-zernio-key"
+              type="password"
+              placeholder={zernioStatus?.has_key ? "Enter a new key to replace" : "sk_…"}
+              value={zernioKey}
+              onChange={(e) => setZernioKey(e.target.value)}
+            />
+          </div>
+          {zernioError && <Alert kind="error">{zernioError}</Alert>}
+          {zernioMsg && <Alert kind="success">{zernioMsg}</Alert>}
+          <div className="flex gap-2">
+            <Button onClick={saveZernioKey} disabled={!zernioKey || !!zernioBusy}>
+              {zernioBusy === "save" ? "Saving…" : "Save key"}
+            </Button>
+            <Button variant="ghost" onClick={testZernio} disabled={!zernioStatus?.has_key || !!zernioBusy}>
+              {zernioBusy === "test" ? "Testing…" : "Test connection"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Per-platform OAuth app credentials */}
-        <h3 style={{ marginTop: 0 }}>OAuth App Credentials</h3>
-        {directError && <div className="alert alert-error">{directError}</div>}
-        {directMsg && <div className="alert alert-success">{directMsg}</div>}
+      <Card className={cn(mode !== "direct" && "opacity-60")}>
+        <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+          <CardTitle>Direct Platform APIs</CardTitle>
+          {mode !== "direct" && <Badge>inactive</Badge>}
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {mode === "mock" && (
+            <p className="text-sm text-muted-foreground">Mock mode is on — Direct APIs are bypassed at publish time.</p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Create an app in each platform's developer console, paste the credentials below.
+            Users authorize your app directly on each platform — no third-party middleman.
+          </p>
 
-        {SOCIAL_APP_PLATFORMS.map(({ provider, label, idLabel, secretLabel }) => {
-          const current = socialApps.find((a) => a.provider === provider);
-          const editing = appCreds[provider] ?? { app_id: "", app_secret: "" };
-          return (
-            <div key={provider} className="provider-card" style={{ marginBottom: 16 }}>
-              <div className="provider-card-head">
-                <strong>{label}</strong>
-                {current?.has_app_id && current?.has_app_secret ? (
-                  <span className="tag tag-green">configured</span>
-                ) : (
-                  <span className="tag tag-red">not set</span>
-                )}
+          <div className="space-y-3">
+            <h3 className="mt-0">Callback URLs</h3>
+            <p className="text-sm text-muted-foreground">
+              Register these as allowed redirect URIs in each platform's developer console:
+            </p>
+            <div className="space-y-1 font-mono text-xs">
+              {["facebook", "instagram", "twitter", "linkedin"].map((p) => (
+                <div key={p}>
+                  {urlSettings.app_public_url || "http://localhost:8000"}/auth/{p}/callback
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="ss-pub-url">Backend public URL</Label>
+                <Input id="ss-pub-url" value={urlSettings.app_public_url} onChange={(e) => setUrlSettings((u) => ({ ...u, app_public_url: e.target.value }))} placeholder="https://yourplatform.com" />
               </div>
-              {current?.has_app_id && (
-                <div className="mono small muted">{idLabel}: {current.app_id_hint}</div>
-              )}
-              <div className="form-grid" style={{ marginTop: 8 }}>
-                <label>
-                  {idLabel}
-                  <input
-                    type="password"
-                    placeholder={current?.has_app_id ? "Replace…" : "Paste…"}
-                    value={editing.app_id}
-                    onChange={(e) =>
-                      setAppCreds((prev) => ({ ...prev, [provider]: { ...editing, app_id: e.target.value } }))
-                    }
-                  />
-                </label>
-                <label>
-                  {secretLabel}
-                  <input
-                    type="password"
-                    placeholder={current?.has_app_secret ? "Replace…" : "Paste…"}
-                    value={editing.app_secret}
-                    onChange={(e) =>
-                      setAppCreds((prev) => ({ ...prev, [provider]: { ...editing, app_secret: e.target.value } }))
-                    }
-                  />
-                </label>
-              </div>
-              <div className="form-actions">
-                <button
-                  className="btn btn-primary small"
-                  disabled={!editing.app_id && !editing.app_secret}
-                  onClick={() => saveSocialApp(provider)}
-                >
-                  Save
-                </button>
+              <div className="space-y-1.5">
+                <Label htmlFor="ss-fe-url">Frontend URL</Label>
+                <Input id="ss-fe-url" value={urlSettings.app_frontend_url} onChange={(e) => setUrlSettings((u) => ({ ...u, app_frontend_url: e.target.value }))} placeholder="https://yourplatform.com" />
               </div>
             </div>
-          );
-        })}
+            {urlError && <Alert kind="error">{urlError}</Alert>}
+            {urlMsg && <Alert kind="success">{urlMsg}</Alert>}
+            <div className="flex gap-2">
+              <Button onClick={saveUrls}>Save URLs</Button>
+            </div>
+          </div>
 
-        {/* OAuth Advanced Settings */}
-        <h3 style={{ marginTop: 24 }}>OAuth Advanced Settings</h3>
-        <p className="muted small">
-          Configure the authorization URL and permission scopes sent to each platform during the connect flow.
-          Changes take effect on the next "Connect account" click.
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <label>
-            Facebook — OAuth scopes
-            <input
-              value={oauthSettings.facebook_oauth_scopes}
-              onChange={(e) => setOauthSettings((o) => ({ ...o, facebook_oauth_scopes: e.target.value }))}
-              placeholder="pages_manage_posts,pages_read_engagement,pages_show_list"
-            />
-          </label>
-          <label>
-            Instagram — OAuth authorization URL
-            <input
-              value={oauthSettings.instagram_oauth_url}
-              onChange={(e) => setOauthSettings((o) => ({ ...o, instagram_oauth_url: e.target.value }))}
-              placeholder="https://api.instagram.com/oauth/authorize"
-            />
-          </label>
-          <label>
-            Instagram — OAuth scopes
-            <input
-              value={oauthSettings.instagram_oauth_scopes}
-              onChange={(e) => setOauthSettings((o) => ({ ...o, instagram_oauth_scopes: e.target.value }))}
-              placeholder="instagram_business_basic,instagram_business_content_publish"
-            />
-          </label>
-        </div>
-        {oauthError && <div className="alert alert-error">{oauthError}</div>}
-        {oauthMsg && <div className="alert alert-success">{oauthMsg}</div>}
-        <div className="form-actions" style={{ marginTop: 8 }}>
-          <button className="btn btn-primary" onClick={saveOauthSettings}>Save OAuth settings</button>
-        </div>
-      </div>
+          <div className="space-y-3">
+            <h3 className="mt-0">OAuth App Credentials</h3>
+            {directError && <Alert kind="error">{directError}</Alert>}
+            {directMsg && <Alert kind="success">{directMsg}</Alert>}
+
+            {SOCIAL_APP_PLATFORMS.map(({ provider, label, idLabel, secretLabel }) => {
+              const current = socialApps.find((a) => a.provider === provider);
+              const editing = appCreds[provider] ?? { app_id: "", app_secret: "" };
+              const configured = current?.has_app_id && current?.has_app_secret;
+              return (
+                <div key={provider} className={cn("rounded-xl border border-border bg-surface p-4", configured && "border-teal-600 bg-teal-50")}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <strong>{label}</strong>
+                    {configured ? (
+                      <Badge variant="success">configured</Badge>
+                    ) : (
+                      <Badge variant="destructive">not set</Badge>
+                    )}
+                  </div>
+                  {current?.has_app_id && (
+                    <div className="font-mono text-xs text-muted-foreground">{idLabel}: {current.app_id_hint}</div>
+                  )}
+                  <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`${provider}-id`}>{idLabel}</Label>
+                      <Input id={`${provider}-id`} type="password" placeholder={current?.has_app_id ? "Replace…" : "Paste…"} value={editing.app_id} onChange={(e) => setAppCreds((prev) => ({ ...prev, [provider]: { ...editing, app_id: e.target.value } }))} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`${provider}-secret`}>{secretLabel}</Label>
+                      <Input id={`${provider}-secret`} type="password" placeholder={current?.has_app_secret ? "Replace…" : "Paste…"} value={editing.app_secret} onChange={(e) => setAppCreds((prev) => ({ ...prev, [provider]: { ...editing, app_secret: e.target.value } }))} />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <Button size="sm" disabled={!editing.app_id && !editing.app_secret} onClick={() => saveSocialApp(provider)}>
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="mt-6">OAuth Advanced Settings</h3>
+            <p className="text-sm text-muted-foreground">
+              Configure the authorization URL and permission scopes sent to each platform during the connect flow.
+              Changes take effect on the next "Connect account" click.
+            </p>
+            <div className="flex flex-col gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="ss-fb-scopes">Facebook — OAuth scopes</Label>
+                <Input id="ss-fb-scopes" value={oauthSettings.facebook_oauth_scopes} onChange={(e) => setOauthSettings((o) => ({ ...o, facebook_oauth_scopes: e.target.value }))} placeholder="pages_manage_posts,pages_read_engagement,pages_show_list" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ss-ig-url">Instagram — OAuth authorization URL</Label>
+                <Input id="ss-ig-url" value={oauthSettings.instagram_oauth_url} onChange={(e) => setOauthSettings((o) => ({ ...o, instagram_oauth_url: e.target.value }))} placeholder="https://api.instagram.com/oauth/authorize" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ss-ig-scopes">Instagram — OAuth scopes</Label>
+                <Input id="ss-ig-scopes" value={oauthSettings.instagram_oauth_scopes} onChange={(e) => setOauthSettings((o) => ({ ...o, instagram_oauth_scopes: e.target.value }))} placeholder="instagram_business_basic,instagram_business_content_publish" />
+              </div>
+            </div>
+            {oauthError && <Alert kind="error">{oauthError}</Alert>}
+            {oauthMsg && <Alert kind="success">{oauthMsg}</Alert>}
+            <div className="mt-2">
+              <Button onClick={saveOauthSettings}>Save OAuth settings</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-/** A model picker that auto-fetches available model IDs for the chosen provider,
- *  with a manual-entry fallback for providers without a usable list endpoint. */
 function ModelSelect({
   provider,
   kind,
@@ -501,8 +466,8 @@ function ModelSelect({
 
   if (manual) {
     return (
-      <div>
-        <input
+      <div className="space-y-1.5">
+        <Input
           placeholder="Type the model ID"
           value={value}
           onChange={(e) => {
@@ -511,17 +476,17 @@ function ModelSelect({
           }}
         />
         {models.length > 0 && (
-          <button type="button" className="btn btn-ghost small" onClick={() => setManual(false)}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setManual(false)}>
             Pick from list
-          </button>
+          </Button>
         )}
-        {err && <div className="small muted">{err} — enter the model ID manually.</div>}
+        {err && <div className="text-xs text-muted-foreground">{err} — enter the model ID manually.</div>}
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="space-y-1.5">
       <select
         value={value}
         onChange={(e) => {
@@ -529,18 +494,15 @@ function ModelSelect({
           const found = models.find((m) => m.id === e.target.value);
           onModelName?.(found?.name || e.target.value);
         }}
+        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <option value="">{loading ? "Loading models…" : "— select a model —"}</option>
         {value && !models.some((m) => m.id === value) && <option value={value}>{value}</option>}
-        {models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.name}
-          </option>
-        ))}
+        {models.map((m) => (<option key={m.id} value={m.id}>{m.name}</option>))}
       </select>
-      <button type="button" className="btn btn-ghost small" onClick={() => setManual(true)}>
+      <Button type="button" variant="ghost" size="sm" onClick={() => setManual(true)}>
         Enter manually
-      </button>
+      </Button>
     </div>
   );
 }
@@ -592,61 +554,62 @@ function ProvidersSection() {
   }
 
   return (
-    <div className="card">
-      <h2>Providers &amp; keys</h2>
-      <p className="muted">
-        Set each provider's API key once. Every LLM function and image/video model that uses the
-        provider shares this key — no need to paste it again per function.
-      </p>
-      {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
-      <div className="provider-grid">
-        {creds.map((c) => (
-          <div key={c.provider} className={`provider-card ${c.has_key ? "has-key" : ""}`}>
-            <div className="provider-card-head">
-              <strong>{c.label}</strong>
-              {c.has_key ? (
-                <span className="tag tag-green">key set</span>
-              ) : (
-                <span className="tag tag-red">no key</span>
+    <Card>
+      <CardHeader><CardTitle>Providers &amp; keys</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Set each provider's API key once. Every LLM function and image/video model that uses the
+          provider shares this key — no need to paste it again per function.
+        </p>
+        {error && <Alert kind="error">{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
+        <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+          {creds.map((c) => (
+            <div
+              key={c.provider}
+              className={cn(
+                "flex flex-col gap-2 rounded-xl border border-border bg-surface p-4",
+                c.has_key && "border-teal-600 bg-teal-50",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <strong>{c.label}</strong>
+                {c.has_key ? (
+                  <Badge variant="success">key set</Badge>
+                ) : (
+                  <Badge variant="destructive">no key</Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {c.kinds.map((k) => (
+                  <span key={k} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[0.7rem] font-medium capitalize text-indigo-700">
+                    {k}
+                  </span>
+                ))}
+              </div>
+              {c.has_key && <div className="font-mono text-xs text-muted-foreground">{c.api_key_hint}</div>}
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="password"
+                  placeholder={c.has_key ? "Replace key…" : "Paste API key…"}
+                  value={keys[c.provider] ?? ""}
+                  onChange={(e) => setKeys((prev) => ({ ...prev, [c.provider]: e.target.value }))}
+                  className="min-w-0 flex-1"
+                />
+                <Button size="sm" disabled={!keys[c.provider]} onClick={() => save(c.provider)}>
+                  Save
+                </Button>
+              </div>
+              {c.has_key && (
+                <Button variant="ghost" size="sm" className="mt-1 text-red-600 hover:bg-red-50" onClick={() => removeKey(c.provider, c.label)}>
+                  Remove key
+                </Button>
               )}
             </div>
-            <div className="platform-chips">
-              {c.kinds.map((k) => (
-                <span key={k} className="chip">
-                  {k}
-                </span>
-              ))}
-            </div>
-            {c.has_key && <div className="mono small muted">{c.api_key_hint}</div>}
-            <div className="provider-key-row">
-              <input
-                type="password"
-                placeholder={c.has_key ? "Replace key…" : "Paste API key…"}
-                value={keys[c.provider] ?? ""}
-                onChange={(e) => setKeys((prev) => ({ ...prev, [c.provider]: e.target.value }))}
-              />
-              <button
-                className="btn btn-primary small"
-                disabled={!keys[c.provider]}
-                onClick={() => save(c.provider)}
-              >
-                Save
-              </button>
-            </div>
-            {c.has_key && (
-              <button
-                className="btn btn-ghost small"
-                style={{ color: "var(--danger, #dc2626)", marginTop: "0.25rem" }}
-                onClick={() => removeKey(c.provider, c.label)}
-              >
-                Remove key
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -682,118 +645,90 @@ function LLMConfigSection() {
   }
 
   return (
-    <div className="card">
-      <h2>LLM functions</h2>
-      <p className="muted">
-        Pick a provider and model per function (PRD §9.1). The API key comes from the provider you
-        set under <strong>Providers &amp; Keys</strong>.
-      </p>
-      {error && <div className="alert alert-error">{error}</div>}
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Function</th>
-            <th>Provider</th>
-            <th>Model</th>
-            <th>Temp</th>
-            <th>Active</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {configs.map((c) => (
-            <tr key={c.id}>
-              <td>{c.function.replaceAll("_", " ")}</td>
-              <td>{c.provider}</td>
-              <td className="mono">{c.model_name}</td>
-              <td>{c.temperature}</td>
-              <td>{c.is_active ? "✓" : "✗"}</td>
-              <td>
-                <button className="btn btn-ghost" onClick={() => setEditing({ ...c })}>
-                  Edit
-                </button>
-              </td>
+    <Card>
+      <CardHeader><CardTitle>LLM functions</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Pick a provider and model per function (PRD §9.1). The API key comes from the provider you
+          set under <strong>Providers &amp; Keys</strong>.
+        </p>
+        {error && <Alert kind="error">{error}</Alert>}
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="px-4 py-2.5">Function</th>
+              <th className="px-4 py-2.5">Provider</th>
+              <th className="px-4 py-2.5">Model</th>
+              <th className="px-4 py-2.5">Temp</th>
+              <th className="px-4 py-2.5">Active</th>
+              <th className="px-4 py-2.5"></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {configs.map((c) => (
+              <tr key={c.id} className="border-b border-border last:border-0">
+                <td className="px-4 py-2.5">{c.function.replaceAll("_", " ")}</td>
+                <td className="px-4 py-2.5">{c.provider}</td>
+                <td className="px-4 py-2.5 font-mono">{c.model_name}</td>
+                <td className="px-4 py-2.5">{c.temperature}</td>
+                <td className="px-4 py-2.5">{c.is_active ? "✓" : "✗"}</td>
+                <td className="px-4 py-2.5">
+                  <Button variant="ghost" size="sm" onClick={() => setEditing({ ...c })}>Edit</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-      {editing && (
-        <div className="edit-panel">
-          <h3>Edit: {editing.function.replaceAll("_", " ")}</h3>
-          <div className="form-grid">
-            <label>
-              Provider
-              <select
-                value={editing.provider}
-                onChange={(e) => setEditing({ ...editing, provider: e.target.value, model_name: "" })}
-              >
-                {LLM_PROVIDERS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Model
-              <ModelSelect
-                provider={editing.provider}
-                kind="text"
-                value={editing.model_name}
-                onChange={(id) => setEditing({ ...editing, model_name: id })}
-              />
-            </label>
-            <label>
-              Temperature (0–2)
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                value={editing.temperature}
-                onChange={(e) => setEditing({ ...editing, temperature: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              Max tokens
-              <input
-                type="number"
-                min="1"
-                max="64000"
-                value={editing.max_tokens}
-                onChange={(e) => setEditing({ ...editing, max_tokens: Number(e.target.value) })}
-              />
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={editing.is_active}
-                onChange={(e) => setEditing({ ...editing, is_active: e.target.checked })}
-              />
-              Active
-            </label>
+        {editing && (
+          <div className="mt-4 border-t border-border pt-4">
+            <h3 className="mb-3">Edit: {editing.function.replaceAll("_", " ")}</h3>
+            <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="llm-provider">Provider</Label>
+                <select
+                  id="llm-provider"
+                  value={editing.provider}
+                  onChange={(e) => setEditing({ ...editing, provider: e.target.value, model_name: "" })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {LLM_PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Model</Label>
+                <ModelSelect
+                  provider={editing.provider}
+                  kind="text"
+                  value={editing.model_name}
+                  onChange={(id) => setEditing({ ...editing, model_name: id })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="llm-temp">Temperature (0–2)</Label>
+                <Input id="llm-temp" type="number" step="0.1" min="0" max="2" value={editing.temperature} onChange={(e) => setEditing({ ...editing, temperature: Number(e.target.value) })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="llm-tokens">Max tokens</Label>
+                <Input id="llm-tokens" type="number" min="1" max="64000" value={editing.max_tokens} onChange={(e) => setEditing({ ...editing, max_tokens: Number(e.target.value) })} />
+              </div>
+              <label className="flex flex-row items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.is_active} onChange={(e) => setEditing({ ...editing, is_active: e.target.checked })} className="size-4 accent-primary" />
+                Active
+              </label>
+            </div>
+            <div className="mt-3 space-y-1.5">
+              <Label>Base system prompt</Label>
+              <TextareaZoom label="Base system prompt" rows={4} value={editing.system_prompt} onChange={(v) => setEditing({ ...editing, system_prompt: v })} />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button onClick={save}>Save</Button>
+              <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+            </div>
           </div>
-          <label>
-            Base system prompt
-            <TextareaZoom
-              label="Base system prompt"
-              rows={4}
-              value={editing.system_prompt}
-              onChange={(v) => setEditing({ ...editing, system_prompt: v })}
-            />
-          </label>
-          <div className="form-actions">
-            <button className="btn btn-primary" onClick={save}>
-              Save
-            </button>
-            <button className="btn btn-ghost" onClick={() => setEditing(null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -870,124 +805,112 @@ function ImageModelSection() {
   }
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Image generation models</h2>
-        <button className="btn btn-primary" onClick={() => (showForm ? resetForm() : setShowForm(true))}>
-          {showForm ? "Cancel" : "+ Add model"}
-        </button>
-      </div>
-      <p className="muted">
-        Admin-curated list. Keys come from <strong>Providers &amp; Keys</strong>; model IDs are fetched
-        automatically per provider.
-      </p>
-      {error && <div className="alert alert-error">{error}</div>}
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle>Image generation models</CardTitle>
+        <Button onClick={() => (showForm ? resetForm() : setShowForm(true))}>
+          {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> Add model</>}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Admin-curated list. Keys come from <strong>Providers &amp; Keys</strong>; model IDs are fetched
+          automatically per provider.
+        </p>
+        {error && <Alert kind="error">{error}</Alert>}
 
-      {showForm && (
-        <form className="model-form" onSubmit={submit}>
-          <div className="form-grid">
-            <label>
-              Provider
-              <select
-                value={form.provider}
-                onChange={(e) => setForm({ ...form, provider: e.target.value, model_name: "" })}
-              >
-                {IMAGE_PROVIDERS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Model
-              <ModelSelect
-                provider={form.provider}
-                kind="image"
-                value={form.model_name}
-                onChange={(id) => setForm((f) => ({ ...f, model_name: id }))}
-                onModelName={(name) => setForm((f) => (f.display_name ? f : { ...f, display_name: name }))}
-              />
-            </label>
-            <label>
-              Display name
-              <input
-                value={form.display_name}
-                onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-                required
-              />
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={form.is_default}
-                onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
-              />
-              Default
-            </label>
-          </div>
-          <div className="form-actions">
-            <button className="btn btn-primary" disabled={!form.model_name}>
-              {editId ? "Save changes" : "Add"}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={resetForm}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+        {showForm && (
+          <form onSubmit={submit} className="mb-4 rounded-xl border border-border bg-surface-alt p-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-x-4 gap-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="img-prov">Provider</Label>
+                <select
+                  id="img-prov"
+                  value={form.provider}
+                  onChange={(e) => setForm({ ...form, provider: e.target.value, model_name: "" })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {IMAGE_PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Model</Label>
+                <ModelSelect
+                  provider={form.provider}
+                  kind="image"
+                  value={form.model_name}
+                  onChange={(id) => setForm((f) => ({ ...f, model_name: id }))}
+                  onModelName={(name) => setForm((f) => (f.display_name ? f : { ...f, display_name: name }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="img-name">Display name</Label>
+                <Input id="img-name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} required />
+              </div>
+              <label className="flex flex-row items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} className="size-4 accent-primary" />
+                Default
+              </label>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button type="submit" disabled={!form.model_name}>
+                {editId ? "Save changes" : "Add"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={resetForm}>Cancel</Button>
+            </div>
+          </form>
+        )}
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Provider</th>
-            <th>Model ID</th>
-            <th>Default</th>
-            <th>Active</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {models.map((m) => (
-            <tr key={m.id}>
-              <td>{m.display_name}</td>
-              <td>{m.provider}</td>
-              <td className="mono">{m.model_name}</td>
-              <td>
-                {m.is_default ? (
-                  <span className="tag tag-green">default</span>
-                ) : (
-                  <button className="btn btn-ghost small" onClick={() => patch(m.id, { is_default: true })}>
-                    Make default
-                  </button>
-                )}
-              </td>
-              <td>
-                <button className="btn btn-ghost small" onClick={() => patch(m.id, { is_active: !m.is_active })}>
-                  {m.is_active ? "✓ active" : "✗ inactive"}
-                </button>
-              </td>
-              <td className="row-actions">
-                <button className="btn btn-ghost small" onClick={() => startEdit(m)}>
-                  Edit
-                </button>
-                <button className="btn btn-ghost small danger" onClick={() => remove(m.id)}>
-                  Delete
-                </button>
-              </td>
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="px-4 py-2.5">Name</th>
+              <th className="px-4 py-2.5">Provider</th>
+              <th className="px-4 py-2.5">Model ID</th>
+              <th className="px-4 py-2.5">Default</th>
+              <th className="px-4 py-2.5">Active</th>
+              <th className="px-4 py-2.5"></th>
             </tr>
-          ))}
-          {models.length === 0 && (
-            <tr>
-              <td colSpan={6} className="muted">
-                No image models yet. Add one to enable image generation.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {models.map((m) => (
+              <tr key={m.id} className="border-b border-border last:border-0">
+                <td className="px-4 py-2.5">{m.display_name}</td>
+                <td className="px-4 py-2.5">{m.provider}</td>
+                <td className="px-4 py-2.5 font-mono">{m.model_name}</td>
+                <td className="px-4 py-2.5">
+                  {m.is_default ? (
+                    <Badge variant="success">default</Badge>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => patch(m.id, { is_default: true })}>
+                      Make default
+                    </Button>
+                  )}
+                </td>
+                <td className="px-4 py-2.5">
+                  <Button variant="ghost" size="sm" onClick={() => patch(m.id, { is_active: !m.is_active })}>
+                    {m.is_active ? "✓ active" : "✗ inactive"}
+                  </Button>
+                </td>
+                <td className="px-4 py-2.5">
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(m)}>Edit</Button>
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => remove(m.id)}>Delete</Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {models.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-2.5 text-muted-foreground">
+                  No image models yet. Add one to enable image generation.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1076,141 +999,121 @@ function VideoModelSection() {
   }
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Video generation models</h2>
-        <button className="btn btn-primary" onClick={() => (showForm ? resetForm() : setShowForm(true))}>
-          {showForm ? "Cancel" : "+ Add model"}
-        </button>
-      </div>
-      <p className="muted">
-        Admin-curated list. Each provider (Google Veo / OpenAI Sora / fal.ai / Replicate / Magnific) uses its key
-        from <strong>Providers &amp; Keys</strong>. Magnific offers a model dropdown. fal.ai and Replicate need the model ID entered manually.
-      </p>
-      {error && <div className="alert alert-error">{error}</div>}
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle>Video generation models</CardTitle>
+        <Button onClick={() => (showForm ? resetForm() : setShowForm(true))}>
+          {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> Add model</>}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Admin-curated list. Each provider (Google Veo / OpenAI Sora / fal.ai / Replicate / Magnific) uses its key
+          from <strong>Providers &amp; Keys</strong>. Magnific offers a model dropdown. fal.ai and Replicate need the model ID entered manually.
+        </p>
+        {error && <Alert kind="error">{error}</Alert>}
 
-      {showForm && (
-        <form className="model-form" onSubmit={submit}>
-          <div className="form-grid">
-            <label>
-              Provider
-              <select
-                value={form.provider}
-                onChange={(e) => setForm({ ...form, provider: e.target.value, model_name: "" })}
-              >
-                {VIDEO_PROVIDERS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Model
-              <ModelSelect
-                provider={form.provider}
-                kind="video"
-                value={form.model_name}
-                onChange={(id) => setForm((f) => ({ ...f, model_name: id }))}
-                onModelName={(name) => setForm((f) => (f.display_name ? f : { ...f, display_name: name }))}
-              />
-            </label>
-            <label>
-              Display name
-              <input
-                value={form.display_name}
-                onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-                required
-              />
-            </label>
-            <label>
-              Max secs
-              <input
-                type="number"
-                min={1}
-                max={60}
-                value={form.max_duration_seconds}
-                onChange={(e) => setForm({ ...form, max_duration_seconds: Number(e.target.value) })}
-              />
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={form.is_default}
-                onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
-              />
-              Default
-            </label>
-          </div>
-          <div className="form-actions">
-            <button className="btn btn-primary" disabled={!form.model_name}>
-              {editId ? "Save changes" : "Add"}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={resetForm}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+        {showForm && (
+          <form onSubmit={submit} className="mb-4 rounded-xl border border-border bg-surface-alt p-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-x-4 gap-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="vid-prov">Provider</Label>
+                <select
+                  id="vid-prov"
+                  value={form.provider}
+                  onChange={(e) => setForm({ ...form, provider: e.target.value, model_name: "" })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {VIDEO_PROVIDERS.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Model</Label>
+                <ModelSelect
+                  provider={form.provider}
+                  kind="video"
+                  value={form.model_name}
+                  onChange={(id) => setForm((f) => ({ ...f, model_name: id }))}
+                  onModelName={(name) => setForm((f) => (f.display_name ? f : { ...f, display_name: name }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="vid-name">Display name</Label>
+                <Input id="vid-name" value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="vid-secs">Max secs</Label>
+                <Input id="vid-secs" type="number" min={1} max={60} value={form.max_duration_seconds} onChange={(e) => setForm({ ...form, max_duration_seconds: Number(e.target.value) })} />
+              </div>
+              <label className="flex flex-row items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} className="size-4 accent-primary" />
+                Default
+              </label>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button type="submit" disabled={!form.model_name}>
+                {editId ? "Save changes" : "Add"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={resetForm}>Cancel</Button>
+            </div>
+          </form>
+        )}
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Provider</th>
-            <th>Model ID</th>
-            <th>Max secs</th>
-            <th>Default</th>
-            <th>Active</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {models.map((m) => (
-            <tr key={m.id}>
-              <td>{m.display_name}</td>
-              <td>{m.provider}</td>
-              <td className="mono">{m.model_name}</td>
-              <td>{m.max_duration_seconds}</td>
-              <td>
-                {m.is_default ? (
-                  <span className="tag tag-green">default</span>
-                ) : (
-                  <button className="btn btn-ghost small" onClick={() => patch(m.id, { is_default: true })}>
-                    Make default
-                  </button>
-                )}
-              </td>
-              <td>
-                <button className="btn btn-ghost small" onClick={() => patch(m.id, { is_active: !m.is_active })}>
-                  {m.is_active ? "✓ active" : "✗ inactive"}
-                </button>
-              </td>
-              <td className="row-actions">
-                <button className="btn btn-ghost small" onClick={() => startEdit(m)}>
-                  Edit
-                </button>
-                <button className="btn btn-ghost small danger" onClick={() => remove(m.id)}>
-                  Delete
-                </button>
-              </td>
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="px-4 py-2.5">Name</th>
+              <th className="px-4 py-2.5">Provider</th>
+              <th className="px-4 py-2.5">Model ID</th>
+              <th className="px-4 py-2.5">Max secs</th>
+              <th className="px-4 py-2.5">Default</th>
+              <th className="px-4 py-2.5">Active</th>
+              <th className="px-4 py-2.5"></th>
             </tr>
-          ))}
-          {models.length === 0 && (
-            <tr>
-              <td colSpan={7} className="muted">
-                No video models yet. Add one to enable video generation.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {models.map((m) => (
+              <tr key={m.id} className="border-b border-border last:border-0">
+                <td className="px-4 py-2.5">{m.display_name}</td>
+                <td className="px-4 py-2.5">{m.provider}</td>
+                <td className="px-4 py-2.5 font-mono">{m.model_name}</td>
+                <td className="px-4 py-2.5">{m.max_duration_seconds}</td>
+                <td className="px-4 py-2.5">
+                  {m.is_default ? (
+                    <Badge variant="success">default</Badge>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => patch(m.id, { is_default: true })}>
+                      Make default
+                    </Button>
+                  )}
+                </td>
+                <td className="px-4 py-2.5">
+                  <Button variant="ghost" size="sm" onClick={() => patch(m.id, { is_active: !m.is_active })}>
+                    {m.is_active ? "✓ active" : "✗ inactive"}
+                  </Button>
+                </td>
+                <td className="px-4 py-2.5">
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(m)}>Edit</Button>
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => remove(m.id)}>Delete</Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {models.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-2.5 text-muted-foreground">
+                  No video models yet. Add one to enable video generation.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
   );
 }
 
-// Controls for settings whose values are constrained to a fixed set of
-// options or a type — avoids free-text typing for things that should be picked.
 const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   social_publishing_mode: [
     { value: "zernio", label: "Zernio (social publishing middleman)" },
@@ -1252,8 +1155,6 @@ const NUMBER_SETTINGS = new Set([
   "competitor_crawl_max_pages",
 ]);
 
-// Friendly label + plain-language help for each setting. The label is shown as
-// the row title; the raw key is kept as a small mono hint for reference.
 const SETTING_META: Record<string, { label: string; help: string }> = {
   default_ui_language: {
     label: "Interface language",
@@ -1333,25 +1234,23 @@ const SETTING_META: Record<string, { label: string; help: string }> = {
   },
 };
 
-// Ordered, sensible groupings shown as distinct boxed sub-sections on the
-// Global tab. Each group carries an accent colour so they're easy to tell apart.
 const SETTING_GROUPS: { title: string; description: string; accent: string; keys: string[] }[] = [
   {
     title: "Language & localization",
     description: "Default languages for the interface and the content the AI produces.",
-    accent: "#2563EB", // info blue
+    accent: "#2563EB",
     keys: ["default_ui_language", "default_content_language"],
   },
   {
     title: "Interface & developer tools",
     description: "Controls which sections of the UI are visible and which developer tools are exposed.",
-    accent: "#7C3AED", // violet
+    accent: "#7C3AED",
     keys: ["show_article_library", "dev_mode", "show_onboarding_panel"],
   },
   {
     title: "Client onboarding",
     description: "What happens automatically when a new client is created.",
-    accent: "#4338CA", // primary indigo
+    accent: "#4338CA",
     keys: [
       "onboarding_auto_run",
       "default_article_count",
@@ -1364,7 +1263,7 @@ const SETTING_GROUPS: { title: string; description: string; accent: string; keys
   {
     title: "Site crawler",
     description: "How the crawler explores a client's own website.",
-    accent: "#0F766E", // tertiary teal
+    accent: "#0F766E",
     keys: [
       "crawler_max_depth",
       "crawler_max_pages",
@@ -1377,10 +1276,28 @@ const SETTING_GROUPS: { title: string; description: string; accent: string; keys
   {
     title: "Competitor crawler",
     description: "A lighter crawl used when analyzing competitor sites — kept small to stay fast.",
-    accent: "#D97706", // secondary amber
+    accent: "#D97706",
     keys: ["competitor_crawl_max_depth", "competitor_crawl_max_pages"],
   },
 ];
+
+function SettingsGroup({ title, description, accent, children }: { title: string; description: string; accent: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="mt-6 overflow-hidden rounded-lg border border-border border-l-4 bg-surface shadow-sm first:mt-4"
+      style={{ borderLeftColor: accent }}
+    >
+      <div
+        className="border-b border-border px-4 py-3"
+        style={{ backgroundColor: `color-mix(in srgb, ${accent} 8%, var(--surface))` }}
+      >
+        <h3 className="m-0" style={{ color: accent }}>{title}</h3>
+        {description && <div className="mt-0.5 text-sm text-muted-foreground">{description}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 function GlobalSettingsSection() {
   const [settings, setSettings] = useState<Setting[]>([]);
@@ -1413,30 +1330,31 @@ function GlobalSettingsSection() {
     const val = edited[s.key] ?? s.value;
     if (SELECT_OPTIONS[s.key]) {
       return (
-        <select value={val} onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })}>
-          {SELECT_OPTIONS[s.key].map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
+        <select
+          value={val}
+          onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })}
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          {SELECT_OPTIONS[s.key].map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
         </select>
       );
     }
     if (BOOLEAN_SETTINGS.has(s.key)) {
       return (
-        <label className="checkbox">
+        <label className="flex flex-row items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={val === "true"}
             onChange={(e) => setEdited({ ...edited, [s.key]: e.target.checked ? "true" : "false" })}
+            className="size-4 accent-primary"
           />
-          <span className="muted small">{val === "true" ? "Enabled" : "Disabled"}</span>
+          <span className="text-sm text-muted-foreground">{val === "true" ? "Enabled" : "Disabled"}</span>
         </label>
       );
     }
     if (NUMBER_SETTINGS.has(s.key)) {
       return (
-        <input
+        <Input
           type="number"
           min={0}
           value={val}
@@ -1444,80 +1362,64 @@ function GlobalSettingsSection() {
         />
       );
     }
-    return <input value={val} onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })} />;
+    return <Input value={val} onChange={(e) => setEdited({ ...edited, [s.key]: e.target.value })} />;
   }
 
   function renderRows(items: Setting[]) {
     return items.map((s) => {
       const meta = SETTING_META[s.key];
       return (
-        <tr key={s.key}>
-          <td>
+        <tr key={s.key} className="border-b border-border last:border-0">
+          <td className="px-4 py-3 align-top">
             <strong>{meta?.label ?? s.key}</strong>
-            <div className="muted small mono">{s.key}</div>
-            <div className="muted small">{meta?.help ?? s.description}</div>
+            <div className="font-mono text-xs text-muted-foreground">{s.key}</div>
+            <div className="mt-0.5 text-sm text-muted-foreground">{meta?.help ?? s.description}</div>
           </td>
-          <td>{renderControl(s)}</td>
+          <td className="px-4 py-3 align-middle">{renderControl(s)}</td>
         </tr>
       );
     });
   }
 
   return (
-    <div className="card">
-      <h2>Global settings</h2>
-      {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
+    <Card>
+      <CardHeader><CardTitle>Global settings</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {error && <Alert kind="error">{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
 
-      {SETTING_GROUPS.map((g) => {
-        const items = g.keys.map((k) => byKey.get(k)).filter((s): s is Setting => !!s);
-        if (items.length === 0) return null;
-        return (
-          <div
-            key={g.title}
-            className="settings-group"
-            style={{ ["--group-accent" as string]: g.accent }}
-          >
-            <div className="settings-group-head">
-              <h3>{g.title}</h3>
-              <div className="muted small">{g.description}</div>
-            </div>
-            <table className="table">
-              <tbody>{renderRows(items)}</tbody>
+        {SETTING_GROUPS.map((g) => {
+          const items = g.keys.map((k) => byKey.get(k)).filter((s): s is Setting => !!s);
+          if (items.length === 0) return null;
+          return (
+            <SettingsGroup key={g.title} title={g.title} description={g.description} accent={g.accent}>
+              <table className="w-full border-collapse text-sm">
+                <tbody>{renderRows(items)}</tbody>
+              </table>
+            </SettingsGroup>
+          );
+        })}
+
+        {ungrouped.length > 0 && (
+          <SettingsGroup title="Other" description="" accent="#78716C">
+            <table className="w-full border-collapse text-sm">
+              <tbody>{renderRows(ungrouped)}</tbody>
             </table>
-          </div>
-        );
-      })}
+          </SettingsGroup>
+        )}
 
-      {ungrouped.length > 0 && (
-        <div className="settings-group" style={{ ["--group-accent" as string]: "#78716C" }}>
-          <div className="settings-group-head">
-            <h3>Other</h3>
-          </div>
-          <table className="table">
-            <tbody>{renderRows(ungrouped)}</tbody>
-          </table>
+        <PublishingLimitsEditor />
+
+        <div className="flex">
+          <Button onClick={save} disabled={Object.keys(edited).length === 0}>
+            Save changes
+          </Button>
         </div>
-      )}
-
-      <PublishingLimitsEditor />
-
-      <div className="form-actions">
-        <button className="btn btn-primary" onClick={save} disabled={Object.keys(edited).length === 0}>
-          Save changes
-        </button>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
-
-/**
- * Per-platform publishing limits editor. Lives in Global Settings because the
- * controls are platform-admin scoped and act on every org / client. The
- * effective view (defaults merged with overrides) is read-only; the editor
- * itself only writes the overrides.
- */
 function PublishingLimitsEditor() {
   const PLATFORMS = [
     { key: "instagram", label: "Instagram" },
@@ -1580,82 +1482,65 @@ function PublishingLimitsEditor() {
   const dirty = Object.keys(edited).length > 0;
 
   return (
-    <div
-      className="settings-group"
-      style={{ ["--group-accent" as string]: "#0F766E" }}
-    >
-      <div className="settings-group-head">
-        <h3>Publishing limits</h3>
-        <div className="muted small">
-          Throttle the publish queue per account so we never burst a platform.
-          <code>per_day</code> is the max posts/24h rolling window;
-          <code>min_gap_min</code> is the minimum minutes between consecutive
-          posts on the same account. Empty cells fall back to the safe default.
+    <SettingsGroup title="Publishing limits" description="Throttle the publish queue per account so we never burst a platform. per_day is the max posts/24h rolling window; min_gap_min is the minimum minutes between consecutive posts on the same account. Empty cells fall back to the safe default." accent="#0F766E">
+      <div className="p-4">
+        {error && <Alert kind="error">{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : (
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <th className="px-4 py-2.5">Platform</th>
+                <th className="px-4 py-2.5">Posts per day (per account)</th>
+                <th className="px-4 py-2.5">Minimum gap (minutes)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PLATFORMS.map((p) => {
+                const v = currentValue(p.key);
+                return (
+                  <tr key={p.key} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2.5"><strong>{p.label}</strong></td>
+                    <td className="px-4 py-2.5">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={v.per_day}
+                        onChange={(e) => setField(p.key, "per_day", Math.max(1, Number(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={v.min_gap_min}
+                        onChange={(e) => setField(p.key, "min_gap_min", Math.max(0, Number(e.target.value) || 0))}
+                        className="w-24"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <div className="mt-3 flex gap-2">
+          <Button variant="ghost" onClick={reset} disabled={!dirty || saving}>Reset</Button>
+          <Button onClick={save} disabled={!dirty || saving}>
+            {saving ? "Saving…" : "Save limits"}
+          </Button>
         </div>
       </div>
-      {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
-      {loading ? (
-        <p className="muted">Loading…</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Platform</th>
-              <th>Posts per day (per account)</th>
-              <th>Minimum gap (minutes)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PLATFORMS.map((p) => {
-              const v = currentValue(p.key);
-              return (
-                <tr key={p.key}>
-                  <td><strong>{p.label}</strong></td>
-                  <td>
-                    <input
-                      type="number"
-                      min={1}
-                      value={v.per_day}
-                      onChange={(e) =>
-                        setField(p.key, "per_day", Math.max(1, Number(e.target.value) || 0))
-                      }
-                      className="w-24"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min={0}
-                      value={v.min_gap_min}
-                      onChange={(e) =>
-                        setField(p.key, "min_gap_min", Math.max(0, Number(e.target.value) || 0))
-                      }
-                      className="w-24"
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-      <div className="form-actions">
-        <button
-          className="btn btn-ghost"
-          onClick={reset}
-          disabled={!dirty || saving}
-        >
-          Reset
-        </button>
-        <button
-          className="btn btn-primary"
-          onClick={save}
-          disabled={!dirty || saving}
-        >
-          {saving ? "Saving…" : "Save limits"}
-        </button>
-      </div>
-    </div>
+    </SettingsGroup>
   );
+}
+
+function Alert({ kind, children }: { kind: "error" | "success"; children: React.ReactNode }) {
+  if (kind === "error") {
+    return <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{children}</div>;
+  }
+  return <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{children}</div>;
 }

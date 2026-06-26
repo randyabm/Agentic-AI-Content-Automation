@@ -1,7 +1,13 @@
 import { Fragment, useEffect, useState } from "react";
+import { Plus, X } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Capability, OrgRole, PermissionMatrix, User } from "../types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const ORG_ROLES: OrgRole[] = ["org_admin", "analyst", "creative", "reviewer", "viewer"];
 
@@ -75,152 +81,173 @@ export default function Team() {
   if (!orgId) {
     return (
       <div>
-        <div className="page-header"><h1>Team</h1></div>
-        <div className="card">You are not a member of an organization.</div>
+        <div className="mb-5"><h1>Team</h1></div>
+        <Card><CardContent className="pt-6">You are not a member of an organization.</CardContent></Card>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="page-header">
+      <div className="mb-5 flex items-center justify-between gap-4">
         <h1>Team</h1>
-        <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ New member"}
-        </button>
+        <Button onClick={() => setShowForm((v) => !v)}>
+          {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> New member</>}
+        </Button>
       </div>
 
       {showForm && (
-        <form className="card form-inline" onSubmit={addMember}>
-          <label>
-            Email
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-          </label>
-          <label>
-            Full name
-            <input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-          </label>
-          <label>
-            Password
-            <input type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
-          </label>
-          <label>
-            Role
-            <select value={form.org_role} onChange={(e) => setForm({ ...form, org_role: e.target.value as OrgRole })}>
-              {ORG_ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </label>
-          <button className="btn btn-primary" disabled={busy}>
-            {busy ? "Adding…" : "Add member"}
-          </button>
-          <p className="muted" style={{ flexBasis: "100%" }}>{ROLE_HELP[form.org_role]}</p>
-        </form>
+        <Card className="mb-4">
+          <CardContent className="pt-6">
+            <form onSubmit={addMember} className="flex flex-wrap items-end gap-4">
+              <div className="flex-1 min-w-[180px] space-y-1.5">
+                <Label htmlFor="team-email">Email</Label>
+                <Input id="team-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+              </div>
+              <div className="flex-1 min-w-[180px] space-y-1.5">
+                <Label htmlFor="team-name">Full name</Label>
+                <Input id="team-name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
+              </div>
+              <div className="flex-1 min-w-[180px] space-y-1.5">
+                <Label htmlFor="team-password">Password</Label>
+                <Input id="team-password" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+              </div>
+              <div className="flex-1 min-w-[180px] space-y-1.5">
+                <Label htmlFor="team-role">Role</Label>
+                <select
+                  id="team-role"
+                  value={form.org_role}
+                  onChange={(e) => setForm({ ...form, org_role: e.target.value as OrgRole })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {ORG_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+                </select>
+              </div>
+              <Button type="submit" disabled={busy}>
+                {busy ? "Adding…" : "Add member"}
+              </Button>
+              <p className="basis-full text-sm text-muted-foreground">{ROLE_HELP[form.org_role]}</p>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
-      <div className="card">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Name</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {members.map((m) => (
-              <tr key={m.id}>
-                <td>{m.email}</td>
-                <td>{m.full_name}</td>
-                <td>
-                  <select
-                    value={m.org_role ?? "viewer"}
-                    onChange={(e) => patchMember(m.id, { org_role: e.target.value as OrgRole })}
-                    disabled={m.id === user?.id}
-                    title={m.id === user?.id ? "You cannot change your own role" : ROLE_HELP[(m.org_role ?? "viewer") as OrgRole]}
-                  >
-                    {ORG_ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <span className={m.is_active ? "tag tag-green" : "tag tag-red"}>
-                    {m.is_active ? "Active" : "Inactive"}
-                  </span>
-                </td>
-                <td>
-                  <button
-                    className="btn btn-ghost"
-                    disabled={m.id === user?.id}
-                    onClick={() => patchMember(m.id, { is_active: !m.is_active })}
-                  >
-                    {m.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {matrix && (
-        <div className="card" style={{ marginTop: 24 }}>
-          <div className="page-header" style={{ marginBottom: 12 }}>
-            <h2 style={{ margin: 0 }}>Permissions</h2>
-          </div>
-          <p className="muted" style={{ marginTop: 0 }}>
-            What each role can do. The Org admin always has full access (locked).
-          </p>
-          {permError && <div className="alert alert-error">{permError}</div>}
-          <table className="table">
+      <Card>
+        <CardHeader><CardTitle>All members</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          <table className="w-full border-collapse text-sm">
             <thead>
-              <tr>
-                <th>Capability</th>
-                {matrix.roles.map((r) => (
-                  <th key={r} style={{ textAlign: "center", textTransform: "capitalize" }}>
-                    {r.replace("_", " ")}
-                  </th>
-                ))}
+              <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <th className="px-4 py-2.5">Email</th>
+                <th className="px-4 py-2.5">Name</th>
+                <th className="px-4 py-2.5">Role</th>
+                <th className="px-4 py-2.5">Status</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
-              {matrix.capabilities.map((cap, i) => {
-                const prevGroup = i > 0 ? matrix.capabilities[i - 1].group : null;
-                return (
-                  <Fragment key={cap.key}>
-                    {cap.group !== prevGroup && (
-                      <tr>
-                        <td colSpan={matrix.roles.length + 1} className="muted" style={{ paddingTop: 14, fontWeight: 500 }}>
-                          {cap.group}
-                        </td>
-                      </tr>
-                    )}
-                    <tr>
-                      <td>{cap.label}</td>
-                      {matrix.roles.map((r) => (
-                        <td key={r} style={{ textAlign: "center" }}>
-                          <input
-                            type="checkbox"
-                            checked={matrix.grid[r]?.[cap.key] ?? false}
-                            disabled={r === "org_admin"}
-                            title={r === "org_admin" ? "Org admin always has every capability" : undefined}
-                            onChange={(e) => toggleCap(r, cap.key, e.target.checked)}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  </Fragment>
-                );
-              })}
+              {members.map((m) => (
+                <tr key={m.id} className="border-b border-border last:border-0">
+                  <td className="px-4 py-2.5">{m.email}</td>
+                  <td className="px-4 py-2.5">{m.full_name}</td>
+                  <td className="px-4 py-2.5">
+                    <select
+                      value={m.org_role ?? "viewer"}
+                      onChange={(e) => patchMember(m.id, { org_role: e.target.value as OrgRole })}
+                      disabled={m.id === user?.id}
+                      title={m.id === user?.id ? "You cannot change your own role" : ROLE_HELP[(m.org_role ?? "viewer") as OrgRole]}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                    >
+                      {ORG_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant={m.is_active ? "success" : "destructive"}>
+                      {m.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={m.id === user?.id}
+                      onClick={() => patchMember(m.id, { is_active: !m.is_active })}
+                    >
+                      {m.is_active ? "Deactivate" : "Activate"}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
-        </div>
+        </CardContent>
+      </Card>
+
+      {matrix && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Permissions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="mt-0 text-sm text-muted-foreground">
+              What each role can do. The Org admin always has full access (locked).
+            </p>
+            {permError && (
+              <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+                {permError}
+              </div>
+            )}
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2.5">Capability</th>
+                  {matrix.roles.map((r) => (
+                    <th key={r} className="px-4 py-2.5 text-center capitalize">
+                      {r.replace("_", " ")}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {matrix.capabilities.map((cap, i) => {
+                  const prevGroup = i > 0 ? matrix.capabilities[i - 1].group : null;
+                  return (
+                    <Fragment key={cap.key}>
+                      {cap.group !== prevGroup && (
+                        <tr>
+                          <td colSpan={matrix.roles.length + 1} className="pt-3.5 text-sm font-medium text-muted-foreground">
+                            {cap.group}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-b border-border last:border-0">
+                        <td className="px-4 py-2.5">{cap.label}</td>
+                        {matrix.roles.map((r) => (
+                          <td key={r} className="px-4 py-2.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={matrix.grid[r]?.[cap.key] ?? false}
+                              disabled={r === "org_admin"}
+                              title={r === "org_admin" ? "Org admin always has every capability" : undefined}
+                              onChange={(e) => toggleCap(r, cap.key, e.target.checked)}
+                              className="size-4 accent-primary"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
