@@ -24,7 +24,7 @@ from app.models.client import Client
 from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
 from app.models.user import User
 from app.schemas.social import CalendarItemOut, RescheduleRequest, ReviewQueueItem, ScheduleablePostOut, ScheduledPostOut
-from app.services import audit
+from app.services import audit, publishing
 
 router = APIRouter(tags=["scheduling"])
 
@@ -112,6 +112,9 @@ def _to_item(
         timezone=sp.timezone,
         published_url=sp.published_url,
         error=sp.error,
+        error_code=sp.error_code or "",
+        retry_count=sp.retry_count or 0,
+        next_attempt_at=sp.next_attempt_at,
         created_at=sp.created_at,
         post_id=sp.post_id,
         campaign_id=campaign.id,
@@ -308,6 +311,39 @@ def cancel_scheduled(
     db.delete(sp)
     db.commit()
     audit.record(db, actor, "post.unschedule", "post", post.id, {"scheduled_post": sp_id})
+
+
+@router.post("/scheduled-posts/{sp_id}/retry", response_model=ScheduledPostOut)
+def retry_scheduled(
+    sp_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.publish)),
+):
+    """Manually retry a `failed` scheduled post.
+
+    Resets the row to `scheduled`, clears the error state, zeroes the
+    retry_count, and re-arms `next_attempt_at` to now so the next Beat
+    tick picks it up immediately. `attempt_history` is preserved so the
+    user can still see what failed before.
+    """
+    sp, post, _ = _load_scheduled(db, sp_id, actor)
+    if sp.status != PublishStatus.failed:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Only a failed scheduled post can be retried.",
+        )
+    sp.status = PublishStatus.scheduled
+    sp.error = ""
+    sp.error_code = ""
+    sp.retry_count = 0
+    sp.next_attempt_at = datetime.now(timezone.utc)
+    db.commit()
+    audit.record(
+        db, actor, "post.retry", "post", post.id,
+        {"scheduled_post": sp_id},
+    )
+    db.refresh(sp)
+    return sp
 
 
 @router.get("/scheduled-posts/{sp_id}/export-pack")

@@ -3,6 +3,7 @@ import { format, isToday, isTomorrow, isPast } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
 import { cn } from "@/lib/utils";
+import { statusLabel, statusVariant } from "@/lib/publishStatus";
 import type { CalendarItem } from "../types";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -12,6 +13,8 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   published: "default",
   partial: "destructive",
   failed: "destructive",
+  retrying: "outline",
+  throttled: "outline",
 };
 
 function dayLabel(iso: string | null): string {
@@ -102,8 +105,8 @@ export function CalendarListView({ items, onSelectItem }: CalendarListViewProps)
                         </p>
                       </div>
                     </div>
-                    <Badge variant={STATUS_VARIANT[item.status] ?? "default"} className="shrink-0 capitalize">
-                      {item.status}
+                    <Badge variant={statusVariant(item.status)} className="shrink-0">
+                      {statusLabel(item.status)}
                     </Badge>
                     {item.published_url && (
                       <ExternalLink size={14} className="text-muted-foreground shrink-0 group-hover:text-primary transition-colors" />

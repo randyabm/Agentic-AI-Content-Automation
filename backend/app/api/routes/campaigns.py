@@ -338,6 +338,9 @@ def _latest_publish_states(db: Session, post_ids: list[str]) -> dict[str, Publis
             published_url=sp.published_url or "",
             scheduled_at=sp.scheduled_at,
             error=sp.error or "",
+            error_code=sp.error_code or "",
+            retry_count=sp.retry_count or 0,
+            next_attempt_at=sp.next_attempt_at,
             channel_id=sp.social_account_id or "",
             updated_at=sp.updated_at,
         )
@@ -735,6 +738,7 @@ def schedule_post_for_later(
     campaign_id: str,
     post_id: str,
     body: ScheduleRequest,
+    force: bool = False,
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.schedule)),
 ):
@@ -743,7 +747,13 @@ def schedule_post_for_later(
     Approval and a connected channel are both optional here — this lets you lay
     out a calendar up front (a *planned* schedule). The due sweep re-checks both
     at send time and only publishes once the post is approved and has a connected
-    channel; otherwise it leaves the plan pending."""
+    channel; otherwise it leaves the plan pending.
+
+    Duplicate detection: if the same content was scheduled for this channel in
+    the last 24 hours, returns **409 Conflict** with `{"duplicate": true,
+    "existing_scheduled_post_id": "..."}`. The frontend prompts the user with
+    `useConfirm()` and resubmits with `?force=true` to override.
+    """
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
     channel = _connected_channel(db, campaign.client_id, post.platform.value)
@@ -755,12 +765,44 @@ def schedule_post_for_later(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Scheduled time must be in the future.")
 
     try:
-        sp = publishing.schedule_post(db, post, channel, actor.id, when, body.timezone)
+        sp = publishing.schedule_post(db, post, channel, actor.id, when, body.timezone, force=force)
+    except publishing.DuplicatePost as exc:
+        # Surface the existing post id in the body so the frontend can locate it.
+        from fastapi.responses import JSONResponse
+        existing_id = ""
+        try:
+            from app.models.social import ScheduledPost as _SP
+            from sqlalchemy import select as _select
+            from app.services.publishing import content_fingerprint as _fp, _resolve_content as _rc
+            from app.models.campaign import CampaignElement as _CE
+            text, images, image_keys, video, video_key = _rc(db, post)
+            fingerprint = _fp(text, image_keys, video_key)
+            from datetime import timedelta
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            existing = db.scalar(
+                _select(_SP).where(
+                    _SP.social_account_id == channel.id if channel else False,
+                    _SP.content_hash == fingerprint,
+                    _SP.created_at >= cutoff,
+                )
+            )
+            if existing is not None:
+                existing_id = existing.id
+        except Exception:
+            existing_id = ""
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "duplicate": True,
+                "existing_scheduled_post_id": existing_id,
+                "message": str(exc),
+            },
+        )
     except publishing.PublishError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     audit.record(
         db, actor, "post.schedule", "post", post.id,
-        {"channel": channel.id if channel else None, "scheduled_at": when.isoformat()},
+        {"channel": channel.id if channel else None, "scheduled_at": when.isoformat(), "force": force},
     )
     return sp
 

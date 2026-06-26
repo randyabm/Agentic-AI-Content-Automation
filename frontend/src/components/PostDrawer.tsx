@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Copy, Download, ExternalLink, Clock, CheckCircle2, XCircle, Send, Package, RefreshCw } from "lucide-react";
+import { Copy, Download, ExternalLink, Clock, CheckCircle2, XCircle, Send, Package, RefreshCw, RotateCw, AlertTriangle, Hourglass } from "lucide-react";
 import { toast } from "sonner";
 import { api, downloadFile } from "../api";
 import type { CalendarItem, Post } from "../types";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/sheet";
 import { useConfirm } from "@/components/ui/dialogs";
 import { cn } from "@/lib/utils";
+import { friendlyPublishError, nextAttemptNote, statusLabel, statusVariant } from "@/lib/publishStatus";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   draft: "secondary",
@@ -29,6 +30,8 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   published: "default",
   partial: "destructive",
   failed: "destructive",
+  retrying: "outline",
+  throttled: "outline",
 };
 
 const APPROVAL_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -187,6 +190,20 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
     }
   }
 
+  async function retryScheduled() {
+    if (!item) return;
+    setBusy(true);
+    try {
+      await api(`/scheduled-posts/${item.id}/retry`, { method: "POST" });
+      toast.success("Post re-queued for publishing");
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-lg p-0">
@@ -206,8 +223,8 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
-            <Badge variant={STATUS_VARIANT[item.status] ?? "default"} className="capitalize">
-              {item.status}
+            <Badge variant={statusVariant(item.status)} className="capitalize">
+              {statusLabel(item.status)}
             </Badge>
             {item.approval_status && (
               <Badge variant={APPROVAL_VARIANT[item.approval_status] ?? "default"} className="capitalize">
@@ -350,8 +367,71 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
 
             {/* Error */}
             {item.error && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {item.error}
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive space-y-1">
+                <p>{friendlyPublishError(item.error_code) || item.error}</p>
+                {item.error_code && (
+                  <p className="text-xs text-muted-foreground">Detalle: {item.error}</p>
+                )}
+              </div>
+            )}
+
+            {/* Retrying / throttled panel (amber, with next attempt time) */}
+            {(item.status === "retrying" || item.status === "throttled") && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 text-sm text-amber-900 dark:text-amber-200 space-y-1.5">
+                <div className="flex items-center gap-2 font-medium">
+                  {item.status === "throttled" ? <Hourglass size={14} /> : <RotateCw size={14} />}
+                  {statusLabel(item.status)}
+                  {item.retry_count > 0 && (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      · Intento {item.retry_count}/{item.max_retries ?? 4}
+                    </span>
+                  )}
+                </div>
+                {(item.next_attempt_at || item.error) && (
+                  <p className="text-xs text-muted-foreground">
+                    {item.next_attempt_at ? nextAttemptNote(item.next_attempt_at) : ""}
+                    {item.next_attempt_at && item.error ? " · " : ""}
+                    {item.error ? friendlyPublishError(item.error_code) || item.error : ""}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Failed panel: red, with retry button */}
+            {item.status === "failed" && canEdit && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm space-y-2">
+                <div className="flex items-center gap-2 text-destructive font-medium">
+                  <AlertTriangle size={14} /> Publicación fallida
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={retryScheduled}
+                  disabled={busy}
+                  className="w-full"
+                >
+                  <RotateCw size={14} /> {busy ? "Reintentando…" : "Reintentar ahora"}
+                </Button>
+              </div>
+            )}
+
+            {/* Recent attempts (last 3) */}
+            {Array.isArray((item as CalendarItem & { attempt_history?: { at: string; status: string; error_code: string; error: string }[] }).attempt_history) &&
+              (item as CalendarItem & { attempt_history: { at: string; status: string; error_code: string; error: string }[] }).attempt_history.length > 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs space-y-1">
+                <p className="font-medium text-muted-foreground uppercase tracking-wider">Historial reciente</p>
+                {(item as CalendarItem & { attempt_history: { at: string; status: string; error_code: string; error: string }[] }).attempt_history
+                  .slice(-3)
+                  .reverse()
+                  .map((a, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <span className="text-muted-foreground shrink-0">
+                        {new Date(a.at).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" })}
+                      </span>
+                      <span className="shrink-0 font-medium">{a.status}</span>
+                      {a.error_code && <span className="text-muted-foreground">· {a.error_code}</span>}
+                    </div>
+                  ))}
               </div>
             )}
           </div>

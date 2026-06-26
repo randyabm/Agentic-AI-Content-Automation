@@ -65,7 +65,21 @@ export type PublishStatus =
   | "publishing"
   | "published"
   | "partial"
-  | "failed";
+  | "failed"
+  | "retrying"
+  | "throttled";
+
+/** Short taxonomy for publish failures (mirrors backend DirectSocialError.code). */
+export type PublishErrorCode =
+  | ""
+  | "rate_limited"
+  | "auth_expired"
+  | "spam_blocked"
+  | "transient"
+  | "permanent"
+  | "duplicate"
+  | "daily_limit_reached"
+  | "min_gap_not_reached";
 
 export interface ScheduledPost {
   id: string;
@@ -79,7 +93,21 @@ export interface ScheduledPost {
   external_post_id: string;
   published_url: string;
   error: string;
+  // --- publishing safeguards (migration 007) ------------------------
+  error_code: string;
+  retry_count: number;
+  max_retries: number;
+  next_attempt_at: string | null;
+  last_attempt_at: string | null;
+  attempt_history: PublishAttempt[];
   created_at: string;
+}
+
+export interface PublishAttempt {
+  at: string;
+  status: string;
+  error_code: string;
+  error: string;
 }
 
 export interface AutopilotProposal {
@@ -133,6 +161,9 @@ export interface CalendarItem {
   timezone: string;
   published_url: string;
   error: string;
+  error_code: string;
+  retry_count: number;
+  next_attempt_at: string | null;
   created_at: string;
   post_id: string;
   campaign_id: string;
@@ -587,6 +618,9 @@ export interface PublishState {
   published_url: string;
   scheduled_at: string | null;
   error: string;
+  error_code: string;
+  retry_count: number;
+  next_attempt_at: string | null;
   channel_id: string;
   updated_at: string | null;
 }
