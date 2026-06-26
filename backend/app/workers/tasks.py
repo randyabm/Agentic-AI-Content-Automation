@@ -10,7 +10,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.session import SessionLocal
-from app.models.article import Article, ArticleEntryType, ArticleSource, ArticleStatus, SyncFrequency
+from app.models.article import (
+    Article,
+    ArticleEntryType,
+    ArticleSource,
+    ArticleSourceSyncStatus,
+    ArticleStatus,
+    SyncFrequency,
+)
 from app.models.campaign import (
     ApprovalStatus,
     Campaign,
@@ -26,7 +33,7 @@ from app.models.campaign import (
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
 from app.models.competitor import AnalysisStatus, Competitor, CompetitorSearchJob, CompetitorSource, SearchJobStatus
 from app.models.llm import LLMFunction
-from app.models.onboarding import OnboardingJob, OnboardingStatus
+from app.models.onboarding import OnboardingJob, OnboardingStatus, OnboardingStepStatus
 from app.models.setting import Setting
 from app.services.article_intel import (
     discover_article_urls,
@@ -232,7 +239,17 @@ def _setting(db, key: str, default: str) -> str:
     return row.value if row and row.value else default
 
 
-def _set_step(db, job: OnboardingJob, key: str, status: str, detail: str = "") -> None:
+def _set_step(
+    db,
+    job: OnboardingJob,
+    key: str,
+    status: OnboardingStepStatus | str,
+    detail: str = "",
+) -> None:
+    # Accept the enum (preferred) or a string (for the watchdog fallback at
+    # the bottom of this file, which compares against the raw JSON value).
+    # The cast normalises both to a string for the SQL parameter.
+    status_value = status.value if isinstance(status, OnboardingStepStatus) else status
     # Atomic JSONB UPDATE — no SELECT FOR UPDATE needed. Each call modifies only
     # the target key inside the array, so concurrent threads don't overwrite each other.
     from sqlalchemy import text
@@ -251,13 +268,13 @@ def _set_step(db, job: OnboardingJob, key: str, status: str, detail: str = "") -
             updated_at = NOW()
             WHERE id = :job_id
         """),
-        {"key": key, "status": status, "detail": detail, "job_id": str(job.id)},
+        {"key": key, "status": status_value, "detail": detail, "job_id": str(job.id)},
     )
     db.commit()
     # Keep the caller's in-memory object in sync.
     for step in job.steps:
         if step["key"] == key:
-            step["status"] = status
+            step["status"] = status_value
             step["detail"] = detail
             break
 
@@ -732,7 +749,7 @@ def check_due_sources() -> None:
                 continue
             last = source.last_synced_at
             if last is None or last.replace(tzinfo=timezone.utc) + interval <= now:
-                if source.last_sync_status != "running":
+                if source.last_sync_status != ArticleSourceSyncStatus.running:
                     sync_source.delay(source.id)
     finally:
         db.close()
@@ -753,7 +770,7 @@ def sync_source(source_id: str) -> None:
         if source is None:
             logger.error("Article source %s not found", source_id)
             return
-        source.last_sync_status = "running"
+        source.last_sync_status = ArticleSourceSyncStatus.running
         source.last_sync_detail = ""
         db.commit()
 
@@ -798,7 +815,7 @@ def sync_source(source_id: str) -> None:
             imported += 1
 
         source.last_synced_at = datetime.now(timezone.utc)
-        source.last_sync_status = "ok"
+        source.last_sync_status = ArticleSourceSyncStatus.ok
         source.last_sync_detail = f"Imported {imported}, skipped {skipped} of {len(candidates)} candidates"
         db.commit()
         logger.info("Source %s sync done: %s", source_id, source.last_sync_detail)
@@ -806,7 +823,7 @@ def sync_source(source_id: str) -> None:
         db.rollback()
         src = db.get(ArticleSource, source_id)
         if src:
-            src.last_sync_status = "running"
+            src.last_sync_status = ArticleSourceSyncStatus.running
             db.commit()
         raise
     except Exception as exc:  # noqa: BLE001 — always leave the source in a terminal state
@@ -814,7 +831,7 @@ def sync_source(source_id: str) -> None:
         db.rollback()
         src = db.get(ArticleSource, source_id)
         if src:
-            src.last_sync_status = "error"
+            src.last_sync_status = ArticleSourceSyncStatus.error
             src.last_sync_detail = str(exc)
             src.last_synced_at = datetime.now(timezone.utc)
             db.commit()

@@ -8,6 +8,7 @@ from app.models.article import (
     Article,
     ArticleEntryType,
     ArticleSource,
+    ArticleSourceSyncStatus,
     ArticleStatus,
 )
 from app.models.client import Client
@@ -239,9 +240,9 @@ def trigger_sync(source_id: str, db: Session = Depends(get_db), actor: User = De
     source = db.get(ArticleSource, source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source not found")
-    if source.last_sync_status == "running":
+    if source.last_sync_status == ArticleSourceSyncStatus.running:
         raise HTTPException(status.HTTP_409_CONFLICT, "A sync is already running for this source")
-    source.last_sync_status = "running"
+    source.last_sync_status = ArticleSourceSyncStatus.running
     db.commit()
     sync_source.delay(source.id)
     audit.record(db, actor, "article_source.sync", "article_source", source.id)

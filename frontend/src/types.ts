@@ -376,7 +376,7 @@ export interface ArticleSource {
   duplicate_detection: boolean;
   is_active: boolean;
   last_synced_at: string | null;
-  last_sync_status: string;
+  last_sync_status: "idle" | "running" | "ok" | "error";
   last_sync_detail: string;
   created_at: string;
 }

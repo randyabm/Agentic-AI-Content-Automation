@@ -2,7 +2,12 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-from app.models.article import ArticleEntryType, ArticleStatus, SyncFrequency
+from app.models.article import (
+    ArticleEntryType,
+    ArticleSourceSyncStatus,
+    ArticleStatus,
+    SyncFrequency,
+)
 
 
 class ArticleFromUrl(BaseModel):
@@ -129,6 +134,6 @@ class ArticleSourceOut(BaseModel):
     duplicate_detection: bool
     is_active: bool
     last_synced_at: datetime | None
-    last_sync_status: str
+    last_sync_status: ArticleSourceSyncStatus
     last_sync_detail: str
     created_at: datetime
