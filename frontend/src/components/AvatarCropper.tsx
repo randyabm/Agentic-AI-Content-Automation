@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 
 /**
  * Circular avatar cropper. Lets the user pan (drag) and zoom a freshly picked
@@ -21,7 +22,6 @@ export function AvatarCropper({
   const [view, setView] = useState(320);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
-  // Load the picked file into an <img> for measurement + drawing.
   useEffect(() => {
     const url = URL.createObjectURL(file);
     setSrc(url);
@@ -43,7 +43,6 @@ export function AvatarCropper({
     };
   }
 
-  // Measure the viewport and centre the image once it loads.
   useEffect(() => {
     if (!img || !viewRef.current) return;
     const v = viewRef.current.clientWidth;
@@ -52,7 +51,6 @@ export function AvatarCropper({
     setOffset({ x: (v - img.naturalWidth * bs) / 2, y: (v - img.naturalHeight * bs) / 2 });
   }, [img]);
 
-  // Keep the image covering the viewport when zoom changes.
   useEffect(() => {
     setOffset((o) => clamp(o));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,42 +81,46 @@ export function AvatarCropper({
     canvas.height = out;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const sSize = view / dispScale; // source square that maps to the viewport
+    const sSize = view / dispScale;
     ctx.drawImage(img, -offset.x / dispScale, -offset.y / dispScale, sSize, sSize, 0, 0, out, out);
     canvas.toBlob((b) => b && onConfirm(b), "image/png");
   }
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal cropper-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Adjust profile photo</h2>
-          <button className="btn btn-ghost" onClick={onCancel}>
-            ✕ Cancel
-          </button>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-6 backdrop-blur-sm" onClick={onCancel}>
+      <div
+        className="w-full max-w-[420px] rounded-xl bg-surface p-6 max-h-[88vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <h2 className="m-0 text-xl font-semibold">Adjust profile photo</h2>
+          <Button variant="ghost" size="sm" onClick={onCancel}>✕ Cancel</Button>
         </div>
-        <p className="muted small">Drag to reposition, slide to zoom.</p>
+        <p className="mb-2 text-sm text-muted-foreground">Drag to reposition, slide to zoom.</p>
 
         <div
-          className="cropper-view"
           ref={viewRef}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
           onPointerLeave={onUp}
+          className="relative mx-auto mt-2 aspect-square w-full max-w-[340px] cursor-grab touch-none select-none overflow-hidden rounded-md bg-slate-900 active:cursor-grabbing"
         >
           {src && (
             <img
               src={src}
               alt=""
               draggable={false}
+              className="pointer-events-none"
               style={{ position: "absolute", left: offset.x, top: offset.y, width: dispW, height: dispH }}
             />
           )}
-          <div className="cropper-ring" />
+          <div
+            className="pointer-events-none absolute inset-0 rounded-full shadow-[0_0_0_2000px_rgba(15,23,42,0.55),inset_0_0_0_2px_rgba(255,255,255,0.9)]"
+          />
         </div>
 
-        <div className="cropper-zoom">
+        <div className="mx-auto mt-3 flex max-w-[340px] items-center gap-2.5">
           <span aria-hidden>🔍</span>
           <input
             type="range"
@@ -127,16 +129,13 @@ export function AvatarCropper({
             step={0.01}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
+            className="flex-1 accent-primary"
           />
         </div>
 
-        <div className="form-actions">
-          <button className="btn btn-primary" onClick={confirm} disabled={!img}>
-            Save photo
-          </button>
-          <button className="btn btn-ghost" onClick={onCancel}>
-            Cancel
-          </button>
+        <div className="mt-3 flex gap-2">
+          <Button onClick={confirm} disabled={!img}>Save photo</Button>
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
         </div>
       </div>
     </div>
