@@ -1706,6 +1706,7 @@ _WATCHDOG_TIMEOUTS = {
     "campaign":          timedelta(minutes=35),   # editorial + visual agents
     "post_image":        timedelta(minutes=20),   # image generation
     "post_video":        timedelta(minutes=50),   # video generation (longest)
+    "scheduled_post":    timedelta(minutes=10),   # mid-dispatch crash (publishing > 10 min = orphan)
 }
 
 _WATCHDOG_MSG = "Timed out — watchdog expired after {} min with no progress"
@@ -1829,6 +1830,29 @@ def watchdog_sweep() -> None:
             vid.error = _WATCHDOG_MSG.format(50)
             fixed += 1
             logger.warning("Watchdog: PostVideo %s stuck >50 min — failed", vid.id)
+
+        # ScheduledPost: stuck in `publishing` after a worker crash mid-dispatch.
+        # The Beat sweep only picks up scheduled/retrying/throttled, so a row that
+        # crashed after the connector started but before the result came back would
+        # stay orphaned forever. We fail it here so the user can manually retry.
+        sp_cutoff = now - _WATCHDOG_TIMEOUTS["scheduled_post"]
+        from app.models.social import PublishStatus, ScheduledPost
+        for sp in db.scalars(
+            select(ScheduledPost).where(
+                ScheduledPost.status == PublishStatus.publishing,
+                ScheduledPost.last_attempt_at.is_not(None),
+                ScheduledPost.last_attempt_at < sp_cutoff,
+            )
+        ).all():
+            sp.status = PublishStatus.failed
+            sp.error_code = "publishing_timeout"
+            sp.error = (
+                f"Publish did not complete within {_WATCHDOG_TIMEOUTS['scheduled_post'].total_seconds() // 60:.0f} minutes "
+                f"(started {sp.last_attempt_at.isoformat() if sp.last_attempt_at else 'unknown'}). "
+                "Use the retry button in the calendar to reschedule."
+            )
+            fixed += 1
+            logger.warning("Watchdog: ScheduledPost %s stuck in publishing >10 min — failed", sp.id)
 
         if fixed:
             db.commit()
