@@ -13,17 +13,11 @@ import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "./PlatformIcon";
 import { cn } from "@/lib/utils";
+import { statusBar } from "@/lib/publishStatus";
 import type { CalendarItem } from "../types";
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 8); // 8am - 9pm
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-const STATUS_BAR: Record<string, string> = {
-  scheduled: "bg-amber-400",
-  publishing: "bg-amber-400",
-  published: "bg-emerald-500",
-  failed: "bg-red-500",
-};
 
 interface CalendarWeekViewProps {
   items: CalendarItem[];
@@ -186,7 +180,7 @@ function HourCell({
             "transition-all flex items-center gap-1.5 group",
           )}
         >
-          <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
+          <span className={cn("w-1 h-1 rounded-full shrink-0", statusBar(item.status))} />
           <PlatformIcon platform={item.platform} size={12} />
           <span className="truncate flex-1 font-medium text-foreground/80 group-hover:text-foreground">
             {item.headline || item.preview || "Untitled"}

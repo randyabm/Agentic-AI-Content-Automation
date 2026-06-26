@@ -21,15 +21,6 @@ import { cn } from "@/lib/utils";
 import { statusBar } from "@/lib/publishStatus";
 import type { CalendarItem } from "../types";
 
-const STATUS_BAR: Record<string, string> = {
-  scheduled: "bg-amber-400",
-  publishing: "bg-amber-400",
-  published: "bg-emerald-500",
-  failed: "bg-red-500",
-  retrying: "bg-orange-500",
-  throttled: "bg-orange-300",
-};
-
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 interface CalendarMonthGridProps {
@@ -191,7 +182,7 @@ function DayCell({
               "transition-all duration-150 flex items-center gap-1.5 group",
             )}
           >
-            <span className={cn("w-1 h-1 rounded-full shrink-0", STATUS_BAR[item.status] ?? "bg-slate-300")} />
+            <span className={cn("w-1 h-1 rounded-full shrink-0", statusBar(item.status))} />
             <PlatformIcon platform={item.platform} size={12} />
             {!item.channel_id && (
               <Lock
