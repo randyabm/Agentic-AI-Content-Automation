@@ -28,7 +28,7 @@ function Protected({
   orgAdminOnly?: boolean;
 }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="page-loading">Loading…</div>;
+  if (loading) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
   // Platform super-admin handles system config only; org users handle brand work.
   if (platformOnly && !user.is_platform_admin) return <Navigate to="/" replace />;
@@ -40,7 +40,7 @@ function Protected({
 /** Send each user to their natural home: super-admin → Organizations, org users → Clients. */
 function Home() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="page-loading">Loading…</div>;
+  if (loading) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
   return <Navigate to={user.is_platform_admin ? "/organizations" : "/clients"} replace />;
 }
