@@ -9,11 +9,9 @@
 import type { PublishErrorCode, PublishStatus } from "@/types";
 
 export const PUBLISH_STATUS_LABEL: Record<PublishStatus, string> = {
-  draft: "Draft",
   scheduled: "Scheduled",
   publishing: "Publishing…",
   published: "Published",
-  partial: "Partially published",
   failed: "Failed",
   retrying: "Retrying…",
   throttled: "Throttled",
@@ -21,11 +19,9 @@ export const PUBLISH_STATUS_LABEL: Record<PublishStatus, string> = {
 
 /** shadcn Badge `variant` for each status. */
 export const PUBLISH_STATUS_VARIANT: Record<PublishStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  draft: "outline",
   scheduled: "outline",
   publishing: "outline",
   published: "default",
-  partial: "secondary",
   failed: "destructive",
   retrying: "outline",
   throttled: "outline",
@@ -33,11 +29,9 @@ export const PUBLISH_STATUS_VARIANT: Record<PublishStatus, "default" | "secondar
 
 /** Tailwind class for the per-item colored bar in the calendar month / week view. */
 export const PUBLISH_STATUS_BAR: Record<PublishStatus, string> = {
-  draft: "bg-stone-400",
   scheduled: "bg-amber-400",
   publishing: "bg-amber-400",
   published: "bg-emerald-500",
-  partial: "bg-amber-500",
   failed: "bg-red-500",
   retrying: "bg-orange-500",
   throttled: "bg-orange-300",

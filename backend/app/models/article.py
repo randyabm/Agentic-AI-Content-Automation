@@ -24,6 +24,17 @@ class SyncFrequency(str, enum.Enum):
     on_demand = "on_demand"
 
 
+class ArticleSourceSyncStatus(str, enum.Enum):
+    """Status of the last sync run for an `ArticleSource`. Replaces the
+    stringly-typed `String(50)` column that allowed typos to be persisted
+    silently."""
+
+    idle = "idle"
+    running = "running"
+    ok = "ok"
+    error = "error"
+
+
 class Article(Base):
     """Internal Article Library entry (PRD §7.3)."""
 
@@ -72,7 +83,9 @@ class ArticleSource(Base):
     duplicate_detection: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_sync_status: Mapped[str] = mapped_column(String(50), default="")  # idle | running | ok | error
+    last_sync_status: Mapped[ArticleSourceSyncStatus] = mapped_column(
+        Enum(ArticleSourceSyncStatus), default=ArticleSourceSyncStatus.idle, nullable=False
+    )
     last_sync_detail: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

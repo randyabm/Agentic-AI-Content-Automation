@@ -6,17 +6,6 @@ import { cn } from "@/lib/utils";
 import { statusLabel, statusVariant } from "@/lib/publishStatus";
 import type { CalendarItem } from "../types";
 
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  draft: "secondary",
-  scheduled: "outline",
-  publishing: "outline",
-  published: "default",
-  partial: "destructive",
-  failed: "destructive",
-  retrying: "outline",
-  throttled: "outline",
-};
-
 function dayLabel(iso: string | null): string {
   if (!iso) return "Unscheduled";
   const date = new Date(iso);

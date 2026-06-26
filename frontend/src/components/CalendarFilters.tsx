@@ -20,11 +20,9 @@ interface CalendarFiltersProps {
 
 const PLATFORMS = ["facebook", "instagram", "linkedin", "x", "tiktok", "youtube"];
 const STATUSES: PublishStatus[] = [
-  "draft",
   "scheduled",
   "publishing",
   "published",
-  "partial",
   "failed",
   "retrying",
   "throttled",

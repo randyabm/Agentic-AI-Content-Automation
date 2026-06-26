@@ -9,9 +9,9 @@ from app.models.campaign import (
     CampaignStatus,
     ElementType,
     Platform,
-    PostStatus,
     VideoStatus,
 )
+from app.models.social import PublishStatus
 
 
 class PlatformConfigIn(BaseModel):
@@ -118,7 +118,7 @@ class PostImageOut(BaseModel):
     generation_history: list
     canvas_state: dict
     composited_object_key: str
-    status: str
+    status: VideoStatus
     error: str
 
 
@@ -156,7 +156,7 @@ class PublishStateOut(BaseModel):
     UI can show persistent publish status without a separate calendar lookup."""
 
     id: str = ""                     # the ScheduledPost id (for reschedule/cancel)
-    status: str                      # scheduled | publishing | published | partial | failed | retrying | throttled
+    status: PublishStatus
     published_url: str = ""
     scheduled_at: datetime | None = None
     error: str = ""
@@ -181,7 +181,6 @@ class PostOut(BaseModel):
     hashtags: list
     best_time: str
     rationale: str
-    status: PostStatus
     approval_status: ApprovalStatus = ApprovalStatus.draft
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None

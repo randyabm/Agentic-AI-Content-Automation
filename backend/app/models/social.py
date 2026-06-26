@@ -60,11 +60,9 @@ class SocialAccount(Base):
 
 
 class PublishStatus(str, enum.Enum):
-    draft = "draft"            # created, not yet scheduled/published
     scheduled = "scheduled"    # due in the future (Phase 3 calendar)
-    publishing = "publishing"  # handed to Zernio, awaiting result
+    publishing = "publishing"  # handed to the connector, awaiting result
     published = "published"
-    partial = "partial"        # some platforms ok, some failed
     failed = "failed"
     retrying = "retrying"      # transient failure, will be retried (next_attempt_at)
     throttled = "throttled"    # skipped this tick — daily limit / min gap reached
@@ -90,7 +88,7 @@ class ScheduledPost(Base):
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
 
-    status: Mapped[PublishStatus] = mapped_column(Enum(PublishStatus), default=PublishStatus.draft)
+    status: Mapped[PublishStatus] = mapped_column(Enum(PublishStatus), default=PublishStatus.scheduled)
     zernio_post_id: Mapped[str] = mapped_column(String(64), index=True, default="")
     external_post_id: Mapped[str] = mapped_column(String(255), default="")  # platform-native ID for direct mode
     published_url: Mapped[str] = mapped_column(Text, default="")

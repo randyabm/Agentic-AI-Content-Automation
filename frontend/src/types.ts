@@ -60,11 +60,9 @@ export interface SocialAccount {
 }
 
 export type PublishStatus =
-  | "draft"
   | "scheduled"
   | "publishing"
   | "published"
-  | "partial"
   | "failed"
   | "retrying"
   | "throttled";
@@ -378,7 +376,7 @@ export interface ArticleSource {
   duplicate_detection: boolean;
   is_active: boolean;
   last_synced_at: string | null;
-  last_sync_status: string;
+  last_sync_status: "idle" | "running" | "ok" | "error";
   last_sync_detail: string;
   created_at: string;
 }
@@ -461,7 +459,6 @@ export type CampaignObjective =
 export type VisualFormat = "static_image" | "carousel";
 export type CampaignStatus = "draft" | "generating" | "ready" | "failed";
 export type CampaignApprovalStatus = "draft" | "pending_review" | "approved" | "rejected" | "changes_requested";
-export type PostStatus = "pending" | "generating" | "ready" | "failed";
 
 export interface PlatformSpec {
   platform: CampaignPlatform;
@@ -603,7 +600,6 @@ export interface Post {
   hashtags: string[];
   best_time: string;
   rationale: string;
-  status: PostStatus;
   approval_status: ApprovalStatus;
   reviewed_by: string | null;
   reviewed_at: string | null;

@@ -24,7 +24,7 @@ router = APIRouter(
     dependencies=[Depends(require_client)],
 )
 
-RUNNING_ANALYSIS = [AnalysisStatus.pending, AnalysisStatus.crawling, AnalysisStatus.extracting, AnalysisStatus.comparing]
+RUNNING_ANALYSIS = [AnalysisStatus.pending, AnalysisStatus.crawling, AnalysisStatus.extracting]
 
 
 def _get_client_or_404(db: Session, client_id: str) -> Client:

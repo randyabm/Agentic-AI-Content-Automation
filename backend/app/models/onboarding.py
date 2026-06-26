@@ -15,6 +15,18 @@ class OnboardingStatus(str, enum.Enum):
     failed = "failed"
 
 
+class OnboardingStepStatus(str, enum.Enum):
+    """Per-step status inside `OnboardingJob.steps[*].status`. The data lives in
+    a JSONB array, but the writer (`workers/tasks.py::_set_step`) now uses this
+    enum so a typo is caught at call time instead of being silently persisted."""
+
+    pending = "pending"
+    running = "running"
+    ok = "ok"
+    error = "error"
+    skipped = "skipped"
+
+
 # Predefined pipeline steps, in execution order. The orchestrator seeds the job
 # with these (all "pending") and updates each as it runs.
 ONBOARDING_STEPS = [
@@ -27,7 +39,7 @@ ONBOARDING_STEPS = [
 
 
 def initial_steps() -> list[dict]:
-    return [{**s, "status": "pending", "detail": ""} for s in ONBOARDING_STEPS]
+    return [{**s, "status": OnboardingStepStatus.pending.value, "detail": ""} for s in ONBOARDING_STEPS]
 
 
 class OnboardingJob(Base):
