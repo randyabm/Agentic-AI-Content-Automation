@@ -403,6 +403,10 @@ def submit_campaign_for_approval(
             p.approval_status = ApprovalStatus.pending_review
             p.reviewed_by = None
             p.review_note = ""
+        # Also mark the campaign as pending_review so the badges are consistent
+        # (previously only the posts flipped, leaving the campaign in its old state).
+        campaign.approval_status = CampaignApprovalStatus.pending_review
+        campaign.review_note = ""
     else:
         campaign.approval_status = CampaignApprovalStatus.pending_review
         campaign.review_note = ""
@@ -654,6 +658,11 @@ def submit_post(
     """Contributor submits a post for review (draft/rejected → pending_review)."""
     _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
+    if post.approval_status in (ApprovalStatus.pending_review, ApprovalStatus.approved):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Post is already in {post.approval_status.value} — nothing to submit",
+        )
     post.approval_status = ApprovalStatus.pending_review
     post.review_note = ""
     db.commit()
@@ -670,6 +679,11 @@ def approve_post(
     """Reviewer approves a post — only approved posts may be scheduled/published."""
     _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
+    if post.approval_status != ApprovalStatus.pending_review:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Post is not pending review (current state: {post.approval_status.value})",
+        )
     post.approval_status = ApprovalStatus.approved
     post.reviewed_by = actor.id
     post.reviewed_at = datetime.now(timezone.utc)
@@ -690,6 +704,11 @@ def reject_post(
     """Reviewer rejects a post with an optional note for the contributor."""
     _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
+    if post.approval_status != ApprovalStatus.pending_review:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Post is not pending review (current state: {post.approval_status.value})",
+        )
     post.approval_status = ApprovalStatus.rejected
     post.reviewed_by = actor.id
     post.reviewed_at = datetime.now(timezone.utc)
