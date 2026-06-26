@@ -166,6 +166,7 @@ def list_campaigns(
     # the distinct set of platforms used across the campaign's elements.
     camp_ids = [c.id for c in campaigns]
     element_counts: dict[str, int] = {}
+    element_types_by_campaign: dict[str, dict[str, int]] = {}
     platforms_by_campaign: dict[str, list[str]] = {}
     post_counts: dict[str, int] = {}
     if camp_ids:
@@ -175,6 +176,14 @@ def list_campaigns(
             .group_by(CampaignElement.campaign_id)
         ).all():
             element_counts[cid] = cnt
+        # Breakdown of element types per campaign (image/carousel/video/text counts).
+        for cid, etype, cnt in db.execute(
+            select(CampaignElement.campaign_id, CampaignElement.element_type, func.count(CampaignElement.id))
+            .where(CampaignElement.campaign_id.in_(camp_ids))
+            .group_by(CampaignElement.campaign_id, CampaignElement.element_type)
+        ).all():
+            key = etype.value if hasattr(etype, "value") else str(etype)
+            element_types_by_campaign.setdefault(cid, {})[key] = cnt
         for cid, cnt in db.execute(
             select(Post.campaign_id, func.count(Post.id))
             .where(Post.campaign_id.in_(camp_ids))
@@ -203,6 +212,7 @@ def list_campaigns(
             visuals_generating=c.id in generating,
             platforms=platforms_by_campaign.get(c.id, []),
             element_count=element_counts.get(c.id, 0),
+            element_types=element_types_by_campaign.get(c.id, {}),
             post_count=post_counts.get(c.id, 0),
         )
         for c in campaigns

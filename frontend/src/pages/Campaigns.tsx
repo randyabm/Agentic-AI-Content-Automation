@@ -36,6 +36,15 @@ const ELEMENT_LABELS: Record<ElementType, string> = {
   text: "✍️ Text only",
 };
 
+// Compact icon + label per element type, for the campaigns list "Elements" breakdown.
+const ELEMENT_TYPE_ORDER: ElementType[] = ["image", "carousel", "video", "text"];
+const ELEMENT_TYPE_ICON: Record<ElementType, { icon: string; label: string }> = {
+  image: { icon: "image", label: "image" },
+  carousel: { icon: "view_carousel", label: "carousel" },
+  video: { icon: "movie", label: "video" },
+  text: { icon: "article", label: "text" },
+};
+
 interface ElementDraft {
   key: number;
   element_type: ElementType;
@@ -306,7 +315,19 @@ export default function Campaigns() {
                   )}
                   {(c.platforms?.length ?? 0) === 0 && <span className="text-xs text-muted-foreground/50">—</span>}
                 </div>
-                <div className="text-center text-sm text-muted-foreground">{c.element_count ?? 0}</div>
+                <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                  {(() => {
+                    const types = c.element_types ?? {};
+                    const present = ELEMENT_TYPE_ORDER.filter((t) => (types[t] ?? 0) > 0);
+                    if (present.length === 0) return <span>{c.element_count ?? 0}</span>;
+                    return present.map((t) => (
+                      <span key={t} className="inline-flex items-center gap-0.5" title={`${types[t]} ${ELEMENT_TYPE_ICON[t].label}`}>
+                        <span className="material-symbols-outlined text-base text-muted-foreground/70">{ELEMENT_TYPE_ICON[t].icon}</span>
+                        <span className="tabular-nums">{types[t]}</span>
+                      </span>
+                    ));
+                  })()}
+                </div>
                 <div className="text-xs text-muted-foreground">{new Date(c.updated_at).toLocaleDateString()}</div>
                 <button
                   className="flex items-center justify-center rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-destructive"

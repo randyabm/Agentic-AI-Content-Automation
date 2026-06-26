@@ -645,5 +645,6 @@ export interface CampaignListItem {
   visuals_generating?: boolean;
   platforms?: string[];
   element_count?: number;
+  element_types?: Partial<Record<ElementType, number>>;
   post_count?: number;
 }

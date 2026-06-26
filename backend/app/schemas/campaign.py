@@ -284,6 +284,8 @@ class CampaignListItem(BaseModel):
     # List-view extras: the distinct platforms used and how many elements/posts.
     platforms: list[str] = []
     element_count: int = 0
+    # Breakdown of element types, e.g. {"image": 2, "video": 1, "carousel": 1, "text": 0}.
+    element_types: dict[str, int] = {}
     post_count: int = 0
 
 
