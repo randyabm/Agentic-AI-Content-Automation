@@ -830,11 +830,24 @@ def sync_source(source_id: str) -> None:
 def publish_due_posts() -> None:
     """Celery Beat sweep: send every scheduled post whose time has arrived.
 
-    Picks up `ScheduledPost` rows in `scheduled` state with `scheduled_at <= now`,
-    re-validates the post is still approved and the channel still connected, then
-    hands each to Zernio. Approval/channel are re-checked here (not at scheduling
-    time) so a post un-approved or a channel disconnected after scheduling never
-    publishes. Each post is isolated — one failure never blocks the rest.
+    Picks up `ScheduledPost` rows in `scheduled` / `retrying` / `throttled`
+    state with `scheduled_at <= now` AND (`next_attempt_at` NULL or <= now),
+    re-validates the post is still approved and the channel still connected,
+    then hands each to the active connector (Zernio / direct / mock).
+
+    Throttling: `publishing.send_scheduled_post` enforces per-day and min-gap
+    limits per account. When a limit is hit, the post is marked `throttled`
+    (deferred, NOT failed) and the sweep moves on — never burns through
+    retry_count and never bursts a Meta account.
+
+    Retries: transient and rate_limited errors are recorded on the row with
+    `next_attempt_at` set by the backoff schedule. The same row is picked up
+    again on a future tick once the backoff window has elapsed.
+
+    Approval/channel: re-checked here (not at scheduling time) so a post
+    un-approved or a channel disconnected after scheduling never publishes.
+    Planned schedules (no channel) and unapproved posts stay pending.
+    Each post is isolated — one failure never blocks the rest.
     """
     from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
     from app.services import publishing
@@ -843,10 +856,15 @@ def publish_due_posts() -> None:
     try:
         now = datetime.now(timezone.utc)
         due = db.scalars(
-            select(ScheduledPost).where(
-                ScheduledPost.status == PublishStatus.scheduled,
+            select(ScheduledPost)
+            .where(
+                ScheduledPost.status.in_(
+                    (PublishStatus.scheduled, PublishStatus.retrying, PublishStatus.throttled)
+                ),
                 ScheduledPost.scheduled_at <= now,
+                (ScheduledPost.next_attempt_at.is_(None)) | (ScheduledPost.next_attempt_at <= now),
             )
+            .order_by(ScheduledPost.scheduled_at.asc(), ScheduledPost.created_at.asc())
         ).all()
         for sp in due:
             try:
@@ -854,6 +872,8 @@ def publish_due_posts() -> None:
                 if post is None:
                     sp.status = PublishStatus.failed
                     sp.error = "The post no longer exists."
+                    sp.error_code = "permanent"
+                    sp.last_attempt_at = now
                     db.commit()
                     continue
                 if post.approval_status != ApprovalStatus.approved:
@@ -868,10 +888,15 @@ def publish_due_posts() -> None:
                 if channel is None or channel.status != ChannelStatus.connected:
                     sp.status = PublishStatus.failed
                     sp.error = "The target channel is no longer connected."
+                    sp.error_code = "permanent"
+                    sp.last_attempt_at = now
                     db.commit()
                     continue
                 publishing.send_scheduled_post(db, sp, post, channel)
-                logger.info("Scheduled post %s sent (status=%s)", sp.id, sp.status.value)
+                logger.info(
+                    "Scheduled post %s processed (status=%s error_code=%s retry=%s)",
+                    sp.id, sp.status.value, sp.error_code, sp.retry_count,
+                )
             except Exception as exc:  # noqa: BLE001 — one post must not abort the sweep
                 logger.exception("Scheduled post %s failed to publish", sp.id)
                 db.rollback()
@@ -879,6 +904,8 @@ def publish_due_posts() -> None:
                 if fresh is not None:
                     fresh.status = PublishStatus.failed
                     fresh.error = f"Unexpected error: {exc}"
+                    fresh.error_code = "permanent"
+                    fresh.last_attempt_at = datetime.now(timezone.utc)
                     db.commit()
     finally:
         db.close()

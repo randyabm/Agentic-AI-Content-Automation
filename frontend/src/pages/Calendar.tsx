@@ -12,7 +12,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
 import type { CalendarItem, Client, ScheduleablePost } from "../types";
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,13 @@ import { CalendarListView } from "../components/CalendarListView";
 import { PipelineBoard } from "../components/PipelineBoard";
 import { PostDrawer } from "../components/PostDrawer";
 import { ScheduleablePostsSidebar, SchedulePostOverlayCard } from "../components/ScheduleablePostsSidebar";
+import { useConfirm } from "@/components/ui/dialogs";
 
 type View = "month" | "week" | "list" | "board";
 
 export default function Calendar() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [scheduleable, setScheduleable] = useState<ScheduleablePost[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -92,7 +94,7 @@ export default function Calendar() {
     setDrawerOpen(true);
   }
 
-  async function handleDropPost(postId: string, campaignId: string, date: Date) {
+  async function handleDropPost(postId: string, campaignId: string, date: Date, force = false) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     const when = new Date(date);
     // If the drop target was a day cell (not an hour), default to 9:00 AM
@@ -105,13 +107,34 @@ export default function Calendar() {
       return;
     }
     try {
-      await api(`/campaigns/${campaignId}/posts/${postId}/schedule`, {
+      await api(`/campaigns/${campaignId}/posts/${postId}/schedule${force ? "?force=true" : ""}`, {
         method: "POST",
         body: { scheduled_at: when.toISOString(), timezone: tz },
       });
       toast.success(`Scheduled for ${when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`);
       await load();
     } catch (e) {
+      // 409 duplicate → confirm and retry with force=true.
+      if (e instanceof ApiError && e.status === 409) {
+        const body = (e.body && typeof e.body === "object" ? e.body : {}) as {
+          duplicate?: boolean;
+          message?: string;
+        };
+        if (body.duplicate && !force) {
+          const ok = await confirm({
+            title: "Posible contenido duplicado",
+            description:
+              body.message ||
+              "El mismo contenido ya se programó para este canal en las últimas 24 horas. ¿Quieres programarlo de todas formas?",
+            confirmLabel: "Programar de todos modos",
+            cancelLabel: "Cancelar",
+          });
+          if (ok) {
+            await handleDropPost(postId, campaignId, when, true);
+          }
+          return;
+        }
+      }
       toast.error(e instanceof Error ? e.message : "Scheduling failed");
     }
   }

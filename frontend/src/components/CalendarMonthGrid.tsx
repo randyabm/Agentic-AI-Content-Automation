@@ -18,6 +18,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "./PlatformIcon";
 import { cn } from "@/lib/utils";
+import { statusBar } from "@/lib/publishStatus";
 import type { CalendarItem } from "../types";
 
 const STATUS_BAR: Record<string, string> = {
@@ -27,6 +28,8 @@ const STATUS_BAR: Record<string, string> = {
   partial: "bg-amber-400",
   failed: "bg-red-500",
   draft: "bg-slate-300",
+  retrying: "bg-orange-500",
+  throttled: "bg-orange-300",
 };
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

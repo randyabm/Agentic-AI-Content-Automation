@@ -9,7 +9,8 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -65,6 +66,8 @@ class PublishStatus(str, enum.Enum):
     published = "published"
     partial = "partial"        # some platforms ok, some failed
     failed = "failed"
+    retrying = "retrying"      # transient failure, will be retried (next_attempt_at)
+    throttled = "throttled"    # skipped this tick — daily limit / min gap reached
 
 
 class ScheduledPost(Base):
@@ -92,6 +95,21 @@ class ScheduledPost(Base):
     external_post_id: Mapped[str] = mapped_column(String(255), default="")  # platform-native ID for direct mode
     published_url: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
+
+    # --- Publishing safeguards (migration 007) ----------------------------
+    # Retry accounting + a gate (next_attempt_at) for the due sweep. error_code
+    # uses a short taxonomy (rate_limited / auth_expired / spam_blocked /
+    # transient / permanent / duplicate / daily_limit_reached) so the UI can
+    # show friendly messages and the worker can decide to retry or fail.
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, default=4, server_default="4", nullable=False)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str] = mapped_column(String(40), default="", server_default="", nullable=False)
+    # sha256 of normalized text + sorted media keys — for duplicate detection.
+    content_hash: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
+    # Append-only log of every publish attempt: [{at, status, error_code, error}].
+    attempt_history: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
 
     created_by: Mapped[str] = mapped_column(String(36), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

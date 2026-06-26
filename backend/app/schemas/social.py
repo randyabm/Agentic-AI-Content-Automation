@@ -54,6 +54,13 @@ class ScheduledPostOut(BaseModel):
     zernio_post_id: str
     published_url: str
     error: str
+    # --- publishing safeguards (migration 007) ------------------------
+    error_code: str = ""
+    retry_count: int = 0
+    max_retries: int = 4
+    next_attempt_at: datetime | None = None
+    last_attempt_at: datetime | None = None
+    attempt_history: list = []
     created_at: datetime
 
 
@@ -146,6 +153,10 @@ class CalendarItemOut(BaseModel):
     timezone: str
     published_url: str
     error: str
+    error_code: str = ""
+    retry_count: int = 0
+    max_retries: int = 4
+    next_attempt_at: datetime | None = None
     created_at: datetime
 
     post_id: str

@@ -156,10 +156,13 @@ class PublishStateOut(BaseModel):
     UI can show persistent publish status without a separate calendar lookup."""
 
     id: str = ""                     # the ScheduledPost id (for reschedule/cancel)
-    status: str                      # scheduled | publishing | published | partial | failed
+    status: str                      # scheduled | publishing | published | partial | failed | retrying | throttled
     published_url: str = ""
     scheduled_at: datetime | None = None
     error: str = ""
+    error_code: str = ""
+    retry_count: int = 0
+    next_attempt_at: datetime | None = None
     channel_id: str = ""
     updated_at: datetime | None = None
 

@@ -18,9 +18,12 @@ export function hasSession(): boolean {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Parsed JSON body of the failed response (when available). */
+  body: unknown;
+  constructor(status: number, message: string, body: unknown = null) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -69,14 +72,16 @@ export async function api<T>(
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let body: unknown = null;
     try {
-      const data = await res.json();
+      body = await res.json();
+      const data = body as { detail?: unknown };
       if (typeof data.detail === "string") message = data.detail;
       else if (data.detail) message = JSON.stringify(data.detail);
     } catch {
       /* keep default message */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, body);
   }
 
   if (res.status === 204) return undefined as T;

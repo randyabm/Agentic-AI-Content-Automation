@@ -64,7 +64,29 @@ DIRECT_PLATFORMS = ["facebook", "instagram", "twitter", "linkedin"]
 
 
 class DirectSocialError(Exception):
-    pass
+    """Raised by the direct platform API clients (Facebook, Instagram, X, LinkedIn).
+
+    `code` is a short taxonomy used by the publishing layer to decide whether
+    to retry, mark the account expired, or fail immediately:
+        - "rate_limited"  — 429 / Retry-After / Graph code 4/17/32/613
+        - "auth_expired"  — Graph code 190/102/463/467, 401
+        - "spam_blocked"  — Graph code 368, subcodes of temporary block
+        - "transient"     — 5xx, timeouts, IG container processing errors
+        - "permanent"     — 4xx other than the above (invalid content)
+        - "duplicate"     — raised before sending when the content_hash already
+                            exists for the target account in the last 24h
+    The default is "permanent" — anything we don't recognise is treated as
+    non-retryable to avoid wasting API quota.
+    """
+
+    DEFAULT_CODE = "permanent"
+
+    def __init__(self, message: str, code: str = "permanent", retry_after: int | None = None):
+        super().__init__(message)
+        self.code = code
+        # When the platform sends a Retry-After hint (seconds), record it so
+        # the publishing layer can use it instead of the default backoff.
+        self.retry_after = retry_after
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +109,38 @@ def get_app_frontend_url(db: Session) -> str:
 
 def get_publishing_mode(db: Session) -> str:
     return _get_setting(db, "social_publishing_mode", "zernio")
+
+
+# Platforms that can be "connected" in mock mode (for dev / preview).
+# X is included as an alias of twitter.
+MOCK_PLATFORMS = {"facebook", "instagram", "twitter", "x", "linkedin"}
+
+
+def is_mock_mode(db: Session) -> bool:
+    """True when the active publishing mode is the simulator (`mock`)."""
+    return get_publishing_mode(db) == "mock"
+
+
+def mock_channel_payload(platform: str, client_id: str) -> dict:
+    """Build a SocialAccount-shaped dict for a fake channel in mock mode.
+
+    No real OAuth, no real tokens — `_dispatch_mock` never reads the token
+    anyway. The display name includes the client id suffix so the UI can
+    tell mocked channels apart from real ones.
+    """
+    platform = "twitter" if platform == "x" else platform
+    label = f"Mock {platform.title()} (dev)"
+    return {
+        "platform": platform,
+        "platform_account_id": f"mock_{platform}_{client_id[:8]}",
+        "display_name": label,
+        "username": f"mock_{platform}",
+        "avatar_url": "",
+        "access_token": "mock-token",
+        "access_token_secret": "",
+        "refresh_token": "",
+        "token_expires_at": None,
+    }
 
 
 def get_facebook_oauth_scopes(db: Session) -> str:
@@ -721,7 +775,10 @@ def _publish_facebook_reel(page_id: str, page_token: str, text: str, video_url: 
         if video_status in ("ready", "published"):
             break
         if video_status == "error":
-            raise DirectSocialError(f"Facebook Reel processing failed: {status}")
+            raise DirectSocialError(
+                f"Facebook Reel processing failed: {status}",
+                code="transient",
+            )
 
     published_url = f"https://www.facebook.com/reel/{video_id}" if video_id else ""
     logger.info(f"Facebook Reel published: {published_url}")
@@ -810,10 +867,16 @@ def _publish_instagram(ig_account_id: str, page_token: str, text: str, image_url
         if status == "FINISHED":
             break
         if status == "ERROR":
-            raise DirectSocialError(f"Instagram media container failed to process: {r.json().get('status', 'unknown error')}")
+            raise DirectSocialError(
+                f"Instagram media container failed to process: {r.json().get('status', 'unknown error')}",
+                code="transient",
+            )
     else:
         media_type = "video" if video_url else "image"
-        raise DirectSocialError(f"Instagram media container timed out — {media_type} took too long to process.")
+        raise DirectSocialError(
+            f"Instagram media container timed out — {media_type} took too long to process.",
+            code="transient",
+        )
 
     # Step 3: publish
     r = httpx.post(f"{INSTAGRAM_GRAPH}/{ig_account_id}/media_publish",
@@ -868,9 +931,15 @@ def _publish_instagram_carousel(ig_account_id: str, page_token: str, text: str, 
             if status == "FINISHED":
                 break
             if status == "ERROR":
-                raise DirectSocialError(f"Instagram carousel item {i + 1} failed: {r.json()}")
+                raise DirectSocialError(
+                    f"Instagram carousel item {i + 1} failed: {r.json()}",
+                    code="transient",
+                )
         else:
-            raise DirectSocialError(f"Instagram carousel item {i + 1} timed out.")
+            raise DirectSocialError(
+                f"Instagram carousel item {i + 1} timed out.",
+                code="transient",
+            )
 
         container_ids.append(container_id)
 
@@ -942,11 +1011,122 @@ def _publish_linkedin(author_id: str, access_token: str, text: str) -> tuple[str
 # Helpers
 # ---------------------------------------------------------------------------
 
+# --- Error taxonomy --------------------------------------------------------
+#
+# Mapping rules for HTTP status + Meta Graph error codes → DirectSocialError
+# taxonomy. Centralised so the publishing layer can decide retries uniformly.
+
+# Meta Graph `code` values that mean rate-limited / temporarily throttled.
+_GRAPH_RATE_LIMIT_CODES = {"4", "17", "32", "613"}
+# Meta Graph `code` values that mean the access token is bad / expired.
+_GRAPH_AUTH_EXPIRED_CODES = {"190", "102", "463", "467"}
+# Meta Graph `code` values that mean a temporary spam / policy block.
+_GRAPH_SPAM_BLOCKED_CODES = {"368"}
+
+
+def _parse_graph_error(r: httpx.Response) -> tuple[str | None, int | None, str | None, str | None]:
+    """Pull the Graph `error.code`, `error_subcode`, `message`, and `Retry-After`
+    hint from a Meta/IG response. Returns (code, subcode, message, retry_after_text).
+    Tolerant of non-JSON / empty bodies.
+    """
+    code: str | None = None
+    subcode: int | None = None
+    message: str | None = None
+    try:
+        body = r.json()
+    except Exception:
+        body = None
+    if isinstance(body, dict):
+        err = body.get("error") if isinstance(body.get("error"), dict) else None
+        if err:
+            raw_code = err.get("code")
+            try:
+                code = str(int(raw_code)) if raw_code is not None else None
+            except (TypeError, ValueError):
+                code = str(raw_code) if raw_code is not None else None
+            sub = err.get("error_subcode")
+            try:
+                subcode = int(sub) if sub is not None else None
+            except (TypeError, ValueError):
+                subcode = None
+            message = err.get("message")
+    retry_after = r.headers.get("Retry-After")
+    return code, subcode, message, retry_after
+
+
+def _retry_after_seconds(retry_after: str | None) -> int | None:
+    """Convert a Retry-After header (seconds OR HTTP-date) to seconds."""
+    if not retry_after:
+        return None
+    try:
+        return max(int(retry_after), 0)
+    except ValueError:
+        # HTTP-date format — best-effort fallback: return 60s.
+        return 60
+
+
 def _raise_for(r: httpx.Response, context: str) -> None:
+    """Raise DirectSocialError for a failed platform response, classified.
+
+    Twitter's 402 (Free tier) is a special case surfaced verbatim. Everything
+    else routes through the Graph error taxonomy where applicable.
+    """
+    if r.status_code < 400:
+        return
+
     if r.status_code == 402:
         raise DirectSocialError(
             f"{context}: your Twitter/X Developer app is on the Free tier, which does not allow posting tweets. "
-            "Upgrade to Basic ($100/month) at developer.x.com to enable publishing."
+            "Upgrade to Basic ($100/month) at developer.x.com to enable publishing.",
+            code="permanent",
         )
-    if r.status_code >= 400:
-        raise DirectSocialError(f"{context} failed ({r.status_code}): {r.text[:300]}")
+
+    code, subcode, message, retry_after_hdr = _parse_graph_error(r)
+    retry_after = _retry_after_seconds(retry_after_hdr)
+    detail = message or r.text[:300]
+
+    # 429 — explicit HTTP rate limit (Meta, X, LinkedIn).
+    if r.status_code == 429:
+        raise DirectSocialError(
+            f"{context}: rate limited (429). {detail}",
+            code="rate_limited",
+            retry_after=retry_after,
+        )
+
+    # 401/403 — token rejected.
+    if r.status_code in (401, 403):
+        raise DirectSocialError(
+            f"{context}: authentication failed ({r.status_code}). {detail}",
+            code="auth_expired",
+        )
+
+    # Meta / IG Graph code mapping.
+    if code in _GRAPH_AUTH_EXPIRED_CODES:
+        raise DirectSocialError(
+            f"{context}: Meta token expired or revoked (code {code}). {detail}",
+            code="auth_expired",
+        )
+    if code in _GRAPH_RATE_LIMIT_CODES or (subcode is not None and subcode in (2445001, 2445003, 2445005)):
+        raise DirectSocialError(
+            f"{context}: rate limited by Meta (code {code}/{subcode}). {detail}",
+            code="rate_limited",
+            retry_after=retry_after,
+        )
+    if code in _GRAPH_SPAM_BLOCKED_CODES or (subcode is not None and subcode in (200302, 200303)):
+        raise DirectSocialError(
+            f"{context}: temporarily blocked by Meta (code {code}/{subcode}). {detail}",
+            code="spam_blocked",
+        )
+
+    # 5xx — transient.
+    if r.status_code >= 500:
+        raise DirectSocialError(
+            f"{context}: platform error ({r.status_code}). {detail}",
+            code="transient",
+        )
+
+    # Everything else is a permanent failure (4xx other than 401/403/429/402).
+    raise DirectSocialError(
+        f"{context} failed ({r.status_code}). {detail}",
+        code="permanent",
+    )

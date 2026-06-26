@@ -31,23 +31,45 @@ git commit && git push origin <branch>
 Deploy logs land in `/tmp/deploy.log` on the server. Check them if something breaks:
 
 ```bash
-plink -ssh -pw "<SERVER_PW>" -hostkey "<SERVER_HOSTKEY>" deplyuser@192.168.0.239 "cat /tmp/deploy.log | tail -30"
+plink -ssh -pw "$env:SERVER_PW" -hostkey "$env:SERVER_HOSTKEY" "$env:SERVER_USER@$env:SERVER_HOST" "cat /tmp/deploy.log | tail -30"
 ```
+
+(These vars — `SERVER_HOST`, `SERVER_USER`, `SERVER_PW`, `SERVER_HOSTKEY` — are exported by the PowerShell profile at `~/Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1`. If `plink` says the vars are empty, open a fresh PowerShell window so the profile loads. `plink ...` below is shorthand for the same command.)
 
 **Schema changes** (new columns): add a numbered SQL file in `backend/migrations/` and push — the runner applies it on startup automatically (see "Schema changes" below). Manual psql is only needed to inspect or hot-fix the live DB:
 
 ```bash
-plink ... deplyuser@192.168.0.239 "docker exec -it app-db-1 psql -U marketing marketing"
+plink ... "$env:SERVER_USER@$env:SERVER_HOST" "docker exec -it app-db-1 psql -U marketing marketing"
 ```
 
 **Check container logs** if something breaks:
 
 ```bash
-plink ... deplyuser@192.168.0.239 "docker logs app-api-1 --tail 30"
-plink ... deplyuser@192.168.0.239 "docker compose -f ~/app/docker-compose.prod.yml ps"
+plink ... "$env:SERVER_USER@$env:SERVER_HOST" "docker logs app-api-1 --tail 30"
+plink ... "$env:SERVER_USER@$env:SERVER_HOST" "docker compose -f ~/app/docker-compose.prod.yml ps"
 ```
 
 Services on the server: `app-api-1` (FastAPI :8000 internal), `app-worker-1` (Celery), `app-beat-1` (Celery beat), `app-frontend-1` (Vite :5173 internal), `app-db-1` (Postgres), `app-redis-1`, `app-minio-1` (:9000 internal), `app-nginx-1` (reverse proxy :80 internal), `app-cloudflared-1` (Cloudflare Tunnel → public domain), `app-webhook-1` (GitHub webhook listener :9002 internal).
+
+## Branching & merging workflow
+
+**Rule.** When the user asks to merge a branch (e.g. `merge nav`, `une feature/x a master`, `merge X into Y`), the agent MUST follow this exact sequence — and MUST NOT delete the source branch until the validation step succeeds and the user explicitly confirms.
+
+1. **Parse intent.** Identify the source branch and the target branch.
+   - If the source is unambiguous (e.g. `feature/nav`, `fix/calendar-bug`) use it.
+   - If ambiguous (e.g. `merge nav` could be `feature/nav` / `fix/nav` / `release/nav`), ask the user before doing anything. Never guess.
+2. **Pre-checks.** Abort and report if any of these is true:
+   - `git status` shows staged or unstaged TRACKED changes on the current branch. (Untracked files like `PLAN_*.md` are OK — leave them alone.)
+   - `master` is behind `origin/master` (offer `git pull --ff-only origin master`).
+3. **Merge.** `git fetch origin <branch>` → `git checkout master` → `git pull --ff-only origin master` → `git merge --no-ff <branch> -m "Merge <branch> into master"`. On conflict: `git merge --abort` + report and ask. Do not attempt to resolve.
+4. **Push** `origin master` automatically (this repo's deploy is webhook-triggered on push).
+5. **Validate (MANDATORY before asking about deletion).** All of these must pass:
+   - `git log --oneline -1 origin/master` shows the merge commit with the right message.
+   - `git rev-list -n1 origin/master ^<branch>~1` (or `^<base-sha>`) returns a non-empty SHA → proves the branch's commits are reachable from `origin/master`.
+   - `git status` is clean on `master`.
+   Report the merge SHA, the list of brought-in commits, and the reachability check result to the user.
+6. **Ask the user** (via the question tool / `useConfirm`) whether to delete the merged branch. Default scope is **local + remote**.
+7. **On delete confirmation**: `git branch -d <branch>` (use `-d`, not `-D` — the validation step already proved the commits are in master, but `-d` is a safety belt). If remote is in scope: `git push origin --delete <branch>`.
 
 Requires `~/app/.env` on the server (gitignored) with `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `VITE_API_URL=https://marketingaidev.randybeltran.xyz/api`, `CLOUDFLARE_TUNNEL_TOKEN`, `GITHUB_WEBHOOK_SECRET`, admin credentials.
 

@@ -1505,7 +1505,7 @@ function CopyForm({
   );
 }
 
-function PublishBadge({ ps, busy }: { ps: PublishState; busy: boolean }) {
+function PublishBadge({ ps }: { ps: PublishState; busy?: boolean }) {
   if (ps.status === "published" || ps.status === "partial") {
     return (
       <span className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
@@ -1521,12 +1521,24 @@ function PublishBadge({ ps, busy }: { ps: PublishState; busy: boolean }) {
     );
   }
   if (ps.status === "publishing") {
-    return <span className="tag approval-pending_review">{busy ? "Publishing…" : "Publishing…"}</span>;
+    return <span className="tag approval-pending_review">Publishing…</span>;
   }
   if (ps.status === "scheduled") {
     return (
       <span className="muted small">
         ⏰ Scheduled{ps.scheduled_at ? ` for ${new Date(ps.scheduled_at).toLocaleString()}` : ""}
+      </span>
+    );
+  }
+  if (ps.status === "retrying" || ps.status === "throttled") {
+    return (
+      <span
+        className="tag"
+        style={{ background: "var(--tag-amber, #fef3c7)", color: "#92400e" }}
+        title={ps.error}
+      >
+        {ps.status === "throttled" ? "⏳ Throttled" : "↻ Retrying…"}
+        {ps.retry_count > 0 ? ` (${ps.retry_count}/${4})` : ""}
       </span>
     );
   }

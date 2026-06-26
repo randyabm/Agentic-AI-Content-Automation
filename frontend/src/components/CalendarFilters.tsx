@@ -2,6 +2,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import type { PublishStatus } from "../types";
+import { statusLabel } from "@/lib/publishStatus";
 
 export interface CalendarFiltersState {
   client: string | "all";
@@ -18,7 +19,16 @@ interface CalendarFiltersProps {
 }
 
 const PLATFORMS = ["facebook", "instagram", "linkedin", "x", "tiktok", "youtube"];
-const STATUSES: PublishStatus[] = ["draft", "scheduled", "publishing", "published", "partial", "failed"];
+const STATUSES: PublishStatus[] = [
+  "draft",
+  "scheduled",
+  "publishing",
+  "published",
+  "partial",
+  "failed",
+  "retrying",
+  "throttled",
+];
 
 export function CalendarFilters({ filters, onChange, clients }: CalendarFiltersProps) {
   const hasActive = filters.client !== "all" || filters.platform !== "all" || filters.status !== "all";
@@ -59,7 +69,7 @@ export function CalendarFilters({ filters, onChange, clients }: CalendarFiltersP
           <SelectItem value="all">All statuses</SelectItem>
           {STATUSES.map((s) => (
             <SelectItem key={s} value={s}>
-              {s.charAt(0).toUpperCase() + s.slice(1)}
+              {statusLabel(s)}
             </SelectItem>
           ))}
         </SelectContent>

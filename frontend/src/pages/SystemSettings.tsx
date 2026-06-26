@@ -88,10 +88,10 @@ const SOCIAL_APP_PLATFORMS: { provider: string; label: string; idLabel: string; 
   { provider: "oauth_linkedin", label: "LinkedIn", idLabel: "Client ID", secretLabel: "Client Secret" },
 ];
 
-/** Integrations tab: toggle between Zernio middleman and direct platform APIs. */
+/** Integrations tab: toggle between Zernio middleman, direct platform APIs, or the mock simulator. */
 function IntegrationsSection() {
   // Publishing mode (from settings table)
-  const [mode, setMode] = useState<"zernio" | "direct">("zernio");
+  const [mode, setMode] = useState<"zernio" | "direct" | "mock">("zernio");
   const [modeMsg, setModeMsg] = useState("");
   const [modeError, setModeError] = useState("");
   const [allSettings, setAllSettings] = useState<Setting[]>([]);
@@ -126,6 +126,7 @@ function IntegrationsSection() {
       setAllSettings(s);
       const m = s.find((x) => x.key === "social_publishing_mode");
       if (m?.value === "direct") setMode("direct");
+      else if (m?.value === "mock") setMode("mock");
       const pub = s.find((x) => x.key === "app_public_url");
       const fe = s.find((x) => x.key === "app_frontend_url");
       setUrlSettings({
@@ -143,7 +144,7 @@ function IntegrationsSection() {
     api<SocialAppStatus[]>("/integrations/social-apps").then(setSocialApps).catch(() => {});
   }, []);
 
-  async function saveMode(newMode: "zernio" | "direct") {
+  async function saveMode(newMode: "zernio" | "direct" | "mock") {
     setModeMsg("");
     setModeError("");
     try {
@@ -247,20 +248,22 @@ function IntegrationsSection() {
         <h2 style={{ marginTop: 0 }}>Social Publishing Connector</h2>
         <p className="muted">
           Choose how the platform connects client social accounts and publishes content.
-          Zernio is a third-party middleman; Direct uses each platform's API directly.
+          Zernio is a third-party middleman; Direct uses each platform's API directly;
+          Mock is a local simulator for development and previewing the publish flow.
         </p>
         <label>
           Active connector
           <select
             value={mode}
             onChange={(e) => {
-              const v = e.target.value as "zernio" | "direct";
+              const v = e.target.value as "zernio" | "direct" | "mock";
               setMode(v);
               saveMode(v);
             }}
           >
             <option value="zernio">Zernio (social publishing middleman)</option>
             <option value="direct">Direct Platform APIs</option>
+            <option value="mock">Mock (local simulator)</option>
           </select>
         </label>
         {modeError && <div className="alert alert-error">{modeError}</div>}
@@ -273,6 +276,9 @@ function IntegrationsSection() {
           Zernio — Social Publishing
           {mode !== "zernio" && <span className="tag" style={{ marginLeft: 8 }}>inactive</span>}
         </h2>
+        {mode === "mock" && (
+          <p className="muted small">Mock mode is on — Zernio is bypassed at publish time.</p>
+        )}
         <p className="muted">
           One app-wide key powers connecting client social accounts and publishing across all
           organizations. Stored encrypted; only ever shown masked.
@@ -307,6 +313,9 @@ function IntegrationsSection() {
           Direct Platform APIs
           {mode !== "direct" && <span className="tag" style={{ marginLeft: 8 }}>inactive</span>}
         </h2>
+        {mode === "mock" && (
+          <p className="muted small">Mock mode is on — Direct APIs are bypassed at publish time.</p>
+        )}
         <p className="muted">
           Create an app in each platform's developer console, paste the credentials below.
           Users authorize your app directly on each platform — no third-party middleman.
@@ -1491,9 +1500,160 @@ function GlobalSettingsSection() {
         </div>
       )}
 
+      <PublishingLimitsEditor />
+
       <div className="form-actions">
         <button className="btn btn-primary" onClick={save} disabled={Object.keys(edited).length === 0}>
           Save changes
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Per-platform publishing limits editor. Lives in Global Settings because the
+ * controls are platform-admin scoped and act on every org / client. The
+ * effective view (defaults merged with overrides) is read-only; the editor
+ * itself only writes the overrides.
+ */
+function PublishingLimitsEditor() {
+  const PLATFORMS = [
+    { key: "instagram", label: "Instagram" },
+    { key: "facebook", label: "Facebook" },
+    { key: "linkedin", label: "LinkedIn" },
+    { key: "x", label: "X (Twitter)" },
+  ];
+
+  const [limits, setLimits] = useState<Record<string, { per_day: number; min_gap_min: number }>>({});
+  const [edited, setEdited] = useState<Record<string, { per_day: number; min_gap_min: number }>>({});
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api<{ limits: Record<string, { per_day: number; min_gap_min: number }> }>(
+      "/settings/publishing-limits",
+    )
+      .then((r) => {
+        setLimits(r.limits);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load limits"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function currentValue(platform: string): { per_day: number; min_gap_min: number } {
+    if (edited[platform]) return edited[platform];
+    return limits[platform] ?? limits._default ?? { per_day: 20, min_gap_min: 10 };
+  }
+
+  function setField(platform: string, field: "per_day" | "min_gap_min", value: number) {
+    const next = { ...currentValue(platform), [field]: value };
+    setEdited((prev) => ({ ...prev, [platform]: next }));
+  }
+
+  async function save() {
+    setError("");
+    setNotice("");
+    setSaving(true);
+    try {
+      const res = await api<{ limits: Record<string, { per_day: number; min_gap_min: number }> }>(
+        "/settings/publishing-limits",
+        { method: "PUT", body: { limits: edited } },
+      );
+      setLimits(res.limits);
+      setEdited({});
+      setNotice("Publishing limits updated.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function reset() {
+    setEdited({});
+  }
+
+  const dirty = Object.keys(edited).length > 0;
+
+  return (
+    <div
+      className="settings-group"
+      style={{ ["--group-accent" as string]: "#0F766E" }}
+    >
+      <div className="settings-group-head">
+        <h3>Publishing limits</h3>
+        <div className="muted small">
+          Throttle the publish queue per account so we never burst a platform.
+          <code>per_day</code> is the max posts/24h rolling window;
+          <code>min_gap_min</code> is the minimum minutes between consecutive
+          posts on the same account. Empty cells fall back to the safe default.
+        </div>
+      </div>
+      {error && <div className="alert alert-error">{error}</div>}
+      {notice && <div className="alert alert-success">{notice}</div>}
+      {loading ? (
+        <p className="muted">Loading…</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>Posts per day (per account)</th>
+              <th>Minimum gap (minutes)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PLATFORMS.map((p) => {
+              const v = currentValue(p.key);
+              return (
+                <tr key={p.key}>
+                  <td><strong>{p.label}</strong></td>
+                  <td>
+                    <input
+                      type="number"
+                      min={1}
+                      value={v.per_day}
+                      onChange={(e) =>
+                        setField(p.key, "per_day", Math.max(1, Number(e.target.value) || 0))
+                      }
+                      className="w-24"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      value={v.min_gap_min}
+                      onChange={(e) =>
+                        setField(p.key, "min_gap_min", Math.max(0, Number(e.target.value) || 0))
+                      }
+                      className="w-24"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <div className="form-actions">
+        <button
+          className="btn btn-ghost"
+          onClick={reset}
+          disabled={!dirty || saving}
+        >
+          Reset
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={save}
+          disabled={!dirty || saving}
+        >
+          {saving ? "Saving…" : "Save limits"}
         </button>
       </div>
     </div>

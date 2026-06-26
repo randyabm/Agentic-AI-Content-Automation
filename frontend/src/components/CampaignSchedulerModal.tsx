@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, RefreshCw } from "lucide-react";
+import { CalendarDays, RefreshCw, AlertTriangle } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import type { CalendarItem, ScheduleablePost } from "../types";
 import { CalendarMonthGrid } from "./CalendarMonthGrid";
 import { ScheduleablePostsSidebar, SchedulePostOverlayCard } from "./ScheduleablePostsSidebar";
@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/dialogs";
 
 interface PendingDrop {
   post: ScheduleablePost;
@@ -53,6 +54,7 @@ export function CampaignSchedulerModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const confirm = useConfirm();
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [scheduleable, setScheduleable] = useState<ScheduleablePost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +103,7 @@ export function CampaignSchedulerModal({
     setPending({ post, when });
   }
 
-  async function confirmSchedule() {
+  async function confirmSchedule(force = false) {
     if (!pending) return;
     const { post, when } = pending;
     if (when <= new Date()) {
@@ -111,10 +113,13 @@ export function CampaignSchedulerModal({
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     setSaving(true);
     try {
-      await api(`/campaigns/${post.campaign_id}/posts/${post.post_id}/schedule`, {
-        method: "POST",
-        body: { scheduled_at: when.toISOString(), timezone: tz },
-      });
+      await api(
+        `/campaigns/${post.campaign_id}/posts/${post.post_id}/schedule${force ? "?force=true" : ""}`,
+        {
+          method: "POST",
+          body: { scheduled_at: when.toISOString(), timezone: tz },
+        },
+      );
       toast.success(
         `Scheduled for ${when.toLocaleDateString(undefined, {
           weekday: "short",
@@ -126,6 +131,28 @@ export function CampaignSchedulerModal({
       await load();
       onDone();
     } catch (e) {
+      // 409 with duplicate=true → ask the user to confirm and retry with force=true.
+      if (e instanceof ApiError && e.status === 409) {
+        const body = (e.body && typeof e.body === "object" ? e.body : {}) as {
+          duplicate?: boolean;
+          message?: string;
+        };
+        if (body.duplicate) {
+          setSaving(false);
+          const ok = await confirm({
+            title: "Posible contenido duplicado",
+            description:
+              body.message ||
+              "El mismo contenido ya se programó para este canal en las últimas 24 horas. ¿Quieres programarlo de todas formas?",
+            confirmLabel: "Programar de todos modos",
+            cancelLabel: "Cancelar",
+          });
+          if (ok) {
+            await confirmSchedule(true);
+          }
+          return;
+        }
+      }
       toast.error(e instanceof Error ? e.message : "Scheduling failed");
     } finally {
       setSaving(false);
@@ -242,7 +269,7 @@ export function CampaignSchedulerModal({
           <Button variant="outline" onClick={() => setPending(null)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={confirmSchedule} disabled={saving}>
+          <Button onClick={() => confirmSchedule(false)} disabled={saving}>
             {saving ? "Scheduling…" : "Schedule"}
           </Button>
         </DialogFooter>
