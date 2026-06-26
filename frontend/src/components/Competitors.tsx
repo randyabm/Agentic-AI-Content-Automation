@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Client, Competitor, CompetitorSearchJob } from "../types";
@@ -144,27 +145,37 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
   const selected = competitors.find((c) => c.id === selectedId) ?? competitors[0] ?? null;
 
   return (
-    <div className="competitors">
+    <div className="competitors space-y-4">
+      {onboardingRunning && (
+        <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+          <span>
+            Client setup is still running in the background. You can already
+            review and edit competitors below — the onboarding step will add
+            to this list when it finishes.
+          </span>
+        </div>
+      )}
+
       {canEdit && (
-        <div className={`card comp-search ${searchOpen && !onboardingRunning ? "open" : "collapsed"} ${onboardingRunning ? "comp-search-disabled" : ""}`}>
+        <div className={`card comp-search ${searchOpen ? "open" : "collapsed"}`}>
           <button
             type="button"
             className="comp-search-header"
-            aria-expanded={searchOpen && !onboardingRunning}
-            disabled={onboardingRunning}
-            onClick={() => !onboardingRunning && setSearchOpen((o) => !o)}
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen((o) => !o)}
           >
             <div>
               <h2>Find competitors automatically</h2>
               <span className="muted small">
                 {onboardingRunning
-                  ? "Client setup in progress — available once onboarding completes"
+                  ? "Click to find or manually add competitors while setup runs"
                   : "Click to find or manually add competitors"}
               </span>
             </div>
-            {!onboardingRunning && <span className="comp-search-chevron" aria-hidden>▾</span>}
+            <span className="comp-search-chevron" aria-hidden>▾</span>
           </button>
-          {searchOpen && !onboardingRunning && (
+          {searchOpen && (
           <div className="comp-search-body">
           <p className="muted">
             Uses the configured LLM with web search to identify the most relevant competitors,
