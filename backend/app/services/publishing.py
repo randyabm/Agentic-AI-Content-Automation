@@ -238,7 +238,7 @@ def schedule_post(
     channel: SocialAccount | None,
     actor_id: str,
     scheduled_at: datetime,
-    timezone: str = "UTC",
+    tz_name: str = "UTC",
     force: bool = False,
 ) -> ScheduledPost:
     """Record a future-dated publish. We hold it locally (status `scheduled`) and
@@ -282,7 +282,7 @@ def schedule_post(
         post_image_id=images[0].id if images else None,
         post_video_id=video.id if video else None,
         scheduled_at=scheduled_at,
-        timezone=timezone or "UTC",
+        timezone=tz_name or "UTC",
         status=PublishStatus.scheduled,
         created_by=actor_id,
         content_hash=fingerprint,

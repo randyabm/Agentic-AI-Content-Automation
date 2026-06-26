@@ -765,7 +765,7 @@ def schedule_post_for_later(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Scheduled time must be in the future.")
 
     try:
-        sp = publishing.schedule_post(db, post, channel, actor.id, when, body.timezone, force=force)
+        sp = publishing.schedule_post(db, post, channel, actor.id, when, tz_name=body.timezone, force=force)
     except publishing.DuplicatePost as exc:
         # Surface the existing post id in the body so the frontend can locate it.
         from fastapi.responses import JSONResponse
@@ -880,7 +880,7 @@ def autopilot_commit(
         if when <= now:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "All scheduled times must be in the future.")
         try:
-            sp = publishing.schedule_post(db, post, channel, actor.id, when, body.timezone)
+            sp = publishing.schedule_post(db, post, channel, actor.id, when, tz_name=body.timezone)
         except publishing.PublishError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
         created.append(sp)
