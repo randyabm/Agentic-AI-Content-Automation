@@ -8,7 +8,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ClientCard, type OnboardingState } from "../components/ClientCard";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { ClientsPipeline } from "../components/ClientsPipeline";
-import { ClientDrawer } from "../components/ClientDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -60,8 +59,7 @@ export default function Clients() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [view, setView] = useState<ViewMode>("cards");
-  const [drawerClient, setDrawerClient] = useState<Client | null>(null);
+  const [view, setView] = useState<ViewMode>("list");
   const [pendingDelete, setPendingDelete] = useState<Client | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<DeletionSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -227,7 +225,6 @@ export default function Clients() {
               onboardingState={statuses[c.id] as OnboardingState | undefined}
               canEdit={canEdit}
               onDelete={(e) => openDeleteDialog(e, c)}
-              onClick={() => setDrawerClient(c)}
             />
           ))}
         </div>
@@ -235,7 +232,6 @@ export default function Clients() {
         <ClientsPipeline
           clients={visible}
           statuses={statuses}
-          onCardClick={(c) => setDrawerClient(c)}
         />
       ) : (
         <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
@@ -301,12 +297,6 @@ export default function Clients() {
           </Table>
         </div>
       )}
-
-      <ClientDrawer
-        client={drawerClient}
-        open={!!drawerClient}
-        onOpenChange={(o) => !o && setDrawerClient(null)}
-      />
 
       {pendingDelete && (
         <ConfirmDialog

@@ -43,10 +43,9 @@ export function bucketLabel(b: Bucket): string {
 interface ClientsPipelineProps {
   clients: Client[];
   statuses: Record<string, string>;
-  onCardClick?: (client: Client) => void;
 }
 
-export function ClientsPipeline({ clients, statuses, onCardClick }: ClientsPipelineProps) {
+export function ClientsPipeline({ clients, statuses }: ClientsPipelineProps) {
   const { user } = useAuth();
   const canEdit = user?.role === "admin" || user?.role === "editor";
   const navigate = useNavigate();
@@ -108,7 +107,7 @@ export function ClientsPipeline({ clients, statuses, onCardClick }: ClientsPipel
                       colors={colors}
                       canEdit={canEdit}
                       busy={busy === c.id}
-                      onClick={() => (onCardClick ? onCardClick(c) : navigate(`/clients/${c.id}`))}
+                      onClick={() => navigate(`/clients/${c.id}`)}
                       onRerun={() => rerun(c)}
                       onOpen={() => navigate(`/clients/${c.id}`)}
                       onOpenSetup={() => navigate(`/clients/${c.id}/setup`)}

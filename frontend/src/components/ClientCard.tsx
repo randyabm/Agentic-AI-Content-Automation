@@ -45,16 +45,14 @@ interface ClientCardProps {
   onboardingState: string | undefined;
   canEdit: boolean;
   onDelete: (e: React.MouseEvent) => void;
-  onClick?: () => void;
 }
 
-export function ClientCard({ client, onboardingState, canEdit, onDelete, onClick }: ClientCardProps) {
+export function ClientCard({ client, onboardingState, canEdit, onDelete }: ClientCardProps) {
   const colors = client.brand_colors?.length ? client.brand_colors : null;
   const gradient = colors ? `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` : undefined;
 
   return (
     <div
-      data-client-card={client.id}
       className="group relative flex flex-col gap-0 overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md"
     >
       {/* Brand color banner */}
@@ -77,16 +75,7 @@ export function ClientCard({ client, onboardingState, canEdit, onDelete, onClick
       )}
 
       <div className="flex flex-col gap-2 p-5">
-        <Link
-          to={`/clients/${client.id}`}
-          className="block"
-          onClick={(e) => {
-            if (onClick && !(e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              onClick();
-            }
-          }}
-        >
+        <Link to={`/clients/${client.id}`} className="block">
           <div className="-mt-12 mb-1">
             <div className="inline-block rounded-full ring-4 ring-card bg-card">
               <ClientAvatar client={client} />
