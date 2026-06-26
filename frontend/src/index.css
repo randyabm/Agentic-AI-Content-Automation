@@ -1,25 +1,19 @@
 /* Tailwind v4 + shadcn/ui foundation.
  *
- * NOTE: We import Tailwind WITHOUT preflight (the global reset) on purpose.
- * The app still ships ~1.7k lines of hand-written CSS in styles.css that styles
- * raw <button>/<input>/<table> elements directly. Loading preflight would reset
- * all of those and break the legacy screens before we've migrated them. So we
- * pull in only the theme tokens + utilities + animations, and add preflight back
- * later once every screen uses shadcn components.
+ * The whole app has been migrated to Tailwind utilities + shadcn/ui components,
+ * so the legacy hand-written stylesheet (was ~1.5k lines in src/styles.css) has
+ * been deleted. We pull in only the theme tokens + utilities + animations —
+ * preflight stays off so the few remaining raw <button>/<input>/<table> elements
+ * rendered by the calendar / image editor / etc. don't lose their default
+ * browser styles. Re-enable it once those last surfaces are also on shadcn.
  *
- * To re-enable preflight in the future, replace the three @import lines below
- * with a single:  @import "tailwindcss";
+ * To re-enable preflight later, add:
+ *   @import "tailwindcss/preflight.css" layer(base);
  */
-@layer theme, base, legacy, components, utilities;
+@layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "tw-animate-css";
-
-/* The legacy hand-written stylesheet is pulled into its own cascade layer that
- * sits BELOW Tailwind's utilities. This lets new shadcn components (which style
- * via utility classes) win over the legacy element/class rules, while every
- * not-yet-migrated screen keeps rendering exactly as before. */
-@import "./styles.css" layer(legacy);
 
 @custom-variant dark (&:is(.dark *));
 
