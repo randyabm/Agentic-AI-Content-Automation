@@ -114,6 +114,7 @@ def _to_item(
         error=sp.error,
         error_code=sp.error_code or "",
         retry_count=sp.retry_count or 0,
+        max_retries=sp.max_retries or 4,
         next_attempt_at=sp.next_attempt_at,
         created_at=sp.created_at,
         post_id=sp.post_id,

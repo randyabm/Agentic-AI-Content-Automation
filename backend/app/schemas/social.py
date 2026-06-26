@@ -155,6 +155,7 @@ class CalendarItemOut(BaseModel):
     error: str
     error_code: str = ""
     retry_count: int = 0
+    max_retries: int = 4
     next_attempt_at: datetime | None = None
     created_at: datetime
 

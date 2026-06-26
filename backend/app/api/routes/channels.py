@@ -26,6 +26,9 @@ from app.services.direct_social import (
     DirectSocialError,
     get_connect_url,
     get_publishing_mode,
+    is_mock_mode,
+    mock_channel_payload,
+    upsert_channel,
     verify_channel_health,
 )
 
@@ -101,8 +104,25 @@ def connect_channel(
     In direct mode: returns the platform's own OAuth URL (user authorizes on the
     platform, the backend callback stores the token, then a frontend postMessage
     triggers a channel refresh).
+    In mock mode: creates a fake channel immediately and returns an empty
+    connect_url (the frontend detects the empty URL and refreshes the channel
+    list without leaving the page).
     """
     mode = get_publishing_mode(db)
+
+    if mode == "mock":
+        from app.services.direct_social import MOCK_PLATFORMS
+        if platform not in MOCK_PLATFORMS:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Mock mode does not support platform: {platform}",
+            )
+        account = mock_channel_payload(platform, client.id)
+        upsert_channel(db, client.id, actor.id, account)
+        db.commit()
+        audit.record(db, actor, "channel.connect_start", "client", client.id,
+                     {"platform": platform, "mode": "mock"})
+        return ChannelConnectResponse(platform=platform, connect_url="")
 
     if mode == "direct":
         try:

@@ -269,7 +269,7 @@ export function CampaignSchedulerModal({
           <Button variant="outline" onClick={() => setPending(null)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={confirmSchedule} disabled={saving}>
+          <Button onClick={() => confirmSchedule(false)} disabled={saving}>
             {saving ? "Scheduling…" : "Schedule"}
           </Button>
         </DialogFooter>

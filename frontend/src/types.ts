@@ -163,6 +163,7 @@ export interface CalendarItem {
   error: string;
   error_code: string;
   retry_count: number;
+  max_retries: number;
   next_attempt_at: string | null;
   created_at: string;
   post_id: string;

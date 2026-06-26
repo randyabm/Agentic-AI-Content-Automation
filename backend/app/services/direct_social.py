@@ -111,6 +111,38 @@ def get_publishing_mode(db: Session) -> str:
     return _get_setting(db, "social_publishing_mode", "zernio")
 
 
+# Platforms that can be "connected" in mock mode (for dev / preview).
+# X is included as an alias of twitter.
+MOCK_PLATFORMS = {"facebook", "instagram", "twitter", "x", "linkedin"}
+
+
+def is_mock_mode(db: Session) -> bool:
+    """True when the active publishing mode is the simulator (`mock`)."""
+    return get_publishing_mode(db) == "mock"
+
+
+def mock_channel_payload(platform: str, client_id: str) -> dict:
+    """Build a SocialAccount-shaped dict for a fake channel in mock mode.
+
+    No real OAuth, no real tokens — `_dispatch_mock` never reads the token
+    anyway. The display name includes the client id suffix so the UI can
+    tell mocked channels apart from real ones.
+    """
+    platform = "twitter" if platform == "x" else platform
+    label = f"Mock {platform.title()} (dev)"
+    return {
+        "platform": platform,
+        "platform_account_id": f"mock_{platform}_{client_id[:8]}",
+        "display_name": label,
+        "username": f"mock_{platform}",
+        "avatar_url": "",
+        "access_token": "mock-token",
+        "access_token_secret": "",
+        "refresh_token": "",
+        "token_expires_at": None,
+    }
+
+
 def get_facebook_oauth_scopes(db: Session) -> str:
     return _get_setting(db, "facebook_oauth_scopes", "pages_manage_posts,pages_read_engagement,pages_show_list")
 

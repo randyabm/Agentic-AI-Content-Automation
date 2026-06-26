@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../api";
 import type { Client, SocialAccount } from "../types";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
@@ -22,7 +23,7 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"zernio" | "direct">("zernio");
+  const [mode, setMode] = useState<"zernio" | "direct" | "mock">("zernio");
 
   async function load() {
     try {
@@ -41,6 +42,7 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
       .then((settings) => {
         const m = settings.find((s) => s.key === "social_publishing_mode");
         if (m?.value === "direct") setMode("direct");
+        else if (m?.value === "mock") setMode("mock");
       })
       .catch(() => {});
   }, [client.id]);
@@ -80,6 +82,12 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
         `/clients/${client.id}/channels/connect/${platform}`,
         { method: "POST" },
       );
+      if (mode === "mock" || !res.connect_url) {
+        // Mock mode: backend created a fake channel synchronously — just refresh.
+        toast.success("Mock channel created");
+        await load();
+        return;
+      }
       window.open(res.connect_url, "_blank", "width=560,height=660,popup");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start connection");
@@ -129,7 +137,9 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
           <p className="muted">
             {mode === "direct"
               ? "Connect this client's social accounts directly via each platform's API."
-              : "Link this client's social accounts through Zernio, then publish and schedule to them."}
+              : mode === "mock"
+                ? "Mock mode is on — connecting a platform creates a fake channel that simulates publish outcomes locally (no real platform call)."
+                : "Link this client's social accounts through Zernio, then publish and schedule to them."}
           </p>
         </div>
         <button className="btn btn-ghost" onClick={sync} disabled={!!busy}>
@@ -145,7 +155,9 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
           <p className="muted small">
             {mode === "direct"
               ? "Opens the platform's authorization page in a popup. After you approve, this list refreshes automatically."
-              : "Opens Zernio's secure login in a new tab. After you authorize, come back and click Sync."}
+              : mode === "mock"
+                ? "Creates a fake channel instantly — no OAuth or popup. Useful for previewing the publish flow without burning real API quota."
+                : "Opens Zernio's secure login in a new tab. After you authorize, come back and click Sync."}
           </p>
           <div className="platform-chips" style={{ gap: 8, flexWrap: "wrap" }}>
             {connectableList.map((p) => (
