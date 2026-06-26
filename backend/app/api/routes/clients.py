@@ -8,6 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.api.deps import assert_client_access, get_current_user, org_client_filter, require_editor
 from app.db.session import get_db
 from app.models.article import Article
+from app.models.audit import AuditLog
 from app.models.campaign import Campaign
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
 from app.models.competitor import Competitor
@@ -15,6 +16,7 @@ from app.models.onboarding import OnboardingJob, OnboardingStatus, initial_steps
 from app.models.org import Organization
 from app.models.setting import Setting
 from app.models.user import User
+from app.schemas.audit import AuditLogOut
 from app.schemas.client import (
     BrandMemoryUpdate,
     BrandMemoryVersionOut,
@@ -410,6 +412,58 @@ def retry_onboarding_step(
     audit.record(db, actor, "client.onboard_step", "client", client.id, {"step": step_key})
     db.refresh(job)
     return job
+
+
+@router.get("/{client_id}/audit-log", response_model=list[AuditLogOut])
+def client_audit_log(
+    client_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Per-client activity timeline: every audit row whose entity matches this
+    client. Includes client.* actions, client.onboard_step, client.logo_upload,
+    article.* (when the article is associated with this client), competitor.*
+    (when the competitor belongs to this client), channel.* (per client), etc.
+
+    Use the frontend `ActivityTimeline` to render the result.
+    """
+    client = _get_client_or_404(db, client_id, user)
+    # Collect the IDs that count as "this client" for audit purposes.
+    related_article_ids = db.scalars(
+        select(Article.id).where(Article.client_id == client.id)
+    ).all()
+    related_competitor_ids = db.scalars(
+        select(Competitor.id).where(Competitor.client_id == client.id)
+    ).all()
+    related_campaign_ids = db.scalars(
+        select(Campaign.id).where(Campaign.client_id == client.id)
+    ).all()
+
+    rows = db.scalars(
+        select(AuditLog)
+        .where(
+            (
+                (AuditLog.entity_type == "client")
+                & (AuditLog.entity_id == client.id)
+            )
+            | (
+                (AuditLog.entity_type == "article")
+                & (AuditLog.entity_id.in_(related_article_ids))
+            )
+            | (
+                (AuditLog.entity_type == "competitor")
+                & (AuditLog.entity_id.in_(related_competitor_ids))
+            )
+            | (
+                (AuditLog.entity_type == "campaign")
+                & (AuditLog.entity_id.in_(related_campaign_ids))
+            )
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(min(limit, 200))
+    ).all()
+    return rows
 
 
 @router.get("/{client_id}/jobs", response_model=list[ExtractionJobOut])

@@ -381,6 +381,16 @@ export interface ArticleSource {
   created_at: string;
 }
 
+export interface AuditLog {
+  id: string;
+  user_email: string;
+  action: string;        // e.g. "client.create", "campaign.approve", "post.submit"
+  entity_type: string;   // e.g. "client", "campaign", "post"
+  entity_id: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface ProviderCredential {
   provider: string;
   label: string;
