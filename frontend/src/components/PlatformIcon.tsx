@@ -61,13 +61,3 @@ export function PlatformIcon({
   const { Icon } = entry;
   return <Icon size={size} color={color ?? entry.color} />;
 }
-
-/** A platform name preceded by its brand icon — used in chips, tabs and headers. */
-export function PlatformTag({ platform, size = 14 }: { platform: string; size?: number }) {
-  return (
-    <span className="platform-tag">
-      <PlatformIcon platform={platform} size={size} />
-      {platformLabel(platform)}
-    </span>
-  );
-}
