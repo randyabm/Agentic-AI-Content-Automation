@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ArticleListItem } from "../types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface Props {
   articles: ArticleListItem[];
@@ -25,7 +27,6 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState<ArticleListItem | null>(null);
 
-  // Newest first — explicit descending by publication_date, fallback to created_at
   const sorted = useMemo(
     () => [...articles].sort((a, b) => sortKey(b) - sortKey(a)),
     [articles],
@@ -46,34 +47,41 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
 
   return (
     <div
-      className="modal-overlay"
+      className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-6 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="modal article-picker-modal" style={{ padding: 0, display: "flex", flexDirection: "column" }}>
+      <div className="flex w-full max-w-[760px] flex-col overflow-hidden rounded-xl bg-surface max-h-[80vh]">
         {/* Header */}
-        <div className="modal-header" style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-          <h2 style={{ fontSize: "1rem" }}>Select reference article</h2>
-          <button type="button" className="btn-icon" onClick={onClose} aria-label="Close">✕</button>
+        <div className="flex flex-shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-4">
+          <h2 className="m-0 text-base font-semibold">Select reference article</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="cursor-pointer rounded-md border-none bg-transparent px-1.5 py-0.5 text-base hover:bg-bg"
+          >
+            ✕
+          </button>
         </div>
 
         {/* Body — two panels, fills remaining height */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <div className="grid flex-1 grid-cols-2 overflow-hidden" style={{ minHeight: 0 }}>
 
           {/* Left: search + list */}
-          <div style={{ display: "flex", flexDirection: "column", borderRight: "1px solid var(--border)", overflow: "hidden" }}>
-            <div style={{ padding: "0.75rem 1rem", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-              <input
+          <div className="flex flex-col overflow-hidden border-r border-border">
+            <div className="flex-shrink-0 border-b border-border px-4 py-3">
+              <Input
                 autoFocus
                 type="search"
                 placeholder="Search by title, author or tag…"
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); setHighlighted(null); }}
-                style={{ width: "100%", fontSize: "0.85rem" }}
+                className="text-sm"
               />
             </div>
-            <div style={{ overflowY: "auto", flex: 1 }}>
+            <div className="flex-1 overflow-y-auto">
               {filtered.length === 0 && (
-                <p className="muted" style={{ padding: "1rem", fontSize: "0.85rem" }}>No articles match.</p>
+                <p className="p-4 text-sm text-muted-foreground">No articles match.</p>
               )}
               {filtered.map((a) => {
                 const active = (highlighted ?? filtered[0])?.id === a.id;
@@ -82,22 +90,12 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
                     type="button"
                     key={a.id}
                     onClick={() => setHighlighted(a)}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "0.6rem 1rem",
-                      background: active ? "var(--primary-soft)" : "transparent",
-                      border: "none",
-                      borderBottom: "1px solid var(--border)",
-                      borderLeft: active ? "3px solid var(--primary)" : "3px solid transparent",
-                      cursor: "pointer",
-                    }}
+                    className={`block w-full cursor-pointer border-b border-border bg-transparent px-4 py-2.5 text-left ${active ? "border-l-[3px] border-l-primary bg-accent" : "border-l-[3px] border-l-transparent"}`}
                   >
-                    <div style={{ fontSize: "0.83rem", fontWeight: 600, color: "var(--text)", lineHeight: 1.3, marginBottom: "0.2rem" }}>
+                    <div className="mb-0.5 text-[0.83rem] font-semibold leading-tight">
                       {a.title}
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    <div className="text-xs text-muted-foreground">
                       {formatDate(a.publication_date ?? a.created_at)}
                       {a.author ? ` · ${a.author}` : ""}
                     </div>
@@ -108,25 +106,24 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
           </div>
 
           {/* Right: detail (scrollable) + action buttons (always visible) */}
-          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div className="flex flex-col overflow-hidden">
             {preview ? (
               <>
-                {/* Scrollable detail area */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-5">
                   <div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text)", lineHeight: 1.4, marginBottom: "0.3rem" }}>
+                    <div className="mb-1 text-[0.95rem] font-semibold leading-snug">
                       {preview.title}
                     </div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                    <div className="text-[0.78rem] text-muted-foreground">
                       {formatDate(preview.publication_date ?? preview.created_at)}
                       {preview.author ? ` · ${preview.author}` : ""}
                     </div>
                   </div>
 
                   {preview.tags.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
+                    <div className="flex flex-wrap gap-1">
                       {preview.tags.map((t) => (
-                        <span key={t} style={{ fontSize: "0.72rem", padding: "2px 8px", borderRadius: "99px", background: "var(--surface-alt)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                        <span key={t} className="rounded-full border border-border bg-surface-alt px-2 py-0.5 text-[0.72rem] text-muted-foreground">
                           {t}
                         </span>
                       ))}
@@ -134,30 +131,25 @@ export function ArticlePickerModal({ articles, onSelect, onClose }: Props) {
                   )}
 
                   {preview.summary && (
-                    <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", lineHeight: 1.6, margin: 0 }}>
+                    <p className="m-0 text-[0.82rem] leading-relaxed text-muted-foreground">
                       {preview.summary}
                     </p>
                   )}
 
                   {preview.source_url && (
-                    <a href={preview.source_url} target="_blank" rel="noreferrer" style={{ fontSize: "0.78rem", color: "var(--primary)" }}>
+                    <a href={preview.source_url} target="_blank" rel="noreferrer" className="text-[0.78rem] text-primary hover:underline">
                       Ver fuente ↗
                     </a>
                   )}
                 </div>
 
-                {/* Action bar — always pinned at the bottom */}
-                <div style={{ flexShrink: 0, padding: "0.875rem 1.25rem", borderTop: "1px solid var(--border)", display: "flex", gap: "0.5rem", background: "var(--surface)" }}>
-                  <button type="button" className="btn btn-primary" onClick={() => onSelect(preview)}>
-                    Use this article
-                  </button>
-                  <button type="button" className="btn" onClick={onClose}>
-                    Cancel
-                  </button>
+                <div className="flex flex-shrink-0 gap-2 border-t border-border bg-surface px-5 py-3.5">
+                  <Button onClick={() => onSelect(preview)}>Use this article</Button>
+                  <Button variant="ghost" onClick={onClose}>Cancel</Button>
                 </div>
               </>
             ) : (
-              <p className="muted" style={{ padding: "1.25rem", fontSize: "0.85rem" }}>
+              <p className="p-5 text-sm text-muted-foreground">
                 Select an article on the left to preview it.
               </p>
             )}
