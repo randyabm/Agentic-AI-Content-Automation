@@ -16,7 +16,6 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
-  TabsContent,
 } from "@/components/ui/tabs";
 import {
   Select,
@@ -239,72 +238,68 @@ export default function Clients() {
           onCardClick={(c) => setDrawerClient(c)}
         />
       ) : (
-        <Tabs value={view} onValueChange={() => {}} className="hidden">
-          <TabsContent value="list" forceMount>
-            <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Industry</TableHead>
-                    <TableHead>Onboarding</TableHead>
-                    <TableHead>Last analyzed</TableHead>
-                    <TableHead className="w-12" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visible.map((c) => (
-                    <TableRow
-                      key={c.id}
-                      className="cursor-pointer"
-                      onClick={() => navigate(`/clients/${c.id}`)}
-                    >
-                      <TableCell>
-                        <div className="flex items-center gap-2.5">
-                          <div className="shrink-0">
-                            <ClientAvatar client={c} />
-                          </div>
-                          <span className="font-medium">{c.company_name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {c.industry ? (
-                          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                            <Building2 className="h-3 w-3" />
-                            {c.industry}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/60">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <OnboardingBadgeLite state={statuses[c.id]} />
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {c.last_extraction_at
-                          ? new Date(c.last_extraction_at).toLocaleDateString()
-                          : "—"}
-                      </TableCell>
-                      <TableCell>
-                        {canEdit && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={(e) => openDeleteDialog(e, c)}
-                            aria-label={`Delete ${c.company_name}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </TabsContent>
-        </Tabs>
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Industry</TableHead>
+                <TableHead>Onboarding</TableHead>
+                <TableHead>Last analyzed</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visible.map((c) => (
+                <TableRow
+                  key={c.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/clients/${c.id}`)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <div className="shrink-0">
+                        <ClientAvatar client={c} />
+                      </div>
+                      <span className="font-medium">{c.company_name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {c.industry ? (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <Building2 className="h-3 w-3" />
+                        {c.industry}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/60">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <OnboardingBadgeLite state={statuses[c.id]} />
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {c.last_extraction_at
+                      ? new Date(c.last_extraction_at).toLocaleDateString()
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={(e) => openDeleteDialog(e, c)}
+                        aria-label={`Delete ${c.company_name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       <ClientDrawer
