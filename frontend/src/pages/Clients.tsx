@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search, Building2, AlertCircle, Trash2, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
@@ -9,7 +9,6 @@ import { ClientCard, type OnboardingState } from "../components/ClientCard";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Tabs,
@@ -57,11 +56,7 @@ export default function Clients() {
   const canEdit = user?.role === "admin" || user?.role === "editor";
   const [clients, setClients] = useState<Client[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [view, setView] = useState<ViewMode>("cards");
@@ -127,29 +122,6 @@ export default function Clients() {
     }
   }
 
-  async function createClient(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setBusy(true);
-    try {
-      const client = await api<Client>("/clients", {
-        method: "POST",
-        body: { company_name: name, website_url: url },
-      });
-      toast.success(`Created ${client.company_name} — onboarding started`);
-      setName("");
-      setUrl("");
-      setShowForm(false);
-      navigate(`/clients/${client.id}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not create client";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return clients.filter((c) => {
@@ -182,45 +154,14 @@ export default function Clients() {
           </p>
         </div>
         {canEdit && (
-          <Button onClick={() => setShowForm((v) => !v)} variant={showForm ? "ghost" : "default"}>
-            <Plus className="h-4 w-4" />
-            {showForm ? "Cancel" : "New client"}
+          <Button asChild>
+            <Link to="/clients/new">
+              <Plus className="h-4 w-4" />
+              New client
+            </Link>
           </Button>
         )}
       </div>
-
-      {/* New client inline form */}
-      {showForm && canEdit && (
-        <form
-          onSubmit={createClient}
-          className="grid gap-3 rounded-xl border border-border bg-card p-5 shadow-sm md:grid-cols-[1fr_1fr_auto] md:items-end"
-        >
-          <div className="grid gap-1.5">
-            <Label htmlFor="client-name">Company name</Label>
-            <Input
-              id="client-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Acme Inc."
-              required
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="client-url">Website URL</Label>
-            <Input
-              id="client-url"
-              type="url"
-              placeholder="https://example.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-            />
-          </div>
-          <Button type="submit" disabled={busy}>
-            {busy ? "Creating…" : "Create"}
-          </Button>
-        </form>
-      )}
 
       {error && (
         <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -267,7 +208,6 @@ export default function Clients() {
           canEdit={canEdit}
           title="No clients yet"
           description="Create your first client to start the onboarding pipeline."
-          onCreate={() => setShowForm(true)}
         />
       ) : visible.length === 0 ? (
         <EmptyState
@@ -407,12 +347,10 @@ function EmptyState({
   canEdit,
   title,
   description,
-  onCreate,
 }: {
   canEdit: boolean;
   title: string;
   description: string;
-  onCreate?: () => void;
 }) {
   return (
     <div className={cn(
@@ -423,10 +361,12 @@ function EmptyState({
       </div>
       <h3 className="mt-4 text-base font-semibold">{title}</h3>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      {canEdit && onCreate && (
-        <Button className="mt-4" onClick={onCreate}>
-          <Plus className="h-4 w-4" />
-          New client
+      {canEdit && (
+        <Button className="mt-4" asChild>
+          <Link to="/clients/new">
+            <Plus className="h-4 w-4" />
+            New client
+          </Link>
         </Button>
       )}
     </div>

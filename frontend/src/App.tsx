@@ -9,6 +9,7 @@ import Campaigns from "./pages/Campaigns";
 import ClientDetail from "./pages/ClientDetail";
 import Clients from "./pages/Clients";
 import Login from "./pages/Login";
+import NewClient from "./pages/NewClient";
 import OAuthCallback from "./pages/OAuthCallback";
 import Organizations from "./pages/Organizations";
 import ReviewQueue from "./pages/ReviewQueue";
@@ -51,6 +52,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Home />} />
       <Route path="/clients" element={<Protected orgOnly><Clients /></Protected>} />
+      <Route path="/clients/new" element={<Protected orgOnly><NewClient /></Protected>} />
       <Route path="/clients/:clientId" element={<Protected orgOnly><ClientDetail /></Protected>} />
       <Route path="/campaigns" element={<Protected orgOnly><Campaigns /></Protected>} />
       <Route path="/campaigns/:campaignId" element={<Protected orgOnly><CampaignDetail /></Protected>} />
