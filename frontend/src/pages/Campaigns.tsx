@@ -268,7 +268,7 @@ export default function Campaigns() {
 
       {view === "list" && (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_110px_80px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(0,1.2fr)_110px_150px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             <div>Campaign</div>
             <div>Client</div>
             <div>Platforms</div>
@@ -282,7 +282,7 @@ export default function Campaigns() {
               <div
                 key={c.id}
                 onClick={() => navigate(`/campaigns/${c.id}`)}
-                className="grid cursor-pointer grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_110px_80px_90px_40px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/40"
+                className="grid cursor-pointer grid-cols-[minmax(0,1.8fr)_minmax(0,1.2fr)_110px_150px_90px_40px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/40"
               >
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span
