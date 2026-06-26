@@ -5,16 +5,19 @@ import { api } from "../api";
 import type { Client, SocialAccount } from "../types";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
 import { useConfirm } from "@/components/ui/dialogs";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const CONNECTABLE_ZERNIO = ["facebook", "instagram", "linkedin", "x", "tiktok", "youtube"];
 const CONNECTABLE_DIRECT = ["facebook", "instagram", "x", "linkedin"];
 
-const STATUS_TAG: Record<string, string> = {
-  connected: "tag-green",
-  expired: "tag-amber",
-  revoked: "tag-red",
-  error: "tag-red",
-  disconnected: "tag-red",
+const STATUS_VARIANT: Record<string, "success" | "warning" | "destructive"> = {
+  connected: "success",
+  expired: "warning",
+  revoked: "destructive",
+  error: "destructive",
+  disconnected: "destructive",
 };
 
 export function Channels({ client, canEdit }: { client: Client; canEdit: boolean }) {
@@ -37,7 +40,6 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
 
   useEffect(() => {
     load();
-    // Read the publishing mode setting so we can show the right UI copy
     api<{ key: string; value: string }[]>("/settings")
       .then((settings) => {
         const m = settings.find((s) => s.key === "social_publishing_mode");
@@ -47,7 +49,6 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
       .catch(() => {});
   }, [client.id]);
 
-  // Listen for postMessage from the OAuth callback tab (direct mode)
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (
@@ -83,7 +84,6 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
         { method: "POST" },
       );
       if (mode === "mock" || !res.connect_url) {
-        // Mock mode: backend created a fake channel synchronously — just refresh.
         toast.success("Mock channel created");
         await load();
         return;
@@ -130,11 +130,11 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
   const connectableList = mode === "direct" ? CONNECTABLE_DIRECT : CONNECTABLE_ZERNIO;
 
   return (
-    <div className="channels">
-      <div className="page-header">
+    <div className="space-y-4">
+      <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h2 style={{ margin: 0 }}>Connected channels</h2>
-          <p className="muted">
+          <h2 className="m-0">Connected channels</h2>
+          <p className="text-sm text-muted-foreground">
             {mode === "direct"
               ? "Connect this client's social accounts directly via each platform's API."
               : mode === "mock"
@@ -142,84 +142,91 @@ export function Channels({ client, canEdit }: { client: Client; canEdit: boolean
                 : "Link this client's social accounts through Zernio, then publish and schedule to them."}
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={sync} disabled={!!busy}>
+        <Button variant="ghost" onClick={sync} disabled={!!busy}>
           <RefreshCw size={14} /> {busy === "sync" ? "Syncing…" : "Sync"}
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
-
-      {canEdit && (
-        <div className="card">
-          <strong className="small">Connect a new account</strong>
-          <p className="muted small">
-            {mode === "direct"
-              ? "Opens the platform's authorization page in a popup. After you approve, this list refreshes automatically."
-              : mode === "mock"
-                ? "Creates a fake channel instantly — no OAuth or popup. Useful for previewing the publish flow without burning real API quota."
-                : "Opens Zernio's secure login in a new tab. After you authorize, come back and click Sync."}
-          </p>
-          <div className="platform-chips" style={{ gap: 8, flexWrap: "wrap" }}>
-            {connectableList.map((p) => (
-              <button key={p} className="btn btn-ghost" disabled={!!busy} onClick={() => connect(p)}>
-                <PlatformIcon platform={p} size={14} /> {busy === p ? "Opening…" : platformLabel(p)}
-              </button>
-            ))}
-          </div>
-        </div>
+      {error && (
+        <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
       )}
 
-      <div className="card">
-        {loading ? (
-          <p className="muted">Loading…</p>
-        ) : channels.length === 0 ? (
-          <p className="muted">No channels connected yet.</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Status</th>
-                <th>Token expires</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {channels.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      <PlatformIcon platform={c.platform} size={16} />
-                      <span>
-                        <strong>{c.display_name || platformLabel(c.platform)}</strong>
-                        {c.username && <span className="muted small"> @{c.username}</span>}
-                      </span>
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`tag ${STATUS_TAG[c.status] ?? ""}`}>{c.status}</span>
-                  </td>
-                  <td className="muted small">
-                    {c.token_expires_at ? new Date(c.token_expires_at).toLocaleDateString() : "—"}
-                  </td>
-                  <td>
-                    {canEdit && (
-                      <>
-                        <button className="btn btn-ghost" disabled={!!busy} onClick={() => verify(c.id)}>
-                          Verify
-                        </button>
-                        <button className="btn btn-ghost" disabled={!!busy} onClick={() => disconnect(c.id)}>
-                          Remove
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
+      {canEdit && (
+        <Card>
+          <CardContent className="space-y-2 py-5">
+            <strong className="text-sm font-semibold">Connect a new account</strong>
+            <p className="text-sm text-muted-foreground">
+              {mode === "direct"
+                ? "Opens the platform's authorization page in a popup. After you approve, this list refreshes automatically."
+                : mode === "mock"
+                  ? "Creates a fake channel instantly — no OAuth or popup. Useful for previewing the publish flow without burning real API quota."
+                  : "Opens Zernio's secure login in a new tab. After you authorize, come back and click Sync."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {connectableList.map((p) => (
+                <Button key={p} variant="ghost" disabled={!!busy} onClick={() => connect(p)}>
+                  <PlatformIcon platform={p} size={14} /> {busy === p ? "Opening…" : platformLabel(p)}
+                </Button>
               ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle>Active connections</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <p className="p-5 text-sm text-muted-foreground">Loading…</p>
+          ) : channels.length === 0 ? (
+            <p className="p-5 text-sm text-muted-foreground">No channels connected yet.</p>
+          ) : (
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2.5">Account</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Token expires</th>
+                  <th className="px-4 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {channels.map((c) => (
+                  <tr key={c.id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-2">
+                        <PlatformIcon platform={c.platform} size={16} />
+                        <span>
+                          <strong>{c.display_name || platformLabel(c.platform)}</strong>
+                          {c.username && <span className="text-sm text-muted-foreground"> @{c.username}</span>}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant={STATUS_VARIANT[c.status] ?? "secondary"}>{c.status}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-muted-foreground">
+                      {c.token_expires_at ? new Date(c.token_expires_at).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {canEdit && (
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => verify(c.id)}>
+                            Verify
+                          </Button>
+                          <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => disconnect(c.id)}>
+                            Remove
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
