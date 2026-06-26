@@ -38,6 +38,7 @@ import type {
   CampaignApprovalStatus,
   CampaignElement,
   Client,
+  ElementType,
   ImageModel,
   Post,
   PostImage,
@@ -56,6 +57,23 @@ const PLATFORM_LIMITS: Record<string, number> = {
   youtube: 5000,
 };
 
+// Campaign posts are grouped by *content type* (not platform) so the user scans
+// by what the asset is — images, videos/reels, carousels, text.
+type PostType = ElementType; // image | carousel | video | text
+const POST_TYPE_ORDER: PostType[] = ["image", "carousel", "video", "text"];
+const POST_TYPE_META: Record<PostType, { label: string; singular: string; icon: string }> = {
+  image: { label: "Images", singular: "Image", icon: "image" },
+  carousel: { label: "Carousels", singular: "Carousel", icon: "view_carousel" },
+  video: { label: "Videos", singular: "Video / Reel", icon: "movie" },
+  text: { label: "Text", singular: "Text", icon: "article" },
+};
+
+// A post inherits its type from its element; orphan posts (no element) are text.
+function postType(post: Post, elements: CampaignElement[]): PostType {
+  const el = elements.find((e) => e.id === post.element_id);
+  return (el?.element_type as PostType) ?? "text";
+}
+
 export default function CampaignDetail() {
   const { campaignId } = useParams();
   const navigate = useNavigate();
@@ -70,7 +88,7 @@ export default function CampaignDetail() {
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
-  const [postPlatformTab, setPostPlatformTab] = useState<string>("all");
+  const [postTypeTab, setPostTypeTab] = useState<string>("all");
   const [showEditWarning, setShowEditWarning] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
   const [busyApproval, setBusyApproval] = useState("");
@@ -460,20 +478,23 @@ export default function CampaignDetail() {
                   <h3 className="text-lg font-semibold">Campaign Posts ({campaign.posts.length})</h3>
                 </div>
                 {(() => {
-                  const platforms = Array.from(new Set(campaign.posts.map((p) => p.platform)));
-                  if (platforms.length > 1) {
+                  // Tabs by content type (image / carousel / video / text), in a fixed order.
+                  const present = POST_TYPE_ORDER.filter((t) =>
+                    campaign.posts.some((p) => postType(p, campaign.elements) === t),
+                  );
+                  if (present.length > 1) {
                     return (
-                      <Tabs value={postPlatformTab} onValueChange={setPostPlatformTab} className="mb-3">
+                      <Tabs value={postTypeTab} onValueChange={setPostTypeTab} className="mb-3">
                         <TabsList className="flex-wrap h-auto">
                           <TabsTrigger value="all" className="gap-1.5">
                             All <span className="text-[0.65rem] opacity-70">{campaign.posts.length}</span>
                           </TabsTrigger>
-                          {platforms.map((pf) => (
-                            <TabsTrigger key={pf} value={pf} className="gap-1.5">
-                              <PlatformIcon platform={pf} size={14} />
-                              {platformLabel(pf)}
+                          {present.map((t) => (
+                            <TabsTrigger key={t} value={t} className="gap-1.5">
+                              <span className="material-symbols-outlined text-base">{POST_TYPE_META[t].icon}</span>
+                              {POST_TYPE_META[t].label}
                               <span className="text-[0.65rem] opacity-70">
-                                {campaign.posts.filter((p) => p.platform === pf).length}
+                                {campaign.posts.filter((p) => postType(p, campaign.elements) === t).length}
                               </span>
                             </TabsTrigger>
                           ))}
@@ -488,12 +509,13 @@ export default function CampaignDetail() {
                     <p className="text-sm text-muted-foreground">No posts yet. Generate the campaign first.</p>
                   )}
                   {campaign.posts
-                    .filter((post) => postPlatformTab === "all" || post.platform === postPlatformTab)
+                    .filter((post) => postTypeTab === "all" || postType(post, campaign.elements) === postTypeTab)
                     .map((post) => {
                     const el = campaign.elements.find((e) => e.id === post.element_id);
                     const cover = el?.images.find((i) => i.base_object_key);
                     const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
-                    const typeLabel = el?.element_type === "video" ? "REEL" : el?.element_type === "carousel" ? "CAROUSEL" : "POST";
+                    const ptype = postType(post, campaign.elements);
+                    const typeMeta = POST_TYPE_META[ptype];
                     return (
                       <div
                         key={post.id}
@@ -528,8 +550,9 @@ export default function CampaignDetail() {
                           </div>
                           <div className="flex flex-1 flex-col justify-center gap-2 p-4">
                             <div>
-                              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-primary">
-                                {post.platform.toUpperCase()} {typeLabel}
+                              <p className="mb-1 flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary">
+                                <span className="material-symbols-outlined text-sm">{typeMeta.icon}</span>
+                                {typeMeta.singular}
                               </p>
                               <h4 className="line-clamp-1 text-sm font-semibold">{post.headline || "Untitled"}</h4>
                             </div>
