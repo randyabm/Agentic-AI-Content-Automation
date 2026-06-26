@@ -59,16 +59,11 @@ export function ClientCard({ client, onboardingState, canEdit, onDelete, onClick
   const gradient = colors ? `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` : undefined;
 
   return (
-    <Card className="group relative overflow-hidden p-0 gap-0 transition-shadow hover:shadow-md">
+    <Card className="group relative flex flex-col gap-0 overflow-hidden p-0 transition-shadow hover:shadow-md">
       {/* Brand color banner */}
-      {gradient && (
-        <div
-          aria-hidden
-          className="h-20 w-full"
-          style={{ background: gradient }}
-        />
-      )}
-      {!gradient && (
+      {gradient ? (
+        <div aria-hidden className="h-20 w-full" style={{ background: gradient }} />
+      ) : (
         <div aria-hidden className="h-20 w-full bg-gradient-to-br from-indigo-500/10 via-violet-500/10 to-teal-500/10" />
       )}
 
@@ -89,67 +84,61 @@ export function ClientCard({ client, onboardingState, canEdit, onDelete, onClick
         </Tooltip>
       )}
 
-      <CardContent className="p-5">
+      <CardContent className="flex flex-col gap-2 p-5">
         <Link
           to={`/clients/${client.id}`}
           className="block"
           onClick={(e) => {
-            // If an onClick is provided, open the drawer instead of navigating.
-            // (User can still click the link to go to the full detail page.)
             if (onClick && !(e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               onClick();
             }
           }}
         >
-          <div className="-mt-12 mb-3">
-            <div className="inline-block rounded-full ring-4 ring-card">
+          <div className="-mt-12 mb-1">
+            <div className="inline-block rounded-full ring-4 ring-card bg-card">
               <ClientAvatar client={client} />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <h3 className="font-semibold leading-tight tracking-tight text-base">
-              {client.company_name}
-            </h3>
-
-            {client.industry && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Building2 className="h-3 w-3 shrink-0" />
-                <span className="truncate">{client.industry}</span>
-              </div>
-            )}
-
-            <div className="pt-1">
-              <OnboardingBadge state={onboardingState} />
-            </div>
-
-            {colors && colors.length > 0 && (
-              <div className="flex items-center gap-1 pt-1">
-                {colors.slice(0, 5).map((col, i) => (
-                  <Tooltip key={i}>
-                    <TooltipTrigger asChild>
-                      <span
-                        className="h-3 w-3 rounded-full ring-1 ring-border"
-                        style={{ background: col }}
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent>{col}</TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-
-            <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3 shrink-0" />
-              <span>
-                {client.last_extraction_at
-                  ? `Last analyzed ${new Date(client.last_extraction_at).toLocaleDateString()}`
-                  : "Not analyzed yet"}
-              </span>
-            </div>
-          </div>
+          <h3 className="font-semibold leading-tight tracking-tight text-base">
+            {client.company_name}
+          </h3>
         </Link>
+
+        {client.industry && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Building2 className="h-3 w-3 shrink-0" />
+            <span className="truncate">{client.industry}</span>
+          </div>
+        )}
+
+        <OnboardingBadge state={onboardingState} />
+
+        {colors && colors.length > 0 && (
+          <div className="flex items-center gap-1">
+            {colors.slice(0, 5).map((col, i) => (
+              <Tooltip key={i}>
+                <TooltipTrigger asChild>
+                  <span
+                    className="h-3 w-3 rounded-full ring-1 ring-border"
+                    style={{ background: col }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>{col}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3 shrink-0" />
+          <span>
+            {client.last_extraction_at
+              ? `Last analyzed ${new Date(client.last_extraction_at).toLocaleDateString()}`
+              : "Not analyzed yet"}
+          </span>
+        </div>
       </CardContent>
     </Card>
   );

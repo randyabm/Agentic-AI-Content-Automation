@@ -1,5 +1,10 @@
 import { Check, Circle, CircleDashed, FileText, Globe, Lightbulb, Loader2, Palette, Search, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { OnboardingStep, OnboardingStepStatus } from "../types";
 
 interface OnboardingStepperProps {
@@ -7,6 +12,9 @@ interface OnboardingStepperProps {
   /** When the whole job is done, all steps are forced to "done" even if some
    *  were "error" (so the connector reaches the final "Ready" node). */
   jobComplete?: boolean;
+  /** Compact = vertical list (used in the ClientDrawer where horizontal
+   *  space is limited). Default = horizontal grid (used on the setup page). */
+  compact?: boolean;
 }
 
 const STEP_ICON: Record<string, LucideIcon> = {
@@ -30,12 +38,55 @@ function statusTone(status: OnboardingStepStatus, jobComplete: boolean) {
   }
 }
 
-export function OnboardingStepper({ steps, jobComplete = false }: OnboardingStepperProps) {
+function StepIcon({ stepKey, tone }: { stepKey: string; tone: string }) {
+  const Icon = STEP_ICON[stepKey] ?? CircleDashed;
+  if (tone === "running") return <Loader2 className="h-4 w-4 animate-spin" />;
+  if (tone === "done") return <Check className="h-4 w-4" />;
+  if (tone === "error") return <Circle className="h-4 w-4 fill-current" />;
+  return <Icon className="h-4 w-4" />;
+}
+
+export function OnboardingStepper({ steps, jobComplete = false, compact = false }: OnboardingStepperProps) {
+  if (compact) {
+    return (
+      <ol className="space-y-1.5">
+        {steps.map((step, i) => {
+          const tone = statusTone(step.status, jobComplete);
+          return (
+            <li
+              key={step.key}
+              className={cn(
+                "flex items-center gap-2.5 rounded-md border px-2.5 py-1.5 text-sm",
+                tone === "done" && "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300",
+                tone === "running" && "border-primary/30 bg-primary/5 text-primary",
+                tone === "error" && "border-destructive/40 bg-destructive/5 text-destructive",
+                tone === "skipped" && "border-border bg-muted/40 text-muted-foreground",
+                tone === "pending" && "border-border bg-muted/20 text-muted-foreground",
+              )}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                <StepIcon stepKey={step.key} tone={tone} />
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex-1 min-w-0 truncate text-foreground font-normal">
+                    {step.label}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{step.label}</TooltipContent>
+              </Tooltip>
+              <span className="text-[10px] opacity-60 tabular-nums">{i + 1}/{steps.length}</span>
+            </li>
+          );
+        })}
+      </ol>
+    );
+  }
+
   return (
     <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {steps.map((step, i) => {
         const tone = statusTone(step.status, jobComplete);
-        const Icon = STEP_ICON[step.key] ?? CircleDashed;
         return (
           <li
             key={step.key}
@@ -50,15 +101,7 @@ export function OnboardingStepper({ steps, jobComplete = false }: OnboardingStep
           >
             <div className="flex items-center gap-2">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-                {tone === "running" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : tone === "done" ? (
-                  <Check className="h-4 w-4" />
-                ) : tone === "error" ? (
-                  <Circle className="h-4 w-4 fill-current" />
-                ) : (
-                  <Icon className="h-4 w-4" />
-                )}
+                <StepIcon stepKey={step.key} tone={tone} />
               </span>
               <span className="font-medium leading-tight text-foreground line-clamp-2">
                 {step.label}

@@ -135,7 +135,11 @@ export function ClientDrawer({ client, open, onOpenChange }: ClientDrawerProps) 
                   ))}
                 </div>
               ) : job ? (
-                <OnboardingStepper steps={job.steps} jobComplete={job.status === "completed" || job.status === "completed_with_errors"} />
+                <OnboardingStepper
+                  steps={job.steps}
+                  jobComplete={job.status === "completed" || job.status === "completed_with_errors"}
+                  compact
+                />
               ) : (
                 <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
                   No onboarding has run yet for this client.
