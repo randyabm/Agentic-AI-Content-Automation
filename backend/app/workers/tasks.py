@@ -21,7 +21,6 @@ from app.models.campaign import (
     Platform,
     Post,
     PostImage,
-    PostStatus,
     PostVideo,
 )
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob, JobStatus
@@ -1040,7 +1039,6 @@ def generate_campaign(campaign_id: str) -> None:
                     hashtags=pdata["hashtags"],
                     best_time=pdata["best_time"],
                     rationale=pdata["rationale"],
-                    status=PostStatus.ready,
                 ))
         db.commit()
 
@@ -1132,7 +1130,7 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
                     campaign_id=campaign.id, element_id=el.id, platform=cp.platform, position=position,
                     headline=pdata["headline"], copy=pdata["copy"], cta=pdata["cta"],
                     hashtags=pdata["hashtags"], best_time=pdata["best_time"],
-                    rationale=pdata["rationale"], status=PostStatus.ready,
+                    rationale=pdata["rationale"],
                 ))
         campaign.status = CampaignStatus.ready
         db.commit()
@@ -1764,7 +1762,6 @@ def watchdog_sweep() -> None:
                 Competitor.analysis_status.in_([
                     AnalysisStatus.crawling,
                     AnalysisStatus.extracting,
-                    AnalysisStatus.comparing,
                 ]),
                 Competitor.updated_at < cutoff,
             )

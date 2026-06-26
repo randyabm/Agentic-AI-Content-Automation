@@ -25,9 +25,7 @@ const STATUS_BAR: Record<string, string> = {
   scheduled: "bg-amber-400",
   publishing: "bg-amber-400",
   published: "bg-emerald-500",
-  partial: "bg-amber-400",
   failed: "bg-red-500",
-  draft: "bg-slate-300",
   retrying: "bg-orange-500",
   throttled: "bg-orange-300",
 };

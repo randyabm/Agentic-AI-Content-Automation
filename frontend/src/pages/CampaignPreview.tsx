@@ -195,7 +195,7 @@ function ElementPreviewCard({
 
   const scheduledCount = posts.filter((p) => p.publish_state?.status === "scheduled").length;
   const publishedCount = posts.filter(
-    (p) => p.publish_state?.status === "published" || p.publish_state?.status === "partial",
+    (p) => p.publish_state?.status === "published",
   ).length;
 
   return (

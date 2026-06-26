@@ -48,13 +48,6 @@ class CampaignStatus(str, enum.Enum):
     failed = "failed"
 
 
-class PostStatus(str, enum.Enum):
-    pending = "pending"
-    generating = "generating"
-    ready = "ready"
-    failed = "failed"
-
-
 class ElementType(str, enum.Enum):
     image = "image"
     carousel = "carousel"
@@ -216,8 +209,6 @@ class Post(Base):
     hashtags: Mapped[list] = mapped_column(JSON, default=list)
     best_time: Mapped[str] = mapped_column(String(255), default="")  # suggested posting time
     rationale: Mapped[str] = mapped_column(Text, default="")          # strategic rationale
-
-    status: Mapped[PostStatus] = mapped_column(Enum(PostStatus), default=PostStatus.pending)
 
     # Review/approval gate before publishing (SOCIAL_PUBLISHING_PLAN.md Phase 4).
     approval_status: Mapped[ApprovalStatus] = mapped_column(

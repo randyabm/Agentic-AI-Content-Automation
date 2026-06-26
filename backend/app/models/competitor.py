@@ -17,7 +17,6 @@ class AnalysisStatus(str, enum.Enum):
     pending = "pending"
     crawling = "crawling"
     extracting = "extracting"
-    comparing = "comparing"
     completed = "completed"
     failed = "failed"
 

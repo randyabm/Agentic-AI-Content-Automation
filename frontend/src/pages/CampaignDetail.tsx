@@ -990,7 +990,7 @@ function ElementCard({
   ].filter(Boolean);
 
   // Publish summary across this element's posts (shown as a card badge)
-  const publishedCount = posts.filter((p) => p.publish_state?.status === "published" || p.publish_state?.status === "partial").length;
+  const publishedCount = posts.filter((p) => p.publish_state?.status === "published").length;
   const publishingCount = posts.filter((p) => p.publish_state?.status === "publishing").length;
   const scheduledCount = posts.filter((p) => p.publish_state?.status === "scheduled").length;
   const failedCount = posts.filter((p) => p.publish_state?.status === "failed").length;
@@ -1506,11 +1506,11 @@ function CopyForm({
 }
 
 function PublishBadge({ ps }: { ps: PublishState; busy?: boolean }) {
-  if (ps.status === "published" || ps.status === "partial") {
+  if (ps.status === "published") {
     return (
       <span className="small" style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
         <span className="tag approval-approved">
-          {ps.status === "partial" ? "⚠ Partially published" : "✓ Published"}
+          ✓ Published
         </span>
         {ps.published_url && (
           <a href={ps.published_url} target="_blank" rel="noreferrer">

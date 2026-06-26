@@ -9,7 +9,6 @@ from app.models.campaign import (
     CampaignStatus,
     ElementType,
     Platform,
-    PostStatus,
     VideoStatus,
 )
 
@@ -181,7 +180,6 @@ class PostOut(BaseModel):
     hashtags: list
     best_time: str
     rationale: str
-    status: PostStatus
     approval_status: ApprovalStatus = ApprovalStatus.draft
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None

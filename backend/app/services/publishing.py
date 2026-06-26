@@ -492,8 +492,11 @@ def _apply_result(sp: ScheduledPost, result: dict, scheduled: bool) -> None:
     if status == "failed":
         _mark_failed(sp, "permanent", first.get("error") or "Publishing failed")
     elif status == "partial":
-        sp.status = PublishStatus.partial
-        sp.error = first.get("error") or ""
+        # Zernio's "partial" = some platforms ok, some failed. We don't have a
+        # dedicated state for that anymore (it was dropped in migration 008),
+        # so we record it as a published post with the warning attached.
+        _mark_published(sp)
+        sp.error = first.get("error") or "Partial publish (some platforms may have failed)"
     elif status == "scheduled" or (scheduled and status != "published"):
         sp.status = PublishStatus.scheduled
     else:

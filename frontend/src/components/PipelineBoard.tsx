@@ -32,7 +32,7 @@ interface PipelineBoardProps {
 }
 
 function columnFor(item: CalendarItem): string {
-  if (item.status === "published" || item.status === "partial") return "published";
+  if (item.status === "published") return "published";
   if (item.status === "scheduled" || item.status === "retrying" || item.status === "throttled")
     return "scheduled";
   if (item.approval_status === "approved") return "approved";

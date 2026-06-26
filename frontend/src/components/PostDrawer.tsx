@@ -24,11 +24,9 @@ import { cn } from "@/lib/utils";
 import { friendlyPublishError, nextAttemptNote, statusLabel, statusVariant } from "@/lib/publishStatus";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  draft: "secondary",
   scheduled: "outline",
   publishing: "outline",
   published: "default",
-  partial: "destructive",
   failed: "destructive",
   retrying: "outline",
   throttled: "outline",

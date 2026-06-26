@@ -18,7 +18,6 @@ from app.db.session import Base
 
 class OrgStatus(str, enum.Enum):
     active = "active"
-    suspended = "suspended"
 
 
 class Organization(Base):
