@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { api } from "../api";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { useAuth } from "../auth";
 import { ArticleModal } from "../components/ArticleModal";
 import type { Article, ArticleListItem, Client } from "../types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 type AddMode = "url" | "text" | null;
 type SortKey = "title" | "type" | "client" | "author" | "date" | "status";
@@ -56,7 +62,6 @@ export default function Articles() {
     return [...items].sort((a, b) => {
       const va = sortValue(a, sortKey);
       const vb = sortValue(b, sortKey);
-      // Empty values (e.g. missing date) always sort to the bottom.
       if (va === "" && vb !== "") return 1;
       if (vb === "" && va !== "") return -1;
       return va < vb ? -dir : va > vb ? dir : 0;
@@ -89,8 +94,6 @@ export default function Articles() {
     load().catch((e) => setError(e.message));
   }, [load]);
 
-  // One-time fetch to populate the client and tag filter dropdowns from the
-  // full library (independent of the active filters).
   useEffect(() => {
     api<Client[]>("/clients").then(setClients).catch(() => {});
     api<ArticleListItem[]>("/articles?limit=500")
@@ -102,7 +105,6 @@ export default function Articles() {
       .catch(() => {});
   }, []);
 
-  // Keep the client filter reflected in the URL so it is shareable / persists on reload.
   useEffect(() => {
     const current = searchParams.get("client_id") ?? "";
     if (clientId !== current) {
@@ -113,7 +115,6 @@ export default function Articles() {
     }
   }, [clientId, searchParams, setSearchParams]);
 
-  // Poll while any manual URL import is still extracting.
   useEffect(() => {
     const pending = items.some((a) => a.summary.startsWith("[Fetching"));
     if (pending && pollRef.current === null) {
@@ -157,16 +158,16 @@ export default function Articles() {
 
   return (
     <div>
-      <div className="page-header">
+      <div className="mb-5 flex items-center justify-between gap-4">
         <h1>Article Library</h1>
         {canEdit && (
-          <div className="competitor-actions">
-            <button className="btn btn-ghost" onClick={() => setAddMode(addMode === "url" ? null : "url")}>
-              + From URL
-            </button>
-            <button className="btn btn-primary" onClick={() => setAddMode(addMode === "text" ? null : "text")}>
-              + Paste text
-            </button>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Button variant="ghost" onClick={() => setAddMode(addMode === "url" ? null : "url")}>
+              <Plus size={14} /> From URL
+            </Button>
+            <Button onClick={() => setAddMode(addMode === "text" ? null : "text")}>
+              <Plus size={14} /> Paste text
+            </Button>
           </div>
         )}
       </div>
@@ -174,79 +175,95 @@ export default function Articles() {
       {addMode === "url" && <AddFromUrl onDone={() => { setAddMode(null); load(); }} onError={setError} />}
       {addMode === "text" && <AddFromText onDone={() => { setAddMode(null); load(); }} onError={setError} />}
 
-      <div className="card filters-bar">
-        <input placeholder="Search title, author, summary, tags…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select value={entryType} onChange={(e) => setEntryType(e.target.value)}>
-          <option value="">All types</option>
-          <option value="auto">Auto</option>
-          <option value="manual">Manual</option>
-        </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
-        </select>
-        <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
-          <option value="">All clients</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>{c.company_name}</option>
-          ))}
-        </select>
-        <select value={tag} onChange={(e) => setTag(e.target.value)}>
-          <option value="">All tags</option>
-          {allTags.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <label className="checkbox-label">
-          <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
-          Needs review only
-        </label>
-      </div>
+      <Card className="mb-4">
+        <CardContent className="flex flex-wrap items-center gap-3 py-4">
+          <Input placeholder="Search title, author, summary, tags…" value={q} onChange={(e) => setQ(e.target.value)} className="min-w-[220px] flex-1" />
+          <select value={entryType} onChange={(e) => setEntryType(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            <option value="">All types</option>
+            <option value="auto">Auto</option>
+            <option value="manual">Manual</option>
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+          <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            <option value="">All clients</option>
+            {clients.map((c) => (<option key={c.id} value={c.id}>{c.company_name}</option>))}
+          </select>
+          <select value={tag} onChange={(e) => setTag(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            <option value="">All tags</option>
+            {allTags.map((t) => (<option key={t} value={t}>{t}</option>))}
+          </select>
+          <label className="flex flex-row items-center gap-2 text-sm">
+            <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} className="size-4 accent-primary" />
+            Needs review only
+          </label>
+        </CardContent>
+      </Card>
 
-      {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
+      {error && (
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</div>
+      )}
 
       {items.length === 0 ? (
-        <p className="muted">No articles match these filters.</p>
+        <p className="text-sm text-muted-foreground">No articles match these filters.</p>
       ) : (
-        <div className="card">
-          <table className="table articles-table">
-            <thead>
-              <tr>
-                <SortHeader label="Title" sortKey="title" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                <SortHeader label="Type" sortKey="type" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                <SortHeader label="Client" sortKey="client" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                <SortHeader label="Author" sortKey="author" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                <SortHeader label="Date" sortKey="date" current={sortKey} dir={sortDir} onSort={toggleSort} />
-                <th>Tags</th>
-                <SortHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedItems.map((a) => (
-                <tr key={a.id} onClick={() => openArticle(a.id)} style={{ cursor: "pointer" }}>
-                  <td className="article-title-cell">{a.title}</td>
-                  <td><span className={`tag ${a.entry_type === "auto" ? "" : "tag-green"}`}>{a.entry_type}</span></td>
-                  <td className="muted small">{(a.client_id && clientsById.get(a.client_id)) || "—"}</td>
-                  <td className="muted small">{a.author || "—"}</td>
-                  <td className="muted small">{a.publication_date ?? "—"}</td>
-                  <td>
-                    <div className="article-meta">
-                      {a.tags.slice(0, 3).map((t) => <span key={t} className="tag">{t}</span>)}
-                      {a.tags.length > 3 && <span className="muted small">+{a.tags.length - 3}</span>}
-                    </div>
-                  </td>
-                  <td>
-                    {a.needs_review && <span className="tag tag-red">needs review</span>}
-                    {a.status === "archived" && <span className="tag">archived</span>}
-                    {!a.needs_review && a.status === "active" && <span className="muted small">active</span>}
-                  </td>
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-alt text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <SortHeader label="Title" sortKey="title" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Type" sortKey="type" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Client" sortKey="client" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Author" sortKey="author" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Date" sortKey="date" current={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <th className="px-4 py-2.5">Tags</th>
+                  <SortHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {sortedItems.map((a) => (
+                  <tr
+                    key={a.id}
+                    onClick={() => openArticle(a.id)}
+                    className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50"
+                  >
+                    <td className="max-w-[24rem] px-4 py-2.5 font-semibold">{a.title}</td>
+                    <td className="px-4 py-2.5">
+                      <Badge variant={a.entry_type === "auto" ? "secondary" : "success"}>{a.entry_type}</Badge>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{(a.client_id && clientsById.get(a.client_id)) || "—"}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{a.author || "—"}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{a.publication_date ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {a.tags.slice(0, 3).map((t) => (
+                          <Badge key={t} variant="secondary">{t}</Badge>
+                        ))}
+                        {a.tags.length > 3 && (
+                          <span className="text-xs text-muted-foreground">+{a.tags.length - 3}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {a.needs_review && <Badge variant="destructive">needs review</Badge>}
+                      {a.status === "archived" && <Badge>archived</Badge>}
+                      {!a.needs_review && a.status === "active" && (
+                        <span className="text-xs text-muted-foreground">active</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
       )}
 
       {selected && (
@@ -273,9 +290,13 @@ function SortHeader({
 }) {
   const active = current === sortKey;
   return (
-    <th className="sortable" onClick={() => onSort(sortKey)} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+    <th
+      onClick={() => onSort(sortKey)}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+      className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5"
+    >
       {label}
-      <span className="sort-indicator">{active ? (dir === "asc" ? " ▲" : " ▼") : ""}</span>
+      <span className="text-[0.7em]">{active ? (dir === "asc" ? " ▲" : " ▼") : ""}</span>
     </th>
   );
 }
@@ -296,13 +317,17 @@ function AddFromUrl({ onDone, onError }: { onDone: () => void; onError: (m: stri
     }
   }
   return (
-    <form className="card form-inline" onSubmit={submit}>
-      <label>
-        Article URL
-        <input type="url" placeholder="https://company.com/blog/post" value={url} onChange={(e) => setUrl(e.target.value)} required />
-      </label>
-      <button className="btn btn-primary" disabled={busy}>{busy ? "Fetching…" : "Fetch & extract"}</button>
-    </form>
+    <Card className="mb-4">
+      <CardContent className="py-4">
+        <form onSubmit={submit} className="flex flex-wrap items-end gap-4">
+          <div className="flex-1 min-w-[220px] space-y-1.5">
+            <Label htmlFor="add-url">Article URL</Label>
+            <Input id="add-url" type="url" placeholder="https://company.com/blog/post" value={url} onChange={(e) => setUrl(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={busy}>{busy ? "Fetching…" : "Fetch & extract"}</Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -332,19 +357,40 @@ function AddFromText({ onDone, onError }: { onDone: () => void; onError: (m: str
     }
   }
   return (
-    <form className="card" onSubmit={submit}>
-      <div className="form-grid">
-        <label>Title<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required /></label>
-        <label>Author<input value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} /></label>
-        <label>Publication date<input type="date" value={form.publication_date} onChange={(e) => setForm({ ...form, publication_date: e.target.value })} /></label>
-        <label>Source URL<input type="url" value={form.source_url} onChange={(e) => setForm({ ...form, source_url: e.target.value })} /></label>
-        <label>Tags (comma-separated)<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} /></label>
-      </div>
-      <label>Body<TextareaZoom label="Body" rows={8} value={form.body} onChange={(v) => setForm({ ...form, body: v })} /></label>
-      <div className="form-actions">
-        <button className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save article"}</button>
-      </div>
-    </form>
+    <Card className="mb-4">
+      <CardContent className="py-4">
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="add-text-title">Title</Label>
+              <Input id="add-text-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-text-author">Author</Label>
+              <Input id="add-text-author" value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-text-date">Publication date</Label>
+              <Input id="add-text-date" type="date" value={form.publication_date} onChange={(e) => setForm({ ...form, publication_date: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-text-source">Source URL</Label>
+              <Input id="add-text-source" type="url" value={form.source_url} onChange={(e) => setForm({ ...form, source_url: e.target.value })} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+              <Label htmlFor="add-text-tags">Tags (comma-separated)</Label>
+              <Input id="add-text-tags" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Body</Label>
+            <TextareaZoom label="Body" rows={8} value={form.body} onChange={(v) => setForm({ ...form, body: v })} />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save article"}</Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
-
