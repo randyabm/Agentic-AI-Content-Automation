@@ -1005,11 +1005,16 @@ function OnboardingProgress({
     <div className="card onboarding-card">
       <div className="onboarding-head">
         <strong>{running && <span className="spinner-inline" />} {title}</strong>
-        {canEdit && !running && (
-          <Button variant="ghost" size="sm" onClick={rerun} disabled={busy}>
-            {busy ? "Starting…" : "Re-run onboarding"}
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to={`/clients/${clientId}/setup`}>View setup →</Link>
           </Button>
-        )}
+          {canEdit && !running && (
+            <Button variant="ghost" size="sm" onClick={rerun} disabled={busy}>
+              {busy ? "Starting…" : "Re-run onboarding"}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="onboarding-progress">
