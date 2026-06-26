@@ -7,6 +7,8 @@ import { useAuth } from "../auth";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ClientCard, type OnboardingState } from "../components/ClientCard";
 import { ClientAvatar } from "../components/ClientAvatar";
+import { ClientsPipeline } from "../components/ClientsPipeline";
+import { ClientDrawer } from "../components/ClientDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +39,7 @@ import type { Client } from "../types";
 type DeletionSummary = { campaigns: number; competitors: number; articles: number };
 
 type StatusFilter = "all" | "running" | "ready" | "needs_attention" | "not_started";
-type ViewMode = "cards" | "list";
+type ViewMode = "cards" | "list" | "pipeline";
 
 function onboardingBucket(state: string | undefined): StatusFilter {
   switch (state) {
@@ -60,6 +62,7 @@ export default function Clients() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [view, setView] = useState<ViewMode>("cards");
+  const [drawerClient, setDrawerClient] = useState<Client | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Client | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<DeletionSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -198,6 +201,7 @@ export default function Clients() {
           <TabsList>
             <TabsTrigger value="cards">Cards</TabsTrigger>
             <TabsTrigger value="list">List</TabsTrigger>
+            <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -224,9 +228,16 @@ export default function Clients() {
               onboardingState={statuses[c.id] as OnboardingState | undefined}
               canEdit={canEdit}
               onDelete={(e) => openDeleteDialog(e, c)}
+              onClick={() => setDrawerClient(c)}
             />
           ))}
         </div>
+      ) : view === "pipeline" ? (
+        <ClientsPipeline
+          clients={visible}
+          statuses={statuses}
+          onCardClick={(c) => setDrawerClient(c)}
+        />
       ) : (
         <Tabs value={view} onValueChange={() => {}} className="hidden">
           <TabsContent value="list" forceMount>
@@ -295,6 +306,12 @@ export default function Clients() {
           </TabsContent>
         </Tabs>
       )}
+
+      <ClientDrawer
+        client={drawerClient}
+        open={!!drawerClient}
+        onOpenChange={(o) => !o && setDrawerClient(null)}
+      />
 
       {pendingDelete && (
         <ConfirmDialog

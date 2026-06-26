@@ -51,9 +51,10 @@ interface ClientCardProps {
   onboardingState: string | undefined;
   canEdit: boolean;
   onDelete: (e: React.MouseEvent) => void;
+  onClick?: () => void;
 }
 
-export function ClientCard({ client, onboardingState, canEdit, onDelete }: ClientCardProps) {
+export function ClientCard({ client, onboardingState, canEdit, onDelete, onClick }: ClientCardProps) {
   const colors = client.brand_colors?.length ? client.brand_colors : null;
   const gradient = colors ? `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` : undefined;
 
@@ -89,7 +90,18 @@ export function ClientCard({ client, onboardingState, canEdit, onDelete }: Clien
       )}
 
       <CardContent className="p-5">
-        <Link to={`/clients/${client.id}`} className="block">
+        <Link
+          to={`/clients/${client.id}`}
+          className="block"
+          onClick={(e) => {
+            // If an onClick is provided, open the drawer instead of navigating.
+            // (User can still click the link to go to the full detail page.)
+            if (onClick && !(e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              onClick();
+            }
+          }}
+        >
           <div className="-mt-12 mb-3">
             <div className="inline-block rounded-full ring-4 ring-card">
               <ClientAvatar client={client} />
