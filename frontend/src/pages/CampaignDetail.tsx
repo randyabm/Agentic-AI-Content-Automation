@@ -475,7 +475,9 @@ export default function CampaignDetail() {
               {/* RIGHT COLUMN: Posts List */}
               <div>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Campaign Posts ({campaign.posts.length})</h3>
+                  <h3 className="text-lg font-semibold">
+                    Campaign Posts ({new Set(campaign.posts.map((p) => p.element_id ?? p.id)).size})
+                  </h3>
                 </div>
                 {(() => {
                   // Tabs by content type (image / carousel / video / text), in a fixed order.
@@ -508,63 +510,111 @@ export default function CampaignDetail() {
                   {campaign.posts.length === 0 && (
                     <p className="text-sm text-muted-foreground">No posts yet. Generate the campaign first.</p>
                   )}
-                  {campaign.posts
-                    .filter((post) => postTypeTab === "all" || postType(post, campaign.elements) === postTypeTab)
-                    .map((post) => {
-                    const el = campaign.elements.find((e) => e.id === post.element_id);
-                    const cover = el?.images.find((i) => i.base_object_key);
-                    const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
-                    const ptype = postType(post, campaign.elements);
-                    const typeMeta = POST_TYPE_META[ptype];
-                    return (
-                      <div
-                        key={post.id}
-                        onClick={() => { if (post.element_id) setOpenElementId(post.element_id); }}
-                        className={cn(
-                          "overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow",
-                          post.element_id && "cursor-pointer hover:shadow-md",
-                        )}
-                      >
-                        <div className="flex h-32">
-                          <div className="size-32 flex-shrink-0 bg-muted">
-                            {cover ? (
-                              <PostThumbnail campaignId={campaign.id} image={cover} />
-                            ) : coverVid ? (
-                              <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
-                            ) : el?.element_type === "text" ? (
-                              <div className="flex size-full items-center justify-center bg-accent p-2">
-                                <p className="line-clamp-4 text-center text-[0.65rem] font-medium leading-snug text-accent-foreground">
-                                  {post.headline || post.copy || "Text post"}
-                                </p>
-                              </div>
-                            ) : el?.element_type === "video" ? (
-                              <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground/50">
-                                <span className="material-symbols-outlined text-3xl">movie</span>
-                                <span className="text-[0.6rem] font-medium uppercase tracking-wider">Reel</span>
-                              </div>
-                            ) : (
-                              <div className="flex size-full items-center justify-center text-muted-foreground/40">
-                                <span className="material-symbols-outlined text-3xl">image</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-1 flex-col justify-center gap-2 p-4">
-                            <div>
-                              <p className="mb-1 flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary">
-                                <span className="material-symbols-outlined text-sm">{typeMeta.icon}</span>
-                                {typeMeta.singular}
-                              </p>
-                              <h4 className="line-clamp-1 text-sm font-semibold">{post.headline || "Untitled"}</h4>
+                  {(() => {
+                    // One card per element (the same content reused across platforms),
+                    // plus a card per orphan post that has no element. Clicking opens
+                    // the element editor, which shows the per-platform detail.
+                    const visible = campaign.posts.filter(
+                      (post) => postTypeTab === "all" || postType(post, campaign.elements) === postTypeTab,
+                    );
+                    const groups: { key: string; elementId: string | null; posts: Post[] }[] = [];
+                    const byElement = new Map<string, Post[]>();
+                    for (const post of visible) {
+                      if (post.element_id) {
+                        if (!byElement.has(post.element_id)) {
+                          byElement.set(post.element_id, []);
+                          groups.push({ key: post.element_id, elementId: post.element_id, posts: byElement.get(post.element_id)! });
+                        }
+                        byElement.get(post.element_id)!.push(post);
+                      } else {
+                        groups.push({ key: post.id, elementId: null, posts: [post] });
+                      }
+                    }
+                    return groups.map((group) => {
+                      const rep = group.posts[0];
+                      const el = campaign.elements.find((e) => e.id === group.elementId);
+                      const cover = el?.images.find((i) => i.base_object_key);
+                      const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
+                      const ptype = postType(rep, campaign.elements);
+                      const typeMeta = POST_TYPE_META[ptype];
+                      // Platforms this element/content is published to.
+                      const platforms = Array.from(new Set(group.posts.map((p) => p.platform)));
+                      // Ratios available for the element (image renditions, else configured ratios).
+                      const ratios = el
+                        ? Array.from(new Set(
+                            el.images.map((i) => i.aspect_ratio).filter(Boolean).length > 0
+                              ? el.images.map((i) => i.aspect_ratio).filter(Boolean)
+                              : Object.values(el.platform_ratios || {}),
+                          ))
+                        : [];
+                      return (
+                        <div
+                          key={group.key}
+                          onClick={() => { if (group.elementId) setOpenElementId(group.elementId); }}
+                          className={cn(
+                            "overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow",
+                            group.elementId && "cursor-pointer hover:shadow-md",
+                          )}
+                        >
+                          <div className="flex min-h-32">
+                            <div className="size-32 flex-shrink-0 bg-muted">
+                              {cover ? (
+                                <PostThumbnail campaignId={campaign.id} image={cover} />
+                              ) : coverVid ? (
+                                <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
+                              ) : ptype === "text" ? (
+                                <div className="flex size-full items-center justify-center bg-accent p-2">
+                                  <p className="line-clamp-4 text-center text-[0.65rem] font-medium leading-snug text-accent-foreground">
+                                    {rep.headline || rep.copy || "Text post"}
+                                  </p>
+                                </div>
+                              ) : ptype === "video" ? (
+                                <div className="flex size-full flex-col items-center justify-center gap-1 text-muted-foreground/50">
+                                  <span className="material-symbols-outlined text-3xl">movie</span>
+                                  <span className="text-[0.6rem] font-medium uppercase tracking-wider">Reel</span>
+                                </div>
+                              ) : (
+                                <div className="flex size-full items-center justify-center text-muted-foreground/40">
+                                  <span className="material-symbols-outlined text-3xl">image</span>
+                                </div>
+                              )}
                             </div>
-                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <QuickSchedule campaignId={campaign.id} post={post} onDone={load} />
-                              {post.approval_status && <ApprovalBadge status={post.approval_status} className="shrink-0 px-2 py-0.5 text-[0.65rem]" />}
+                            <div className="flex flex-1 flex-col justify-center gap-2 p-4">
+                              <div>
+                                <p className="mb-1 flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary">
+                                  <span className="material-symbols-outlined text-sm">{typeMeta.icon}</span>
+                                  {typeMeta.singular}
+                                </p>
+                                <h4 className="line-clamp-1 text-sm font-semibold">{rep.headline || "Untitled"}</h4>
+                              </div>
+                              {/* Platforms this content is available on */}
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                                {platforms.map((p) => (
+                                  <PlatformIcon key={p} platform={p} size={15} />
+                                ))}
+                                <span className="text-[0.7rem]">
+                                  {platforms.length} platform{platforms.length !== 1 ? "s" : ""}
+                                </span>
+                                {ratios.length > 0 && (
+                                  <span className="ml-1 flex flex-wrap gap-1">
+                                    {ratios.map((r) => (
+                                      <span key={r} className="rounded-full bg-accent px-1.5 py-0.5 text-[0.65rem] font-medium text-accent-foreground">
+                                        {r}
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                <QuickSchedule campaignId={campaign.id} post={rep} onDone={load} />
+                                {rep.approval_status && <ApprovalBadge status={rep.approval_status} className="shrink-0 px-2 py-0.5 text-[0.65rem]" />}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             </div>
