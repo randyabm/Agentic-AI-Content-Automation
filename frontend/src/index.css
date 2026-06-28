@@ -15,6 +15,21 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "tw-animate-css";
 
+/* Box-sizing fix. Tailwind's preflight normally sets `*, ::before, ::after {
+ * box-sizing: border-box; }` — but preflight is off in this project, so the
+ * browser default `content-box` leaks through. With content-box, any element
+ * using `w-full` plus horizontal padding (e.g. shadcn Input/Textarea with
+ * `px-3`) ends up wider than its parent by 2× the padding amount. This rule
+ * is scoped to the same selector preflight uses and is safe to keep on
+ * independently of preflight's other resets. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /* SocialFlow design tokens (Deep Purple / Amber / Emerald) following the
