@@ -34,7 +34,7 @@ export default function Clients() {
   const [deleteSummary, setDeleteSummary] = useState<DeletionSummary | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [view, setView] = useState<"list" | "cards">(
-    () => (localStorage.getItem("clientsView") as "list" | "cards") || "cards",
+    () => (localStorage.getItem("clientsView") as "list" | "cards") || "list",
   );
   useEffect(() => { localStorage.setItem("clientsView", view); }, [view]);
   const pollRef = useRef<number | null>(null);
