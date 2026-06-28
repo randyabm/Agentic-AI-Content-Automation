@@ -1400,15 +1400,13 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
             <Label className="text-xs font-medium text-muted-foreground">Image prompt</Label>
             <TextareaZoom label="Image prompt" rows={3} value={prompt} onChange={setPrompt} />
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr]">
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Negative prompt</Label>
-              <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Additional guidance</Label>
-              <Input value={guidance} onChange={(e) => setGuidance(e.target.value)} placeholder="e.g. brand-safe, family-friendly" />
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Negative prompt</Label>
+            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Additional guidance</Label>
+            <Input value={guidance} onChange={(e) => setGuidance(e.target.value)} placeholder="e.g. brand-safe, family-friendly" />
           </div>
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button variant="outline" size="sm" onClick={savePrompt}>
