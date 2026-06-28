@@ -41,6 +41,7 @@ export function AiAssist({
   disabled,
   className,
   label,
+  variant = "icon",
 }: {
   campaignId: string;
   postId: string;
@@ -51,6 +52,8 @@ export function AiAssist({
   className?: string;
   /** When set, render a labelled button (icon + text) instead of icon-only. */
   label?: string;
+  /** "icon" = square icon button (overlaps input). "chip" = small bordered chip (sits next to label). "outline" = labelled button (used in popover footers). */
+  variant?: "icon" | "chip" | "outline";
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
@@ -95,7 +98,23 @@ export function AiAssist({
       }}
     >
       <PopoverTrigger asChild>
-        {label ? (
+        {variant === "chip" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            title="Improve with AI"
+            className={cn(
+              "h-6 gap-1 rounded-full border-primary/30 bg-primary/5 px-2 text-xs font-medium text-primary hover:border-primary/60 hover:bg-primary/10",
+              className,
+            )}
+          >
+            <Sparkles size={11} /> AI
+          </Button>
+        ) : label ? (
           <Button
             type="button"
             variant="outline"

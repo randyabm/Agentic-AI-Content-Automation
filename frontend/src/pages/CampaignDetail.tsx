@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Download, Eye, EyeOff, Maximize2, Pencil, Sparkles, Upload as UploadIcon, X } from "lucide-react";
+import { CalendarDays, ChevronRight, Download, Eye, EyeOff, FileImage, Film, Layers, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { getBlobUrl, hashKey } from "../lib/blobCache";
 import { ImageEditor } from "../components/ImageEditor";
@@ -887,24 +887,47 @@ function ElementModal({ campaignId, element, posts, client, models, videoModels,
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-6 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-4 backdrop-blur-sm sm:p-6" onClick={onClose}>
       <div
-        className={cn(
-          "flex max-h-[92vh] w-[95vw] max-w-[1100px] flex-col overflow-hidden rounded-xl bg-surface shadow-xl",
-          showPreview && "w-[min(95vw,1100px)]",
-        )}
+        className="flex max-h-[94vh] w-[min(96vw,1180px)] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-black/5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="m-0 text-xl font-semibold">{element ? element.theme || element.element_type : activePost?.headline || "Post"}</h2>
+        <div className="flex flex-shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-6 py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              {element?.element_type === "video" ? <Film size={18} />
+                : element?.element_type === "carousel" ? <Layers size={18} />
+                : element?.element_type === "text" ? <Type size={18} />
+                : <FileImage size={18} />}
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold leading-tight">
+                {element ? element.theme || element.element_type : activePost?.headline || "Post"}
+              </h2>
+              <p className="m-0 truncate text-xs text-muted-foreground">
+                {element ? (
+                  <>
+                    {element.element_type === "carousel"
+                      ? `${element.images.length} slides · ${posts.length} platform${posts.length === 1 ? "" : "s"}`
+                      : `${element.images.length + element.videos.length} asset${element.images.length + element.videos.length === 1 ? "" : "s"} · ${posts.length} platform${posts.length === 1 ? "" : "s"}`}
+                  </>
+                ) : (
+                  "Post detail"
+                )}
+              </p>
+            </div>
+          </div>
           <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
 
-        <div className={cn("grid flex-1 overflow-y-auto", showPreview ? "lg:grid-cols-[380px_1fr_400px]" : "lg:grid-cols-[380px_1fr]")}>
-          <div className="space-y-4 border-r border-border p-6">
+        <div className={cn("grid flex-1 overflow-y-auto", showPreview ? "lg:grid-cols-[minmax(360px,420px)_minmax(0,1fr)_minmax(360px,420px)]" : "lg:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]")}>
+          <div className="flex flex-col gap-4 overflow-y-auto border-r border-border bg-surface-alt/30 p-5">
             {element && (
-              <div>
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Visual (shared across platforms)</h3>
+              <section>
+                <header className="mb-3 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Visual</h3>
+                  <span className="text-[0.65rem] font-medium uppercase tracking-wider text-muted-foreground">shared across platforms</span>
+                </header>
                 {element.images.length > 0 && (
                   <ElementVisual campaignId={campaignId} images={element.images} client={client} models={models}
                     canEdit={canEdit} onChange={onChange} platformsForRatio={platformsForRatio} />
@@ -913,25 +936,29 @@ function ElementModal({ campaignId, element, posts, client, models, videoModels,
                   <VideoVisual campaignId={campaignId} videos={element.videos} client={client} models={videoModels}
                     canEdit={canEdit} onChange={onChange} platformsForRatio={platformsForRatio} />
                 )}
-              </div>
+              </section>
             )}
           </div>
 
-          <div className="space-y-4 p-6">
+          <div className="flex flex-col gap-4 overflow-y-auto p-5">
             {posts.length > 1 && <PlatformTabs posts={posts} value={tab} onValueChange={(v) => setTab(v as typeof tab)} />}
             {activePost && (
               <CopyForm key={activePost.id} campaignId={campaignId} post={activePost}
                 canEdit={canEdit} onChange={onChange} setDrafts={setDrafts} />
             )}
-            {posts.length === 0 && <p className="text-sm text-muted-foreground">This element has no posts.</p>}
+            {posts.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border bg-surface-alt/50 p-8 text-center">
+                <p className="m-0 text-sm text-muted-foreground">This element has no posts.</p>
+              </div>
+            )}
           </div>
 
           {showPreview && (
-            <aside className="space-y-2 border-l border-border bg-surface-alt p-6">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Live preview</span>
-                <span className="text-xs text-muted-foreground">updates as you type</span>
-              </div>
+            <aside className="flex flex-col gap-3 overflow-y-auto border-l border-border bg-surface-alt/50 p-5">
+              <header className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live preview</h3>
+                <span className="text-[0.65rem] text-muted-foreground">updates as you type</span>
+              </header>
               <LivePreviewColumn campaignId={campaignId} element={element!} posts={posts} client={client!} drafts={drafts} activePlatform={tab} />
             </aside>
           )}
@@ -1011,65 +1038,111 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
   const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setDirty(true); };
 
   return (
-    <div className="space-y-3">
-      <div className="mb-3">
-        <Label className="text-sm">Headline</Label>
-        <div className="relative mt-1">
-          <Input className="pr-9" value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
-          {canEdit && <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline} onApply={(v) => mark(setHeadline)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />}
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">Headline</Label>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="headline" value={headline}
+              onApply={(v) => mark(setHeadline)(v)} variant="chip" />
+          )}
         </div>
-      </div>
-      <div className="mb-3">
-        <Label className="text-sm">
-          Copy <span className={cn("ml-1 text-xs", copy.length > limit ? "text-red-600" : "text-muted-foreground")}>{copy.length}/{limit}</span>
-        </Label>
-        <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit}
-          footerSlot={canEdit ? <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy} onApply={(v) => mark(setCopy)(v)} label="Improve with AI" /> : undefined} />
-      </div>
-      <div className="mb-3">
-        <Label className="text-sm">Call to action</Label>
-        <div className="relative mt-1">
-          <Input className="pr-9" value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
-          {canEdit && <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta} onApply={(v) => mark(setCta)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />}
-        </div>
-      </div>
-      <div className="mb-3">
-        <Label className="text-sm">Hashtags</Label>
-        <div className="relative mt-1">
-          <Input className="pr-9" value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit} />
-          {canEdit && <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags} onApply={(v) => mark(setHashtags)(v)} className="absolute right-1 top-1/2 -translate-y-1/2" />}
-        </div>
-      </div>
-      {post.rationale && <p className="text-sm text-muted-foreground">💡 {post.rationale}</p>}
-
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-alt p-3">
-        <Badge variant={APPROVAL_STATUS_VARIANT[post.approval_status] ?? "secondary"}>
-          {APPROVAL_LABELS[post.approval_status] ?? post.approval_status}
-        </Badge>
-        {post.approval_status === "rejected" && post.review_note && (
-          <span className="text-sm text-muted-foreground">— {post.review_note}</span>
-        )}
-        {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
-          <Button variant="ghost" size="sm" onClick={() => review("submit")} disabled={!!busy}>Submit for review</Button>
-        )}
-        {canReview && post.approval_status !== "approved" && (
-          <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>Approve</Button>
-        )}
-        {canReview && post.approval_status === "pending_review" && (
-          <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>Reject</Button>
-        )}
-        {ps && <PublishBadge ps={ps} busy={!!busy} />}
+        <Input value={headline} onChange={(e) => mark(setHeadline)(e.target.value)} readOnly={!canEdit} />
       </div>
 
-      {post.best_time && (
-        <p className="text-sm text-muted-foreground">🕐 <strong>Suggested time:</strong> {post.best_time}</p>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">
+            Copy
+            <span className={cn("ml-2 text-xs tabular-nums", copy.length > limit ? "text-red-600" : "text-muted-foreground")}>
+              {copy.length}/{limit}
+            </span>
+          </Label>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="copy" value={copy}
+              onApply={(v) => mark(setCopy)(v)} variant="chip" />
+          )}
+        </div>
+        <TextareaZoom label="Copy" rows={6} value={copy} onChange={(v) => mark(setCopy)(v)} readOnly={!canEdit} />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">Call to action</Label>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="cta" value={cta}
+              onApply={(v) => mark(setCta)(v)} variant="chip" />
+          )}
+        </div>
+        <Input value={cta} onChange={(e) => mark(setCta)(e.target.value)} readOnly={!canEdit} />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">Hashtags</Label>
+          {canEdit && (
+            <AiAssist campaignId={campaignId} postId={post.id} field="hashtags" value={hashtags}
+              onApply={(v) => mark(setHashtags)(v)} variant="chip" />
+          )}
+        </div>
+        <Input value={hashtags} onChange={(e) => mark(setHashtags)(e.target.value)} readOnly={!canEdit}
+          placeholder="#tag1 #tag2 #tag3" />
+      </div>
+
+      {post.rationale && (
+        <div className="flex gap-2 rounded-md border-l-[3px] border-primary bg-accent/50 px-3 py-2 text-sm text-muted-foreground">
+          <Sparkles size={14} className="mt-0.5 flex-shrink-0 text-primary" />
+          <span className="leading-relaxed">{post.rationale}</span>
+        </div>
       )}
 
+      <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-alt p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={APPROVAL_STATUS_VARIANT[post.approval_status] ?? "secondary"}>
+            {APPROVAL_LABELS[post.approval_status] ?? post.approval_status}
+          </Badge>
+          {ps && <PublishBadge ps={ps} busy={!!busy} />}
+          {post.best_time && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <CalendarDays size={12} /> Suggested: <strong className="font-medium text-foreground/80">{post.best_time}</strong>
+            </span>
+          )}
+        </div>
+        {post.approval_status === "rejected" && post.review_note && (
+          <p className="m-0 rounded-md border-l-[3px] border-red-500 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+            {post.review_note}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
+            <Button variant="outline" size="sm" onClick={() => review("submit")} disabled={!!busy}>
+              Submit for review
+            </Button>
+          )}
+          {canReview && post.approval_status !== "approved" && (
+            <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
+              Approve
+            </Button>
+          )}
+          {canReview && post.approval_status === "pending_review" && (
+            <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
+              Reject
+            </Button>
+          )}
+        </div>
+      </div>
+
       {canEdit && (
-        <div className="flex gap-2">
-          <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>Save</Button>
-          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>Regenerate copy</Button>
-          {busy && <span className="self-center text-sm text-muted-foreground">{busy}</span>}
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>
+            {busy === "Saving…" ? busy : "Save changes"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>
+            <Sparkles size={14} className="text-primary" /> Regenerate copy
+          </Button>
+          {busy && busy !== "Saving…" && (
+            <span className="text-xs text-muted-foreground">{busy}</span>
+          )}
         </div>
       )}
     </div>
@@ -1145,7 +1218,7 @@ function ElementVisual({ campaignId, images, client, models, canEdit, onChange, 
 
   if (!current) return null;
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       {isCarousel && (
         <div className="flex flex-wrap gap-1">
           {slots.map((s, idx) => {
@@ -1172,12 +1245,13 @@ function ElementVisual({ campaignId, images, client, models, canEdit, onChange, 
           ))}
         </div>
       )}
-      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span className="rounded-md bg-accent px-1.5 py-0.5 text-[0.65rem] font-semibold text-accent-foreground">{current.aspect_ratio}</span>
+        <span className="text-muted-foreground/60">·</span>
         {platformsForRatio(current.aspect_ratio).length
           ? platformsForRatio(current.aspect_ratio).map((p) => <PlatformIcon key={p} platform={p} size={14} />)
-          : "all"}
-      </p>
+          : <span>all platforms</span>}
+      </div>
       <ImageSlot key={current.id} campaignId={campaignId} image={current} client={client} models={models}
         canEdit={canEdit} onChange={onChange} cascades={current.id === primaryId && slotImages.length > 1} lockGenerate={slotBusy} />
     </div>
@@ -1272,20 +1346,23 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
         </div>
       )}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className="rounded-md bg-accent px-1.5 py-0.5 text-[0.65rem] font-semibold text-accent-foreground">{image.aspect_ratio}</span>
         {image.status === "failed" && <Badge variant="destructive">failed</Badge>}
       </div>
-      {(error || image.error) && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error || image.error}</div>}
+      {(error || image.error) && (
+        <div className="rounded-lg border-l-[3px] border-red-500 bg-red-50 p-2.5 text-sm text-red-700">
+          {error || image.error}
+        </div>
+      )}
 
       {canEdit && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ModelSelect value={modelId} onChange={setModelId} options={models} />
           <Button size="sm" onClick={generate} disabled={!!busy || image.status === "generating" || lockGenerate}
             title={lockGenerate && image.status !== "generating" ? "The base ratio is generating — it will create this one too" : undefined}>
             <Sparkles size={14} />
             {image.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : image.base_object_key ? "Regenerate" : "Generate"}
           </Button>
-          <Button asChild variant="ghost" size="sm" className={cn(lockGenerate && "pointer-events-none opacity-50")}>
+          <Button asChild variant="outline" size="sm" className={cn(lockGenerate && "pointer-events-none opacity-50")}>
             <label className="flex cursor-pointer items-center gap-1.5">
               <UploadIcon size={14} /> Upload
               <input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={!!busy || lockGenerate}
@@ -1301,27 +1378,42 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
         </div>
       )}
       {canEdit && cascades && (
-        <p className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Sparkles size={12} /> Generating this base also creates the other ratios automatically.
+        <p className="m-0 flex items-center gap-1.5 rounded-md border border-dashed border-border bg-accent/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+          <Sparkles size={12} className="text-primary" />
+          Generating this base also creates the other ratios automatically.
         </p>
       )}
 
       {canEdit && (
-        <div className="space-y-2">
-          <Label className="text-sm">Image prompt
-            <TextareaZoom label="Image prompt" rows={4} value={prompt} onChange={setPrompt} />
-          </Label>
-          <Label className="text-sm">Negative prompt
-            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
-          </Label>
-          <Label className="text-sm">Additional guidance (appended)
-            <Input value={guidance} onChange={(e) => setGuidance(e.target.value)} />
-          </Label>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={savePrompt}>Save prompt</Button>
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-alt/40 p-3">
+          <header className="flex items-center justify-between">
+            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <Sparkles size={12} className="text-primary" /> Prompt engineering
+            </h4>
             {image.prompt_history.length > 0 && (
-              <span className="self-center text-sm text-muted-foreground">{image.prompt_history.length} previous version(s)</span>
+              <span className="text-[0.65rem] text-muted-foreground">
+                {image.prompt_history.length} previous version{image.prompt_history.length === 1 ? "" : "s"}
+              </span>
             )}
+          </header>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Image prompt</Label>
+            <TextareaZoom label="Image prompt" rows={3} value={prompt} onChange={setPrompt} />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr]">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Negative prompt</Label>
+              <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Additional guidance</Label>
+              <Input value={guidance} onChange={(e) => setGuidance(e.target.value)} placeholder="e.g. brand-safe, family-friendly" />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={savePrompt}>
+              Save prompt
+            </Button>
           </div>
         </div>
       )}
