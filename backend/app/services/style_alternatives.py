@@ -90,7 +90,13 @@ def get_alternatives(
     if not visual:
         return [], []
 
-    org_id = str(campaign.org_id) if campaign.org_id else ""
+    # Resolve org_id via the Client (Campaign only has client_id).
+    from app.models.client import Client
+    org_id = ""
+    if campaign.client_id:
+        client_row = db.get(Client, campaign.client_id)
+        if client_row is not None and client_row.org_id:
+            org_id = str(client_row.org_id)
     client_id = str(campaign.client_id) if campaign.client_id else None
 
     excluded = set(exclude_families) | set(

@@ -597,11 +597,19 @@ def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElem
     # The current VISUAL_INSTRUCTIONS prompt does not yet use this block,
     # but Stage 1.3 will — the block is here so the data starts
     # accumulating from the first generation.
+    # Campaign only has client_id; org_id lives on the Client. Resolve it
+    # here once so the penalty block and the post-gen record_usage hook
+    # (which is the one that actually needs the org) share the same value.
     from app.services.style_repetition import penalty_block
 
+    org_id = ""
+    if campaign.client_id:
+        client_row = db.get(Client, campaign.client_id)
+        if client_row is not None:
+            org_id = str(client_row.org_id) if client_row.org_id else ""
     penalty = penalty_block(
         db,
-        org_id=str(campaign.org_id) if campaign.org_id else "",
+        org_id=org_id,
         client_id=str(campaign.client_id) if campaign.client_id else None,
     )
     penalty_section = f"\n\n{penalty}" if penalty else ""
@@ -761,7 +769,14 @@ def generate_visuals_and_copy(
             try:
                 from app.services.style_repetition import StyleHistorySource, record_usage
 
-                org_id = str(campaign.org_id) if campaign.org_id else ""
+                # Resolve org_id via the Client (Campaign only has client_id).
+                # _prepare_visual already resolved this; reuse via Client lookup
+                # here is cheap and keeps the hook self-contained.
+                org_id = ""
+                if campaign.client_id:
+                    client_row = db.get(Client, campaign.client_id)
+                    if client_row is not None and client_row.org_id:
+                        org_id = str(client_row.org_id)
                 client_id = str(campaign.client_id) if campaign.client_id else None
                 if org_id:
                     seen: set[str] = set()
