@@ -488,11 +488,49 @@ def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElem
         f"ELEMENT {i + 1}: {_element_descriptor(el)} — produce {_slots_for(el)} prompt(s)"
         for i, el in enumerate(visual)
     )
-    user_prompt = f"{VISUAL_INSTRUCTIONS.format(element_lines=lines)}\n\nCONTEXT:\n{context}"
+    # Repetition-penalty hint: the last 5 style_families used for this
+    # client (or the org, as a fallback). Empty when there's no history yet.
+    # The current VISUAL_INSTRUCTIONS prompt does not yet use this block,
+    # but Stage 1.3 will — the block is here so the data starts
+    # accumulating from the first generation.
+    from app.services.style_repetition import penalty_block
+
+    penalty = penalty_block(
+        db,
+        org_id=str(campaign.org_id) if campaign.org_id else "",
+        client_id=str(campaign.client_id) if campaign.client_id else None,
+    )
+    penalty_section = f"\n\n{penalty}" if penalty else ""
+    user_prompt = (
+        f"{VISUAL_INSTRUCTIONS.format(element_lines=lines)}{penalty_section}\n\nCONTEXT:\n{context}"
+    )
     temperature = creativity_to_temperature(campaign.creativity_level)
     plan = [(el.id, _slots_for(el)) for el in visual]
     order = [el.id for el in elements]
     return cfg, user_prompt, temperature, plan, order
+
+
+def _infer_style_family(prompt: str) -> str:
+    """Best-effort keyword inference of which style_family the visual agent
+    picked for a given prompt. Used only until Stage 1.3 wires the
+    explicit style_family field from the agent's structured output — at
+    that point this becomes a no-op fallback. Cheap and good enough to
+    start populating style_history from the first generation.
+    """
+    p = prompt.lower()
+    if any(w in p for w in ["headline", "typographic", "typography", "poster", "headline block"]):
+        return "bold_typographic"
+    if any(w in p for w in ["lifestyle", "candid", "ugc", "real-world", "real world", "phone camera"]):
+        return "lifestyle_ugc"
+    if any(w in p for w in ["collage", "cut-out", "cut out", "torn edge", "sticker", "cut paper"]):
+        return "editorial_collage"
+    if any(w in p for w in ["3d", "product hero", "studio lighting", "rim light", "bokeh"]):
+        return "3d_product_hero"
+    if any(w in p for w in ["hand-drawn", "hand drawn", "marker", "scribble", "playful"]):
+        return "imperfect_hand_drawn"
+    if any(w in p for w in ["surreal", "seasonal", "dreamlike", "dream", "festival"]):
+        return "surreal_seasonal_scene"
+    return "unknown"
 
 
 def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> list[list[dict]]:
@@ -572,6 +610,32 @@ def generate_visuals_and_copy(
         if key == "visual":
             _, _, _, plan, order = visual_prep
             element_prompts = _parse_visual(raw, plan, order)
+            # Record the style_families the agent picked for this brand so
+            # the next generation's penalty block has data. Best-effort
+            # keyword inference until Stage 1.3 returns an explicit field.
+            try:
+                from app.services.style_repetition import StyleHistorySource, record_usage
+
+                org_id = str(campaign.org_id) if campaign.org_id else ""
+                client_id = str(campaign.client_id) if campaign.client_id else None
+                if org_id:
+                    seen: set[str] = set()
+                    for slots in element_prompts:
+                        for slot in slots:
+                            p = slot.get("prompt", "")
+                            fam = _infer_style_family(p)
+                            if fam and fam != "unknown" and fam not in seen:
+                                seen.add(fam)
+                                record_usage(
+                                    db,
+                                    org_id=org_id,
+                                    client_id=client_id,
+                                    style_family=fam,
+                                    image_prompt=p,
+                                    source=StyleHistorySource.generation,
+                                )
+            except Exception:
+                logger.exception("Failed to record style_history for campaign %s", campaign.id)
         else:
             _, platform, pspec, num = key
             posts_by_platform[platform] = _parse_posts(raw, num, pspec)

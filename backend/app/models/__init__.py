@@ -19,6 +19,7 @@ from app.models.permission import Capability, RolePermission
 from app.models.setting import Setting
 from app.models.social import ScheduledPost, SocialAccount
 from app.models.style_card import StyleCard
+from app.models.style_history import StyleHistory, StyleHistorySource
 from app.models.user import PasswordResetToken, RefreshToken, User
 
 __all__ = [
@@ -52,6 +53,8 @@ __all__ = [
     "Setting",
     "SocialAccount",
     "StyleCard",
+    "StyleHistory",
+    "StyleHistorySource",
     "User",
     "VideoModel",
 ]
