@@ -18,6 +18,7 @@ from app.models.org import Organization
 from app.models.permission import Capability, RolePermission
 from app.models.setting import Setting
 from app.models.social import ScheduledPost, SocialAccount
+from app.models.style_card import StyleCard
 from app.models.user import PasswordResetToken, RefreshToken, User
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "OnboardingJob",
     "Organization",
     "Post",
+    "PermissionCell",
     "RolePermission",
     "PostAsset",
     "PostImage",
@@ -49,6 +51,7 @@ __all__ = [
     "ScheduledPost",
     "Setting",
     "SocialAccount",
+    "StyleCard",
     "User",
     "VideoModel",
 ]

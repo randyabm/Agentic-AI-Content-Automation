@@ -14,6 +14,7 @@ from app.api.routes import (
     orgs,
     scheduling,
     settings,
+    style_cards,
     users,
     webhooks,
 )
@@ -31,6 +32,7 @@ api_router.include_router(media.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(llm_configs.router)
 api_router.include_router(settings.router)
+api_router.include_router(style_cards.router)
 api_router.include_router(clients.router)
 api_router.include_router(competitors.router)
 api_router.include_router(articles.router)

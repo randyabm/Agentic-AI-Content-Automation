@@ -200,6 +200,8 @@ def seed(db: Session) -> None:
 
     db.commit()
 
+    _seed_default_style_cards(db)
+
     _seed_multitenancy(db, settings)
 
 
@@ -318,3 +320,162 @@ def _seed_provider_credentials(db: Session, settings) -> None:
             db.add(ProviderCredential(provider=cp, label=labels.get(cp, cp), api_key_encrypted=encrypt_secret(key)))
         elif not decrypt_secret(cred.api_key_encrypted):
             cred.api_key_encrypted = encrypt_secret(key)
+
+
+# Visual style cards — the curated library the Visual Agent picks from. Seeded
+# once on first boot; admins can add brand-scoped overrides later. The 6
+# families below are the ones documented in the visual-style research
+# blueprint (June 2026): each one is a self-contained visual direction so
+# generation doesn't have to invent a direction from scratch every call.
+DEFAULT_STYLE_CARDS: list[dict] = [
+    {
+        "id": "bold_typographic",
+        "family": "bold_typographic",
+        "name": "Bold typographic poster",
+        "description": "Oversized headline blocks, strong visual hierarchy, "
+                       "high-contrast colour blocks. The layout engine renders the "
+                       "type — the image only carries background and subject.",
+        "best_for": ["Offers", "Launches", "Punchy ads", "Event announcements"],
+        "not_for": ["Long body copy", "Lifestyle storytelling", "Quiet brand voice"],
+        "visual_cues": ["Large negative space blocks for headline overlay",
+                        "Strong shadows or hard-edge geometry",
+                        "Warm primary + accent colour",
+                        "Subject placed off-centre to leave room for type"],
+        "negative_constraints": ["no embedded text or fake letters",
+                                  "no body copy in the image",
+                                  "no generic gradient blob",
+                                  "no centred template look"],
+    },
+    {
+        "id": "lifestyle_ugc",
+        "family": "lifestyle_ugc",
+        "name": "Lifestyle UGC / photo-real",
+        "description": "Real-world setting, candid human moment, phone-camera "
+                       "feel. Builds trust for local services, community brands, "
+                       "and product testimonials.",
+        "best_for": ["Trust-building", "Local services", "Community brands", "UGC reposts"],
+        "not_for": ["Premium / technical polish", "Strict corporate brands",
+                     "Impersonal product launches"],
+        "visual_cues": ["Natural lighting, golden hour or window light",
+                        "Slight grain or phone-camera texture",
+                        "Real environment, not a studio",
+                        "Subject candid, mid-action, not posed",
+                        "Muted, lived-in colour palette"],
+        "negative_constraints": ["no studio polish",
+                                  "no overly posed models",
+                                  "no AI-looking perfection",
+                                  "no embedded text in the image"],
+    },
+    {
+        "id": "editorial_collage",
+        "family": "editorial_collage",
+        "name": "Editorial collage",
+        "description": "Cut-outs, layered paper, stickers, mixed type scale, "
+                       "asymmetric grid. Fashion-magazine energy for campaigns, "
+                       "events, and creative services.",
+        "best_for": ["Campaigns", "Fashion", "Events", "Creative services",
+                     "Limited-time drops"],
+        "not_for": ["Strict corporate brands", "Regulated industries",
+                     "Long-form product detail"],
+        "visual_cues": ["Cut-paper or torn-edge textures",
+                        "Mixed type scale silhouettes (no real letters)",
+                        "Layered product cut-outs with soft shadows",
+                        "Asymmetric grid with intentional empty space",
+                        "Warm neutrals with one strong accent"],
+        "negative_constraints": ["no centered template look",
+                                  "no fake text in the image",
+                                  "no repeated icon grid",
+                                  "no flat illustration"],
+    },
+    {
+        "id": "3d_product_hero",
+        "family": "3d_product_hero",
+        "name": "3D product hero",
+        "description": "Single hero object rendered with studio lighting, depth, "
+                       "and reflective surfaces. For products, SaaS feature launches, "
+                       "and tech where the product is the hero.",
+        "best_for": ["Products", "SaaS feature launches", "Tech announcements",
+                     "Hero placements"],
+        "not_for": ["Emotional storytelling", "Local services",
+                     "Multi-subject compositions"],
+        "visual_cues": ["Single hero object, off-centre or floating",
+                        "Studio lighting with rim light",
+                        "Soft shadow + reflective surface",
+                        "Depth of field with bokeh background",
+                        "High-fidelity material rendering (metal, glass, plastic)"],
+        "negative_constraints": ["no flat illustration",
+                                  "no more than one hero subject",
+                                  "no embedded text or fake letters",
+                                  "no cluttered background"],
+    },
+    {
+        "id": "imperfect_hand_drawn",
+        "family": "imperfect_hand_drawn",
+        "name": "Imperfect hand-drawn",
+        "description": "Scribbles, marker textures, uneven shapes, playful grid. "
+                       "Friendly, human, and approachable for education and small "
+                       "business brands.",
+        "best_for": ["Friendly brands", "Education", "Small business",
+                     "Internal comms", "Explainer content"],
+        "not_for": ["Luxury or high-trust", "Finance / legal", "Regulated content"],
+        "visual_cues": ["Scribbles and marker textures",
+                        "Uneven, hand-drawn shapes",
+                        "Playful grid with intentional roughness",
+                        "Warm, paper-like background",
+                        "Muted earth-tone palette"],
+        "negative_constraints": ["no luxury aesthetic",
+                                  "no clean lines",
+                                  "no fake text in the image",
+                                  "no corporate stock-photo polish"],
+    },
+    {
+        "id": "surreal_seasonal_scene",
+        "family": "surreal_seasonal_scene",
+        "name": "Surreal seasonal scene",
+        "description": "Unexpected scale, dreamlike backgrounds, cinematic colour. "
+                       "For awareness campaigns, festivals, and playful seasonal "
+                       "offers.",
+        "best_for": ["Awareness", "Festivals", "Playful offers",
+                     "Seasonal launches", "Mood pieces"],
+        "not_for": ["Regulated industries", "Serious topics", "B2B / B2G"],
+        "visual_cues": ["Unexpected scale (oversized props, miniature subjects)",
+                        "Dreamlike gradient sky or backdrop",
+                        "Cinematic colour grade",
+                        "Soft, golden-hour lighting",
+                        "Subject in mid-air or mid-moment"],
+        "negative_constraints": ["no regulated or serious tone",
+                                  "no flat illustration",
+                                  "no embedded text or fake letters",
+                                  "no stock-photo composition"],
+    },
+]
+
+
+def _seed_default_style_cards(db: Session) -> None:
+    """Idempotent: insert the 6 global style cards on first boot, skip if any
+    of them already exist. Brand-scoped cards (brand_id NOT NULL) are not
+    touched — admins add those later through the API.
+    """
+    from app.models.style_card import StyleCard
+
+    existing = {c.id for c in db.scalars(select(StyleCard)).all()}
+    added = 0
+    for row in DEFAULT_STYLE_CARDS:
+        if row["id"] in existing:
+            continue
+        db.add(StyleCard(
+            id=row["id"],
+            name=row["name"],
+            family=row["family"],
+            description=row["description"],
+            best_for=row["best_for"],
+            not_for=row["not_for"],
+            visual_cues=row["visual_cues"],
+            negative_constraints=row["negative_constraints"],
+            is_global=True,
+            is_active=True,
+        ))
+        added += 1
+    if added:
+        db.commit()
+        logger.info("Seeded %d default style card(s).", added)
