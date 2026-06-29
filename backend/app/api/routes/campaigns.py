@@ -59,6 +59,10 @@ from app.schemas.campaign import (
     ReviewReject,
     SubmitForApprovalRequest,
 )
+from app.schemas.style_alternative import (
+    ApplyStyleAlternativeRequest,
+    StyleAlternativesResponse,
+)
 from app.schemas.social import (
     AutopilotCommitRequest,
     AutopilotPreviewRequest,
@@ -1121,6 +1125,74 @@ def toggle_image_logo(
     image.composited_object_key = ""  # re-composite with/without the logo
     db.commit()
     db.refresh(image)
+    return image
+
+
+# --- Style alternatives (Stage 1.4: 'Make it different' popover) ---------
+
+
+@router.post(
+    "/{campaign_id}/images/{image_id}/style-alternatives",
+    response_model=StyleAlternativesResponse,
+)
+def list_style_alternatives(
+    campaign_id: str,
+    image_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Return 3 distinct style directions the user can switch to.
+
+    Each alternative is a forced family the Visual Agent didn't pick on
+    the original generation (taken from the style library minus recent
+    usage). The user picks one and POSTs it back to
+    `.../style-alternatives/apply` to persist it on the PostImage.
+    """
+    from app.services import style_alternatives as svc
+
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Campaign not found")
+    elements = list(
+        db.scalars(
+            select(CampaignElement).where(CampaignElement.campaign_id == campaign_id)
+        ).all()
+    )
+    alternatives, excluded = svc.get_alternatives(
+        db,
+        campaign=campaign,
+        elements=elements,
+        exclude_families=[],  # the service adds recent-history on top
+    )
+    return StyleAlternativesResponse(alternatives=alternatives, excluded_families=excluded)
+
+
+@router.post(
+    "/{campaign_id}/images/{image_id}/style-alternatives/apply",
+    response_model=PostImageOut,
+)
+def apply_style_alternative(
+    campaign_id: str,
+    image_id: str,
+    body: ApplyStyleAlternativeRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """Persist the user's pick on the PostImage so the next /generate
+    call uses the same family. Optionally also writes the new prompt
+    fields so the editor reflects what the user just chose.
+    """
+    from app.services import style_alternatives as svc
+
+    image = _get_image_or_404(db, campaign_id, image_id, actor)
+    svc.apply_alternative(
+        db,
+        campaign=db.get(Campaign, campaign_id),
+        image=image,
+        alt=body.alternative,
+        persist_prompt=body.persist_prompt,
+    )
     return image
 
 

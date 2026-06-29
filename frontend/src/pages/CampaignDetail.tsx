@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Download, Eye, EyeOff, FileImage, Film, Layers, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, X } from "lucide-react";
+import { CalendarDays, ChevronRight, Download, Eye, EyeOff, FileImage, Film, Layers, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, Wand2, X } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { getBlobUrl, hashKey } from "../lib/blobCache";
 import { ImageEditor } from "../components/ImageEditor";
@@ -11,6 +11,7 @@ import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { LivePreviewColumn, type PreviewDraft } from "../components/PostPreview";
 import { AiAssist } from "../components/AiAssist";
 import { MediaSkeleton } from "../components/MediaSkeleton";
+import { StyleAlternativesDialog } from "../components/StyleAlternativesDialog";
 import { ApprovedBanner } from "../components/ApprovedBanner";
 import { EditWarningDialog } from "../components/EditWarningDialog";
 import { ApprovalTimeline, type TimelineEvent } from "../components/ApprovalTimeline";
@@ -1265,6 +1266,7 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
   const [modelId, setModelId] = useState(image.image_model_id ?? "");
   const [editorOpen, setEditorOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [styleAltOpen, setStyleAltOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const { preview, full } = useImageUrl(campaignId, image);
@@ -1362,6 +1364,12 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
             <Sparkles size={14} />
             {image.status === "generating" ? "Generating…" : lockGenerate ? "In queue…" : image.base_object_key ? "Regenerate" : "Generate"}
           </Button>
+          {image.base_object_key && (
+            <Button variant="outline" size="sm" onClick={() => setStyleAltOpen(true)} disabled={!!busy || image.status === "generating" || lockGenerate}
+              title="Ask the Visual Agent for 3 different style directions">
+              <Wand2 size={14} /> Try a different style
+            </Button>
+          )}
           <Button asChild variant="outline" size="sm" className={cn(lockGenerate && "pointer-events-none opacity-50")}>
             <label className="flex cursor-pointer items-center gap-1.5">
               <UploadIcon size={14} /> Upload
@@ -1377,6 +1385,14 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
           )}
         </div>
       )}
+
+      <StyleAlternativesDialog
+        open={styleAltOpen}
+        onOpenChange={setStyleAltOpen}
+        campaignId={campaignId}
+        imageId={image.id}
+        onApplied={onChange}
+      />
       {canEdit && cascades && (
         <p className="m-0 flex items-center gap-1.5 rounded-md border border-dashed border-border bg-accent/40 px-2.5 py-1.5 text-xs text-muted-foreground">
           <Sparkles size={12} className="text-primary" />
