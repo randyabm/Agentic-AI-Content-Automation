@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronDown, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -155,32 +155,38 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
 
   return (
     <div className="flex flex-col gap-5">
+      {onboardingRunning && (
+        <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary">
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+          <span>
+            Client setup is still running in the background. You can already
+            review and edit competitors below — the onboarding step will add
+            to this list when it finishes.
+          </span>
+        </div>
+      )}
+
       {canEdit && (
-        <Card className={cn(!isOpen && "pb-4", onboardingRunning && "opacity-50")}>
+        <Card className={cn(!isOpen && "pb-4")}>
           <button
             type="button"
             aria-expanded={isOpen}
-            disabled={onboardingRunning}
-            onClick={() => !onboardingRunning && setSearchOpen((o) => !o)}
-            className="flex w-full cursor-pointer items-center justify-between gap-4 border-none bg-transparent p-0 text-left font-inherit text-inherit disabled:cursor-not-allowed"
+            onClick={() => setSearchOpen((o) => !o)}
+            className="flex w-full cursor-pointer items-center justify-between gap-4 border-none bg-transparent p-0 text-left font-inherit text-inherit"
           >
             <div>
               <h2 className="m-0">Find competitors automatically</h2>
               <span className="text-sm text-muted-foreground">
-                {onboardingRunning
-                  ? "Client setup in progress — available once onboarding completes"
-                  : "Click to find or manually add competitors"}
+                Click to find or manually add competitors while setup runs
               </span>
             </div>
-            {!onboardingRunning && (
-              <ChevronDown
-                size={18}
-                className={cn(
-                  "flex-shrink-0 text-muted-foreground transition-transform duration-200",
-                  isOpen && "rotate-180",
-                )}
-              />
-            )}
+            <ChevronDown
+              size={18}
+              className={cn(
+                "flex-shrink-0 text-muted-foreground transition-transform duration-200",
+                isOpen && "rotate-180",
+              )}
+            />
           </button>
           {isOpen && (
             <CardContent className="space-y-4 px-0 pt-3">

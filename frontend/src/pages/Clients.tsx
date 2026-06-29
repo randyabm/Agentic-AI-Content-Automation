@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Building2, Clock, Search, Trash2 } from "lucide-react";
+import { Building2, Clock, Plus, Search, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ClientAvatar } from "../components/ClientAvatar";
@@ -24,11 +24,7 @@ export default function Clients() {
   const canEdit = user?.role === "admin" || user?.role === "editor";
   const [clients, setClients] = useState<Client[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Client | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<DeletionSummary | null>(null);
@@ -94,26 +90,6 @@ export default function Clients() {
     }
   }
 
-  async function createClient(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setBusy(true);
-    try {
-      const client = await api<Client>("/clients", {
-        method: "POST",
-        body: { company_name: name, website_url: url },
-      });
-      setName("");
-      setUrl("");
-      setShowForm(false);
-      navigate(`/clients/${client.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create client");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const visible = search.trim()
     ? clients.filter((c) => c.company_name.toLowerCase().includes(search.toLowerCase()))
     : clients;
@@ -123,35 +99,14 @@ export default function Clients() {
       <div className="mb-5 flex items-center justify-between gap-4">
         <h1>Clients</h1>
         {canEdit && (
-          <Button variant={showForm ? "ghost" : "default"} onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "+ New client"}
+          <Button asChild>
+            <Link to="/clients/new">
+              <Plus className="h-4 w-4" />
+              New client
+            </Link>
           </Button>
         )}
       </div>
-
-      {showForm && (
-        <form onSubmit={createClient} className="mb-4 flex flex-wrap items-end gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex-1 min-w-[200px]">
-            <label className="mb-0 block text-sm">Company name
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
-            </label>
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="mb-0 block text-sm">Website URL
-              <Input
-                type="url"
-                placeholder="https://example.com"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                required
-              />
-            </label>
-          </div>
-          <Button type="submit" disabled={busy}>
-            {busy ? "Creating…" : "Create"}
-          </Button>
-        </form>
-      )}
 
       {error && (
         <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
@@ -286,99 +241,99 @@ export default function Clients() {
       )}
 
       {view === "cards" && (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
-        {visible.map((c) => {
-          const badge = ONBOARDING_BADGE[statuses[c.id]];
-          const colors = c.brand_colors?.length ? c.brand_colors : null;
-          return (
-            <div
-              key={c.id}
-              className={cn(
-                "group relative block overflow-hidden rounded-xl border border-border bg-card text-inherit transition-all hover:-translate-y-0.5 hover:border-primary hover:shadow-md",
-                statuses[c.id] === "running" && "ring-2 ring-amber-400/30",
-              )}
-            >
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+          {visible.map((c) => {
+            const badge = ONBOARDING_BADGE[statuses[c.id]];
+            const colors = c.brand_colors?.length ? c.brand_colors : null;
+            return (
               <div
-                className="h-[52px] flex-shrink-0 bg-gradient-to-br from-primary to-indigo-400"
-                style={
-                  colors
-                    ? { background: `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` }
-                    : undefined
-                }
-              />
+                key={c.id}
+                className={cn(
+                  "group relative block overflow-hidden rounded-xl border border-border bg-card text-inherit transition-all hover:-translate-y-0.5 hover:border-primary hover:shadow-md",
+                  statuses[c.id] === "running" && "ring-2 ring-amber-400/30",
+                )}
+              >
+                <div
+                  className="h-[52px] flex-shrink-0 bg-gradient-to-br from-primary to-indigo-400"
+                  style={
+                    colors
+                      ? { background: `linear-gradient(135deg, ${colors.slice(0, 3).join(", ")})` }
+                      : undefined
+                  }
+                />
 
-              <Link to={`/clients/${c.id}`} className="flex flex-1 flex-col px-4 pb-4 text-inherit no-underline">
-                <div className="-mt-[22px] mb-1.5">
-                  <ClientAvatar client={c} className="border-2 border-surface shadow-sm" />
-                </div>
+                <Link to={`/clients/${c.id}`} className="flex flex-1 flex-col px-4 pb-4 text-inherit no-underline">
+                  <div className="-mt-[22px] mb-1.5">
+                    <ClientAvatar client={c} className="border-2 border-surface shadow-sm" />
+                  </div>
 
-                <div className="flex flex-col">
-                  <h3 className="mb-1">{c.company_name}</h3>
+                  <div className="flex flex-col">
+                    <h3 className="mb-1">{c.company_name}</h3>
 
-                  {c.industry && (
-                    <div className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
-                      <Building2 size={12} />
-                      <span>{c.industry}</span>
-                    </div>
-                  )}
+                    {c.industry && (
+                      <div className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
+                        <Building2 size={12} />
+                        <span>{c.industry}</span>
+                      </div>
+                    )}
 
-                  {badge && (
-                    <span
-                      className={cn(
-                        "mb-1.5 inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold",
-                        badge.variant === "warning" && "bg-amber-100 text-amber-800",
-                        badge.variant === "destructive" && "bg-red-100 text-red-700",
-                      )}
-                    >
-                      {badge.spin && <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}
-                      {badge.label}
-                    </span>
-                  )}
+                    {badge && (
+                      <span
+                        className={cn(
+                          "mb-1.5 inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold",
+                          badge.variant === "warning" && "bg-amber-100 text-amber-800",
+                          badge.variant === "destructive" && "bg-red-100 text-red-700",
+                        )}
+                      >
+                        {badge.spin && <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+                        {badge.label}
+                      </span>
+                    )}
 
-                  {colors && (
-                    <div className="mb-1.5 flex flex-wrap gap-1">
-                      {colors.slice(0, 5).map((col, i) => (
-                        <span
-                          key={i}
-                          className="inline-block size-3 rounded-full border border-black/10 shadow-sm"
-                          style={{ background: col }}
-                          title={col}
-                        />
-                      ))}
-                    </div>
-                  )}
+                    {colors && (
+                      <div className="mb-1.5 flex flex-wrap gap-1">
+                        {colors.slice(0, 5).map((col, i) => (
+                          <span
+                            key={i}
+                            className="inline-block size-3 rounded-full border border-black/10 shadow-sm"
+                            style={{ background: col }}
+                            title={col}
+                          />
+                        ))}
+                      </div>
+                    )}
 
-                  <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock size={11} />
-                    {c.last_extraction_at
-                      ? new Date(c.last_extraction_at).toLocaleDateString()
-                      : "Not analyzed yet"}
-                  </p>
-                </div>
-              </Link>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock size={11} />
+                      {c.last_extraction_at
+                        ? new Date(c.last_extraction_at).toLocaleDateString()
+                        : "Not analyzed yet"}
+                    </p>
+                  </div>
+                </Link>
 
-              {canEdit && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  title="Delete client"
-                  onClick={(e) => openDeleteDialog(e, c)}
-                  aria-label="Delete client"
-                  className="absolute right-2 top-2 size-7 opacity-0 transition-opacity group-hover:opacity-100"
-                >
-                  <Trash2 size={14} />
-                </Button>
-              )}
-            </div>
-          );
-        })}
-        {visible.length === 0 && clients.length > 0 && (
-          <p className="col-span-full text-sm text-muted-foreground">No clients match your search.</p>
-        )}
-        {clients.length === 0 && !error && (
-          <p className="col-span-full text-sm text-muted-foreground">No clients yet. {canEdit ? "Create the first one." : ""}</p>
-        )}
-      </div>
+                {canEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Delete client"
+                    onClick={(e) => openDeleteDialog(e, c)}
+                    aria-label="Delete client"
+                    className="absolute right-2 top-2 size-7 opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+          {visible.length === 0 && clients.length > 0 && (
+            <p className="col-span-full text-sm text-muted-foreground">No clients match your search.</p>
+          )}
+          {clients.length === 0 && !error && (
+            <p className="col-span-full text-sm text-muted-foreground">No clients yet. {canEdit ? "Create the first one." : ""}</p>
+          )}
+        </div>
       )}
 
       {pendingDelete && (

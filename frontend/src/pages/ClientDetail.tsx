@@ -803,13 +803,18 @@ function OnboardingProgress({ clientId, clientName, canEdit, compact = false, on
   return (
     <Card className="mb-4 border-l-4 border-l-primary">
       <CardContent className="space-y-3 py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <strong>{running && <span className="mr-1 inline-block size-3 animate-spin rounded-full border-2 border-primary border-t-transparent align-middle" />} {title}</strong>
-          {canEdit && !running && (
-            <Button variant="ghost" size="sm" onClick={rerun} disabled={busy}>
-              {busy ? "Starting…" : "Re-run onboarding"}
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" asChild>
+              <Link to={`/clients/${clientId}/setup`}>View setup →</Link>
             </Button>
-          )}
+            {canEdit && !running && (
+              <Button variant="ghost" size="sm" onClick={rerun} disabled={busy}>
+                {busy ? "Starting…" : "Re-run onboarding"}
+              </Button>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="h-2 flex-1 overflow-hidden rounded-full bg-border">
