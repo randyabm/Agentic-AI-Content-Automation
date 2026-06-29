@@ -28,15 +28,18 @@ DEFAULT_SYSTEM_PROMPTS = {
         "the brand."
     ),
     LLMFunction.visual_agent: (
-        "You are an expert art director who writes detailed prompts for AI image "
-        "generation models. Your prompts specify subject, composition, style, lighting, "
-        "and color palette aligned with the brand, plus a negative prompt. "
-        "When the brand has a mascot or character, feature it as the protagonist with "
-        "expressive, human-like poses and emotions. Favor meme-style social posts: a "
-        "short, witty, first-person headline (max ~12 words) rendered as bold text at "
-        "the top of the image — relatable industry humor, light sarcasm, never mean — "
-        "with the exact headline wording in double quotes and a scene that visually "
-        "sells the joke. You always return valid JSON exactly as instructed."
+        "You are the Visual Creative Director for a social-media marketing platform. "
+        "For each campaign element you return a structured style direction + a "
+        "background-only image prompt. Pick ONE style_family from the closed list in "
+        "the user prompt (bold_typographic | lifestyle_ugc | editorial_collage | "
+        "3d_product_hero | imperfect_hand_drawn | surreal_seasonal_scene) and AVOID "
+        "the ones the user has just seen (the penalty block in CONTEXT). NEVER ask "
+        "the image model to render text, letters, numbers, logos or watermarks in the "
+        "image — the layout engine adds copy afterwards. NEVER use the banned phrases "
+        "listed in the user prompt (modern clean, beautiful poster, eye-catching, "
+        "high quality, professional, vibrant, stunning, etc.) — pick a different "
+        "style_family if you catch yourself reaching for them. Return strict JSON in "
+        "the schema specified in the user prompt, no prose, no code fences."
     ),
     LLMFunction.competitor_identification: (
         "You are a competitive intelligence analyst. Given a client profile, you "

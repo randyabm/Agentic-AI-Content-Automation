@@ -178,34 +178,138 @@ object(s), each with exactly these keys:
 Write all content in {language}. Ground everything in the provided context.
 """
 
-VISUAL_INSTRUCTIONS = """\
-You are the Visual Creative Agent for a social media marketing platform. For each
-campaign element below, write detailed AI generation prompt(s). Image elements need 1
-prompt, carousels need one prompt per slide (visually coherent as a sequence), and video
-elements need 1 motion/video prompt.
+# Visual Creative Director — schema enforced by Stage 1.3. The agent picks
+# ONE style_family per element from the closed list, returns a structured
+# direction with rationale, and a background-only image prompt (no text
+# inside the image — the layout engine adds copy deterministically in
+# Stage 2).
+_ALLOWED_STYLE_FAMILIES = (
+    "bold_typographic",
+    "lifestyle_ugc",
+    "editorial_collage",
+    "3d_product_hero",
+    "imperfect_hand_drawn",
+    "surreal_seasonal_scene",
+)
 
-Each prompt must specify subject, composition, style, lighting, and a color palette that
-aligns with the brand's visual style and corporate colors. Provide a negative prompt
-listing elements to avoid. If the brand style or your system instructions call for
-headline text rendered inside the image, include the exact wording in double quotes in
-the prompt and describe its placement and typography; otherwise avoid in-image text.
-The same prompt will be rendered at several aspect ratios, so keep the main subject
-centered and the composition flexible.
+# Banned phrases — these are the symptoms of "every image looks the same"
+# that the research blueprint called out. Listing them explicitly in the
+# prompt is the cheapest fix for static visual vocabulary.
+VISUAL_BANNED_PHRASES = (
+    "modern clean design",
+    "beautiful poster",
+    "eye-catching",
+    "high quality",
+    "professional",
+    "vibrant",
+    "stunning",
+    "bold typography",
+    "clean lines",
+    "eye catching",
+    "sleek",
+    "polished",
+    "premium feel",
+    "modern minimal",
+    "contemporary",
+    "stylish",
+    "elegant",
+)
+
+VISUAL_INSTRUCTIONS = """\
+You are the Visual Creative Director for a social-media marketing platform.
+For each campaign element below, return a structured style direction + a
+background-only image prompt. Image elements need 1 direction, carousels
+need one per slide (visually coherent as a sequence), and video elements
+need 1 motion/video direction.
+
+## Allowed style_families (pick ONE per element, no others)
+
+The visual library is intentionally closed. Do not invent a new family.
+The six families and when to use them:
+
+- bold_typographic        — offers, launches, punchy ads. Oversized headline
+                            blocks, strong hierarchy, high contrast. The
+                            LAYOUT ENGINE renders the type; the image
+                            only carries background and subject.
+- lifestyle_ugc            — trust-building, local services, community.
+                            Real-world setting, candid human moment,
+                            phone-camera feel. NOT polished.
+- editorial_collage        — campaigns, fashion, events, creative services.
+                            Cut-outs, layered paper, mixed type scale,
+                            asymmetric grid.
+- 3d_product_hero          — products, SaaS feature launch, tech. Single
+                            hero object, studio lighting, depth, reflective
+                            surfaces. NOT multi-subject.
+- imperfect_hand_drawn     — friendly brands, education, small business.
+                            Scribbles, marker textures, uneven shapes.
+                            NOT for luxury / finance / legal.
+- surreal_seasonal_scene   — awareness, festivals, playful offers.
+                            Unexpected scale, dreamlike backdrop,
+                            cinematic colour. NOT for regulated topics.
+
+## Hard rules (apply in this order)
+
+1. Obey explicit user style instructions first (e.g. "make it look like a
+   90s polaroid" — pick the family that fits, or invent within reason).
+2. Obey brand kit: brand colours, tone, fonts.
+3. Pick a style_family from the closed list above. Different elements in
+   the same campaign SHOULD NOT all pick the same family. Carousels may
+   pick one and stay consistent; other elements should differ.
+4. AVOID the style_families the user has already seen recently
+   (see "Recent style_families" block in CONTEXT below). Only repeat one
+   if the user explicitly asks for a series with the same look.
+5. NEVER ask the image model to render marketing text inside the image.
+   No letters, no words, no numbers, no logos, no watermarks, no fake
+   captions, no UI mockups. The layout engine adds copy afterwards.
+6. NEVER use these banned phrases (or close variants):
+   {banned_phrases}.
+   These are the symptoms of "every poster looks the same". If you catch
+   yourself reaching for them, pick a different style_family instead.
+7. Be specific. Name the medium (watercolour, risograph, 35mm film,
+   marker on kraft paper, 3D render in Cinema 4D, etc.), the composition
+   (subject placement, focal point, negative space), the lighting
+   (golden hour, rim light, soft window light, hard flash, neon
+   spill), the texture (paper grain, fabric weave, soft bokeh, hard
+   shadow), the colour mood (named, not hex — "warm amber + muted
+   teal", "dusty rose + ink black", "acid green + bone"). Generic
+   adjectives are a banned phrase in disguise.
+
+## Output schema (strict)
+
+Return ONLY a JSON array, one object per element, in the same order as
+given. Each element gets exactly the number of directions stated:
+
+[
+  {{
+    "style_family": "one of the 6 allowed values above",
+    "style_name": "short evocative name e.g. 'Sun-Washed Product Hero'",
+    "novelty_reason": "why this differs from the user's recent style_families",
+    "visual_keywords": ["specific", "medium", "terms", "not", "generic"],
+    "composition": "specific placement, framing, focal point",
+    "colour_mood": "named palette, not hex (e.g. 'warm amber + aqua')",
+    "font_mood_for_overlay": "1-line description of the type style the layout engine should use for headlines (only relevant for bold_typographic / editorial_collage)",
+    "image_prompt_without_text": "Detailed prompt for the image model. NO TEXT, NO LETTERS, NO LOGOS, NO WATERMARKS, NO UI in the image. Background and subject only. The same prompt will be re-rendered at multiple aspect ratios, so keep the main subject centred and composition flexible. Include: medium, composition, lighting, textures, colour mood, brand mood. Be specific and avoid every banned phrase.",
+    "negative_prompt": "what to avoid (e.g. 'blurry, low resolution, generic gradient')",
+    "text_overlay_plan": {{
+      "headline": "the headline copy if the post already has one (empty if not yet decided)",
+      "subtext": "...",
+      "cta": "...",
+      "layout_notes": "where the layout engine should place the text (e.g. 'top-left, leave 25% of canvas empty', 'bottom-right above safe zone')"
+    }},
+    "avoid": ["anti-patterns specific to this style choice, e.g. 'no fake text', 'no centred template look'"]
+  }}
+]
+
+The image generator will receive only `image_prompt_without_text` and
+`negative_prompt`. Everything else is for the layout engine, the QA
+critic, and the user-facing 'why this looks like this' explanation.
 
 ELEMENTS:
 {element_lines}
 
-Answer ONLY with a JSON array — one object per element, in the same order as given:
-[
-  {{
-    "prompts": [
-      {{"prompt": string, "negative_prompt": string}},
-      ...
-    ]
-  }},
-  ...
-]
-Each element must get exactly the number of prompts stated above.
+Answer ONLY with the JSON array. No prose, no code fences, no
+explanations. If a field doesn't apply, set it to an empty string or
+empty array.
 """
 
 
@@ -502,7 +606,7 @@ def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElem
     )
     penalty_section = f"\n\n{penalty}" if penalty else ""
     user_prompt = (
-        f"{VISUAL_INSTRUCTIONS.format(element_lines=lines)}{penalty_section}\n\nCONTEXT:\n{context}"
+        f"{VISUAL_INSTRUCTIONS.format(element_lines=lines, banned_phrases=', '.join(VISUAL_BANNED_PHRASES))}{penalty_section}\n\nCONTEXT:\n{context}"
     )
     temperature = creativity_to_temperature(campaign.creativity_level)
     plan = [(el.id, _slots_for(el)) for el in visual]
@@ -534,20 +638,58 @@ def _infer_style_family(prompt: str) -> str:
 
 
 def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> list[list[dict]]:
-    """Pure parse of the Visual Agent output into per-element prompt slots (thread-safe)."""
+    """Pure parse of the Visual Agent's structured output (Stage 1.3+).
+
+    Reads the new schema: one object per element with `image_prompt_without_text`
+    and `negative_prompt` (used by the image generator), plus the full
+    `text_overlay_plan` and `style_family` (consumed later by the layout
+    engine and the QA critic). Falls back to the old `{prompts: [...]}`
+    shape if the agent emits it, so an admin who hasn't updated their
+    `LLMConfig.system_prompt` for the visual_agent yet still works.
+    """
     results = parse_json_value(raw, opener="[", closer="]")
     if not isinstance(results, list):
         raise ExtractionError("The Visual Agent did not return element prompts")
     by_element: dict[str, list[dict]] = {}
     for idx, (el_id, n_slots) in enumerate(plan):
         item = results[idx] if idx < len(results) else {}
-        prompts = item.get("prompts", item.get("images", [])) if isinstance(item, dict) else []
+        if not isinstance(item, dict):
+            item = {}
+        # New schema: each item IS a single style direction (not wrapped
+        # in `prompts`). If the agent emitted the old shape, unwrap it.
+        if "image_prompt_without_text" in item:
+            directions = [item]
+        else:
+            directions = item.get("prompts", item.get("images", [])) or []
         slots: list[dict] = []
         for slot in range(n_slots):
-            p = prompts[slot] if slot < len(prompts) else {}
+            d = directions[slot] if slot < len(directions) else {}
+            if not isinstance(d, dict):
+                d = {}
+            # Image prompt is `image_prompt_without_text` (new) or `prompt`
+            # (old fallback).
+            img_prompt = (
+                d.get("image_prompt_without_text")
+                or d.get("prompt")
+                or ""
+            )
+            overlay = d.get("text_overlay_plan") or {}
             slots.append({
-                "prompt": str(p.get("prompt", "")).strip(),
-                "negative_prompt": str(p.get("negative_prompt", "")).strip(),
+                "prompt": str(img_prompt).strip(),
+                "negative_prompt": str(d.get("negative_prompt", "")).strip(),
+                "style_family": str(d.get("style_family", "")).strip() or None,
+                "style_name": str(d.get("style_name", "")).strip(),
+                "novelty_reason": str(d.get("novelty_reason", "")).strip(),
+                "visual_keywords": [str(k).strip() for k in (d.get("visual_keywords") or []) if str(k).strip()],
+                "colour_mood": str(d.get("colour_mood", "")).strip(),
+                "font_mood_for_overlay": str(d.get("font_mood_for_overlay", "")).strip(),
+                "text_overlay_plan": {
+                    "headline": str(overlay.get("headline", "")).strip(),
+                    "subtext": str(overlay.get("subtext", "")).strip(),
+                    "cta": str(overlay.get("cta", "")).strip(),
+                    "layout_notes": str(overlay.get("layout_notes", "")).strip(),
+                },
+                "avoid": [str(a).strip() for a in (d.get("avoid") or []) if str(a).strip()],
             })
         by_element[el_id] = slots
     return [by_element.get(eid, []) for eid in order]
@@ -611,8 +753,11 @@ def generate_visuals_and_copy(
             _, _, _, plan, order = visual_prep
             element_prompts = _parse_visual(raw, plan, order)
             # Record the style_families the agent picked for this brand so
-            # the next generation's penalty block has data. Best-effort
-            # keyword inference until Stage 1.3 returns an explicit field.
+            # the next generation's penalty block has data. Stage 1.3
+            # schema carries `style_family` explicitly per slot; fall back
+            # to keyword inference for any old-shape slots the agent
+            # emitted (or for an admin who hasn't updated their
+            # visual_agent system prompt yet).
             try:
                 from app.services.style_repetition import StyleHistorySource, record_usage
 
@@ -622,18 +767,21 @@ def generate_visuals_and_copy(
                     seen: set[str] = set()
                     for slots in element_prompts:
                         for slot in slots:
-                            p = slot.get("prompt", "")
-                            fam = _infer_style_family(p)
-                            if fam and fam != "unknown" and fam not in seen:
-                                seen.add(fam)
-                                record_usage(
-                                    db,
-                                    org_id=org_id,
-                                    client_id=client_id,
-                                    style_family=fam,
-                                    image_prompt=p,
-                                    source=StyleHistorySource.generation,
-                                )
+                            fam = slot.get("style_family") or _infer_style_family(slot.get("prompt", ""))
+                            if not fam or fam == "unknown" or fam in seen:
+                                continue
+                            # Sanity-check the family is one we know about.
+                            if fam not in _ALLOWED_STYLE_FAMILIES:
+                                continue
+                            seen.add(fam)
+                            record_usage(
+                                db,
+                                org_id=org_id,
+                                client_id=client_id,
+                                style_family=fam,
+                                image_prompt=slot.get("prompt", ""),
+                                source=StyleHistorySource.generation,
+                            )
             except Exception:
                 logger.exception("Failed to record style_history for campaign %s", campaign.id)
         else:
