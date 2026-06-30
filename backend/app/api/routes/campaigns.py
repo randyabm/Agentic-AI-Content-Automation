@@ -1164,6 +1164,7 @@ def list_style_alternatives(
         campaign=campaign,
         elements=elements,
         exclude_families=[],  # the service adds recent-history on top
+        image=image,
     )
     return StyleAlternativesResponse(alternatives=alternatives, excluded_families=excluded)
 

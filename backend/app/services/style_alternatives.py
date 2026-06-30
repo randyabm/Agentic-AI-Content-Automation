@@ -15,10 +15,12 @@ that the UI can preview as a card.
 import logging
 from typing import Iterable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.campaign import Campaign, CampaignElement
+from app.models.campaign import Campaign, CampaignElement, PostImage
 from app.models.llm import LLMConfig, LLMFunction
+from app.models.style_history import StyleHistory
 from app.services import campaign_gen, style_repetition
 from app.services.campaign_gen import (
     VISUAL_INSTRUCTIONS,
@@ -37,10 +39,18 @@ logger = logging.getLogger(__name__)
 
 
 # Hard cap on how many families we expose per call. The library has 6
-# families, recent usage blocks ~5, so the realistic upper bound is 6.
-# We ask for 3 (the PDF's "show 3 style directions" recommendation) and
-# fall back to fewer if the library is exhausted.
+# families; the penalty softly blocks 2, the current family is hard-
+# excluded, so the realistic upper bound is 3-4. We ask for 3 (the
+# PDF's "show 3 style directions" recommendation).
 ALTERNATIVES_COUNT = 3
+
+# How many of the most-recently-used families the popover softly skips.
+# The user has explicitly asked for "something different" so the penalty
+# is gentler than the automatic generation penalty (which uses 5). With
+# limit=2 the primary path almost always leaves 3+ candidates; only a
+# pathological "all 6 in recent history" case falls through to the
+# least-recently-used fallback below.
+POPOVER_SOFT_PENALTY_LIMIT = 2
 
 
 def _patch_prompt_for_force_family(user_prompt: str, family: str) -> str:
@@ -73,18 +83,76 @@ def _build_alternative_from_slot(
     )
 
 
+def _current_image_family(db: Session, image: PostImage) -> str | None:
+    """Look up the style_family the current PostImage was generated with,
+    via the most recent style_history row keyed to image_id. Returns None
+    if the image predates the style_history feature or no usage was
+    recorded.
+    """
+    row = db.execute(
+        select(StyleHistory.style_family)
+        .where(StyleHistory.image_id == image.id)
+        .order_by(StyleHistory.created_at.desc())
+        .limit(1)
+    ).first()
+    return row[0] if row else None
+
+
+def _least_recent_families(
+    db: Session,
+    *,
+    org_id: str,
+    available: Iterable[str],
+    exclude: Iterable[str] = (),
+    limit: int = 3,
+) -> list[str]:
+    """Pick `limit` families from `available` that are NOT in `exclude`
+    (the user-provided exclusions only — does NOT apply the recent-history
+    exclusion). Used as the fallback when the primary candidates list is
+    exhausted. Order: least-recently-used first, so we rotate through the
+    library before repeating.
+    """
+    pool = [f for f in available if f not in set(exclude)]
+    if len(pool) <= limit:
+        return pool
+    last_seen: dict[str, int] = {}
+    rows = db.execute(
+        select(StyleHistory.style_family)
+        .where(StyleHistory.org_id == org_id)
+        .order_by(StyleHistory.created_at.desc())
+        .limit(50)
+    ).all()
+    for i, (fam,) in enumerate(rows):
+        if fam not in last_seen:
+            last_seen[fam] = i
+    pool.sort(key=lambda f: last_seen.get(f, 10_000))
+    return pool[:limit]
+
+
 def get_alternatives(
     db: Session,
     *,
     campaign: Campaign,
     elements: list[CampaignElement],
     exclude_families: Iterable[str] = (),
+    image: PostImage | None = None,
 ) -> tuple[list[StyleAlternativeOut], list[str]]:
     """Build 3 style directions for the Make-it-different popover.
 
-    Returns (alternatives, excluded_families) where `excluded_families` is the
-    list of style_families we deliberately avoided (so the UI can tell
-    the user "we skipped bold_typographic because you saw it yesterday").
+    Returns (alternatives, excluded_families) where `excluded_families` is
+    the list of style_families the soft penalty skipped (so the UI can
+    tell the user "we skipped bold_typographic because you saw it
+    yesterday"). The current image's family is hard-excluded but NOT
+    surfaced in excluded_families — the user knows what they have.
+
+    Selection logic (3-tier):
+    1. Start with the 6 allowed families.
+    2. Hard-exclude: caller-provided + the current image's family.
+    3. Soft-exclude: the POPOVER_SOFT_PENALTY_LIMIT most-recent families.
+       If (2) and (3) leave ≥ 3 candidates, use them.
+    4. Fallback: ignore the soft penalty, pick the 3 least-recently-used
+       families (so a heavy user who has cycled through the whole library
+       still sees 3 cards instead of an empty dialog).
     """
     visual = [el for el in elements if campaign_gen._slots_for(el) > 0]
     if not visual:
@@ -99,35 +167,56 @@ def get_alternatives(
             org_id = str(client_row.org_id)
     client_id = str(campaign.client_id) if campaign.client_id else None
 
-    excluded = set(exclude_families) | set(
-        style_repetition.recent_families(
-            db, org_id=org_id, client_id=client_id, limit=5
-        )
+    # Hard exclusions: caller-provided + the current image's family.
+    # We never want to suggest the very same style the user is trying to
+    # escape from.
+    hard_excluded = set(exclude_families)
+    current_family = _current_image_family(db, image) if image is not None else None
+    if current_family:
+        hard_excluded.add(current_family)
+
+    # Soft exclusions: the most-recently-used families. Capped low (2)
+    # because this is a user-initiated flow — we want to show options,
+    # not punish the user for clicking the button. The auto-generation
+    # penalty is the stricter one (5); see style_repetition.penalty_block.
+    soft_recent_list = style_repetition.recent_families(
+        db, org_id=org_id, client_id=client_id, limit=POPOVER_SOFT_PENALTY_LIMIT
     )
-    candidates = [f for f in _ALLOWED_STYLE_FAMILIES if f not in excluded]
-    if not candidates:
-        # Library exhausted — fall back to least-recently-used families.
-        candidates = style_repetition.different_families(
+    soft_recent = set(soft_recent_list) - hard_excluded
+
+    # The list shown to the UI as "skipped" is the soft set, not the
+    # hard set. The user already knows what they excluded.
+    excluded_for_ui = sorted(soft_recent)
+
+    candidates = [
+        f for f in _ALLOWED_STYLE_FAMILIES
+        if f not in hard_excluded and f not in soft_recent
+    ]
+    if len(candidates) < ALTERNATIVES_COUNT:
+        # Library exhausted under the soft penalty. Fall back: ignore the
+        # soft penalty, pick least-recently-used, still respect hard.
+        candidates = _least_recent_families(
             db,
             org_id=org_id,
-            client_id=client_id,
             available=_ALLOWED_STYLE_FAMILIES,
-            exclude=exclude_families,
+            exclude=hard_excluded,
             limit=ALTERNATIVES_COUNT,
         )
     if not candidates:
-        return [], sorted(excluded)
-
+        # Pathological (e.g. no style_history at all, or the only
+        # non-excluded family is a brand-scoped one not in the global
+        # library). Just return the whole library minus hard exclusions.
+        candidates = [f for f in _ALLOWED_STYLE_FAMILIES if f not in hard_excluded]
     candidates = candidates[:ALTERNATIVES_COUNT]
 
     raw_cfg = get_llm_config(db, LLMFunction.visual_agent)
     if raw_cfg is None:
-        return [], sorted(excluded)
+        return [], excluded_for_ui
     cfg = _snapshot_cfg(raw_cfg)
 
     prep = _prepare_visual(db, campaign, elements, context=_alternative_context(campaign))
     if prep is None:
-        return [], sorted(excluded)
+        return [], excluded_for_ui
     base_user_prompt = prep[1]
 
     alternatives: list[StyleAlternativeOut] = []
@@ -156,13 +245,14 @@ def get_alternatives(
                     org_id=org_id,
                     client_id=client_id,
                     style_family=alt.style_family,
+                    image_id=image.id if image is not None else None,
                     image_prompt=alt.image_prompt_without_text,
                     source=StyleHistorySource.style_alternatives,
                 )
         except Exception:
             logger.exception("Failed to record style_alternatives history")
 
-    return alternatives, sorted(excluded)
+    return alternatives, excluded_for_ui
 
 
 def _alternative_context(campaign: Campaign) -> str:

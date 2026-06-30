@@ -128,8 +128,10 @@ export function StyleAlternativesDialog({
             {loading
               ? "Asking the Visual Agent for 3 fresh takes…"
               : alternatives.length === 0
-                ? "No alternatives available right now."
-                : `Pick a different visual direction. We avoided ${excluded.length} style${excluded.length === 1 ? "" : "s"} you've already seen recently.`}
+                ? "Couldn't load alternatives right now."
+                : excluded.length > 0
+                  ? `Pick a different visual direction. We skipped ${excluded.length} style${excluded.length === 1 ? "" : "s"} you've used most recently.`
+                  : "Pick a different visual direction."}
           </DialogDescription>
         </DialogHeader>
 
@@ -145,7 +147,9 @@ export function StyleAlternativesDialog({
           </div>
         ) : alternatives.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            {error ? "Try again in a moment." : "Every style family is fresh — just hit Regenerate."}
+            {error
+              ? "Try again in a moment, or hit Regenerate to keep the current style."
+              : "Hit Regenerate to keep the current style, or tweak the prompt below to nudge the agent in a new direction."}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
