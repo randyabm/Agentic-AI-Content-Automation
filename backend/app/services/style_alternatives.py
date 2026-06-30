@@ -156,6 +156,11 @@ def get_alternatives(
     """
     visual = [el for el in elements if campaign_gen._slots_for(el) > 0]
     if not visual:
+        logger.warning(
+            "style_alternatives: no visual elements (all text-only or zero slots). "
+            "image_id=%s campaign_id=%s elements=%d",
+            image.id if image else None, campaign.id, len(elements),
+        )
         return [], []
 
     # Resolve org_id via the Client (Campaign only has client_id).
@@ -211,11 +216,21 @@ def get_alternatives(
 
     raw_cfg = get_llm_config(db, LLMFunction.visual_agent)
     if raw_cfg is None:
+        logger.warning(
+            "style_alternatives: no visual_agent LLMConfig — returning empty. "
+            "image_id=%s campaign_id=%s candidates=%d",
+            image.id if image else None, campaign.id, len(candidates),
+        )
         return [], excluded_for_ui
     cfg = _snapshot_cfg(raw_cfg)
 
     prep = _prepare_visual(db, campaign, elements, context=_alternative_context(campaign))
     if prep is None:
+        logger.warning(
+            "style_alternatives: _prepare_visual returned None — returning empty. "
+            "image_id=%s campaign_id=%s candidates=%d",
+            image.id if image else None, campaign.id, len(candidates),
+        )
         return [], excluded_for_ui
     base_user_prompt = prep[1]
 
@@ -251,6 +266,14 @@ def get_alternatives(
                 )
         except Exception:
             logger.exception("Failed to record style_alternatives history")
+
+    if not alternatives:
+        logger.warning(
+            "style_alternatives: no alternatives produced. image_id=%s campaign_id=%s "
+            "candidates=%d current_family=%s hard_excluded=%s soft_recent=%s",
+            image.id if image else None, campaign.id, len(candidates),
+            current_family, sorted(hard_excluded), sorted(soft_recent),
+        )
 
     return alternatives, excluded_for_ui
 
