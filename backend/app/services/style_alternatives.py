@@ -234,20 +234,39 @@ def get_alternatives(
         return [], excluded_for_ui
     base_user_prompt = prep[1]
 
-    alternatives: list[StyleAlternativeOut] = []
-    for family in candidates:
+    # Fire the 3 LLM calls in parallel — each takes 15-25s, sequential would
+    # be 45-75s and the frontend's 30s default timeout would kick in. Each
+    # call is its own try/except so a single failure doesn't poison the
+    # others. We re-use the prep snapshot across all 3 calls (it's a
+    # tuple of immutable references so thread-safe).
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _build_one(family: str) -> StyleAlternativeOut | None:
         try:
             forced_prompt = _patch_prompt_for_force_family(base_user_prompt, family)
             raw = complete_text(cfg, cfg.system_prompt, forced_prompt, prep[2])
             parsed = _parse_visual(raw, prep[3], prep[4])
-            # Use the FIRST visual element's first slot as the representative direction
+            # Use the FIRST visual element's first slot as the representative
             for slots in parsed:
                 if slots:
-                    alternatives.append(_build_alternative_from_slot(slots[0], family))
-                    break
+                    return _build_alternative_from_slot(slots[0], family)
+            logger.warning(
+                "style_alternatives: LLM returned parseable JSON but no non-empty "
+                "slots for family=%s. parsed_len=%d",
+                family, len(parsed),
+            )
+            return None
         except Exception:
             logger.exception("Failed to build style alternative for family=%s", family)
-            continue
+            return None
+
+    alternatives: list[StyleAlternativeOut] = []
+    with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+        futures = {pool.submit(_build_one, fam): fam for fam in candidates}
+        for fut in as_completed(futures):
+            result = fut.result()
+            if result is not None:
+                alternatives.append(result)
 
     # Record each picked family in style_history with source=style_alternatives
     # so the next generation's penalty block (which is per-source) doesn't
