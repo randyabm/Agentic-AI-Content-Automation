@@ -129,6 +129,13 @@ def seed(db: Session) -> None:
     # competitor_analysis uses Haiku: 3-5× faster, 20× cheaper, good enough for
     # comparative analysis. All other functions default to Sonnet.
     _HAIKU_FUNCTIONS = {LLMFunction.competitor_analysis}
+    # The visual_agent now produces very long outputs (each element's
+    # image_prompt includes the marketing copy + font/colour/composition
+    # details + visual_keywords array + text_overlay_plan). 4096 tokens
+    # is regularly exceeded when a campaign has 4+ elements; the response
+    # gets truncated mid-JSON and the whole generation fails. Sonnet
+    # supports up to 8192 output tokens so we cap there.
+    _HIGH_TOKEN_FUNCTIONS = {LLMFunction.visual_agent, LLMFunction.editorial_agent}
     for function in LLMFunction:
         if function not in existing_configs:
             db.add(
@@ -138,7 +145,7 @@ def seed(db: Session) -> None:
                     model_name="claude-haiku-4-5-20251001" if function in _HAIKU_FUNCTIONS else "claude-sonnet-4-6",
                     api_key_encrypted=anthropic_key,
                     temperature=0.3 if "extraction" in function.value or "analysis" in function.value else 0.7,
-                    max_tokens=4096,
+                    max_tokens=8192 if function in _HIGH_TOKEN_FUNCTIONS else 4096,
                     system_prompt=DEFAULT_SYSTEM_PROMPTS.get(function, ""),
                 )
             )

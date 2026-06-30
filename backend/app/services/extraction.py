@@ -5,6 +5,7 @@ default). Returns a structured draft the user reviews before it is applied.
 """
 import json
 import logging
+import re
 
 import anthropic
 import httpx
@@ -153,14 +154,38 @@ def complete_text(
 
 
 def parse_json_value(text: str, opener: str = "{", closer: str = "}"):
-    """Extract and parse the outermost JSON object (or array) from LLM output."""
+    """Extract and parse the outermost JSON object (or array) from LLM output.
+
+    Robust against max_tokens truncation: if the raw outermost slice
+    fails to parse, walks back through the candidate looking for the
+    last complete value boundary (a `}` or `]` followed by `,` `]` `}`
+    or a quote) and tries each shorter prefix. When one parses, closes
+    any unclosed openers we cut across and returns a partial-but-valid
+    JSON. This lets a generation that ran out of tokens at element 3 of
+    4 still return elements 1-2 instead of failing the whole batch.
+    """
     start, end = text.find(opener), text.rfind(closer)
     if start == -1 or end == -1:
         raise ExtractionError("The LLM response did not contain the expected JSON")
+    candidate = text[start : end + 1]
     try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise ExtractionError(f"Could not parse the LLM response as JSON: {exc}") from exc
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+    # Walk back from the right through every candidate boundary.
+    boundary_re = re.compile(r"[}\]]\s*[,\]}](?![^[]*\])")  # closing bracket not inside a string
+    for match in list(boundary_re.finditer(candidate))[::-1]:
+        truncated = candidate[: match.end() - 1]  # exclude the trailing punctuation after the closer
+        open_count = truncated.count(opener) - truncated.count(closer)
+        if open_count > 0:
+            truncated += closer * open_count
+        try:
+            return json.loads(truncated)
+        except json.JSONDecodeError:
+            continue
+    raise ExtractionError(
+        f"Could not parse the LLM response as JSON: response was likely truncated mid-value"
+    )
 
 
 BRAND_MEMORY_INSTRUCTIONS = """\
