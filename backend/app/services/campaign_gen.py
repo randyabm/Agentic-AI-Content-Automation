@@ -178,11 +178,13 @@ object(s), each with exactly these keys:
 Write all content in {language}. Ground everything in the provided context.
 """
 
-# Visual Creative Director — schema enforced by Stage 1.3. The agent picks
-# ONE style_family per element from the closed list, returns a structured
-# direction with rationale, and a background-only image prompt (no text
-# inside the image — the layout engine adds copy deterministically in
-# Stage 2).
+# Visual Creative Director — schema enforced by Stage 1.3 (revised by the
+# example-image feedback). The agent picks ONE style_family per element
+# from the closed list, returns a structured direction with rationale,
+# and a SINGLE image prompt that includes BOTH the visual AND the
+# copy (text rendered inside the image is the target look). The
+# layout engine (Phase 2) is no longer the source of truth for copy;
+# it becomes a re-render safety net for when the AI gets text wrong.
 _ALLOWED_STYLE_FAMILIES = (
     "bold_typographic",
     "lifestyle_ugc",
@@ -217,60 +219,82 @@ VISUAL_BANNED_PHRASES = (
 
 VISUAL_INSTRUCTIONS = """\
 You are the Visual Creative Director for a social-media marketing platform.
-For each campaign element below, return a structured style direction + a
-background-only image prompt. Image elements need 1 direction, carousels
-need one per slide (visually coherent as a sequence), and video elements
-need 1 motion/video direction.
+For each campaign element below, return a structured style direction AND
+a single image prompt that the image model will render as the final
+asset. The image is the deliverable — it includes background, subject,
+AND the marketing copy (headline, subtitle, body, CTA, brand mark).
+
+Image elements need 1 direction, carousels need one per slide
+(visually coherent as a sequence), and video elements need 1 motion/video
+direction.
 
 ## Allowed style_families (pick ONE per element, no others)
 
 The visual library is intentionally closed. Do not invent a new family.
-The six families and when to use them:
+The six families and when to use them. Read the `style_cards` table for
+the full visual_cues + negative_constraints of each:
 
-- bold_typographic        — offers, launches, punchy ads. Oversized headline
-                            blocks, strong hierarchy, high contrast. The
-                            LAYOUT ENGINE renders the type; the image
-                            only carries background and subject.
+- bold_typographic        — SaaS product launches, punchy offers, hero ads.
+                            Oversized typographic headline with ONE
+                            emphasis word in a contrasting brand colour,
+                            split or centred layout, soft gradient
+                            background, 1-2 glowing orb accents,
+                            laptop and/or phone mockup showing the
+                            actual product UI, brand logo top-left, footer
+                            with feature chips. The image IS the final
+                            asset — copy is part of it.
 - lifestyle_ugc            — trust-building, local services, community.
                             Real-world setting, candid human moment,
-                            phone-camera feel. NOT polished.
-- editorial_collage        — campaigns, fashion, events, creative services.
-                            Cut-outs, layered paper, mixed type scale,
-                            asymmetric grid.
+                            phone-camera grain, NOT studio polish.
+- editorial_collage        — campaigns, fashion, events. Cut-outs,
+                            layered paper, torn edges, mixed type scale,
+                            asymmetric grid, warm neutrals + one accent.
 - 3d_product_hero          — products, SaaS feature launch, tech. Single
-                            hero object, studio lighting, depth, reflective
-                            surfaces. NOT multi-subject.
+                            hero object, studio lighting, rim light,
+                            soft shadow, reflective surface, depth of
+                            field, bokeh background.
 - imperfect_hand_drawn     — friendly brands, education, small business.
-                            Scribbles, marker textures, uneven shapes.
-                            NOT for luxury / finance / legal.
+                            Scribbles, marker textures, uneven shapes,
+                            playful grid, paper-like background.
 - surreal_seasonal_scene   — awareness, festivals, playful offers.
                             Unexpected scale, dreamlike backdrop,
-                            cinematic colour. NOT for regulated topics.
+                            cinematic colour grade, golden-hour lighting.
 
 ## Hard rules (apply in this order)
 
-1. Obey explicit user style instructions first (e.g. "make it look like a
-   90s polaroid" — pick the family that fits, or invent within reason).
-2. Obey brand kit: brand colours, tone, fonts.
+1. Obey explicit user style instructions first (e.g. "make it look like
+   a 90s polaroid" — pick the family that fits, or invent within reason).
+2. Obey brand kit: brand colours, tone, fonts. Use the brand's primary
+   colour for the emphasis word in bold_typographic headlines, and
+   the brand's secondary colour for decorative elements.
 3. Pick a style_family from the closed list above. Different elements in
    the same campaign SHOULD NOT all pick the same family. Carousels may
    pick one and stay consistent; other elements should differ.
 4. AVOID the style_families the user has already seen recently
-   (see "Recent style_families" block in CONTEXT below). Only repeat one
-   if the user explicitly asks for a series with the same look.
-5. NEVER ask the image model to render marketing text inside the image.
-   No letters, no words, no numbers, no logos, no watermarks, no fake
-   captions, no UI mockups. The layout engine adds copy afterwards.
+   (see "Recent style_families" block in CONTEXT below). Only repeat
+   one if the user explicitly asked for a series with the same look.
+5. The image IS the final asset — render headline, subtitle, body
+   copy, CTA, brand logo and any feature chips as part of the image.
+   Be specific about typography: name the font family (geometric
+   sans-serif, modern serif, hand-drawn display), the weight
+   (weight 800 for headlines, weight 400 for body), and the exact
+   placement (e.g. 'headline top-left, 60% of canvas height').
+   The brand's headline copy is in the user's CONTEXT block below
+   under 'must_use_copy' — use the exact wording in the image, with
+   ONE word highlighted in a contrasting brand colour.
 6. NEVER use these banned phrases (or close variants):
    {banned_phrases}.
-   These are the symptoms of "every poster looks the same". If you catch
-   yourself reaching for them, pick a different style_family instead.
+   These are the symptoms of "every poster looks the same". If you
+   catch yourself reaching for them, pick a different style_family
+   instead.
 7. Be specific. Name the medium (watercolour, risograph, 35mm film,
-   marker on kraft paper, 3D render in Cinema 4D, etc.), the composition
-   (subject placement, focal point, negative space), the lighting
-   (golden hour, rim light, soft window light, hard flash, neon
-   spill), the texture (paper grain, fabric weave, soft bokeh, hard
-   shadow), the colour mood (named, not hex — "warm amber + muted
+   marker on kraft paper, 3D render in Cinema 4D, photograph, vector
+   flat illustration, etc.), the composition (split layout with
+   text-left-product-right, centred, layered z-depth, etc.), the
+   lighting (golden hour, rim light, soft window light, hard flash,
+   neon spill, studio three-point, etc.), the texture (paper grain,
+   fabric weave, soft bokeh, hard shadow, screen-print halftone,
+   etc.), the colour mood (named, not hex — "warm amber + muted
    teal", "dusty rose + ink black", "acid green + bone"). Generic
    adjectives are a banned phrase in disguise.
 
@@ -287,22 +311,22 @@ given. Each element gets exactly the number of directions stated:
     "visual_keywords": ["specific", "medium", "terms", "not", "generic"],
     "composition": "specific placement, framing, focal point",
     "colour_mood": "named palette, not hex (e.g. 'warm amber + aqua')",
-    "font_mood_for_overlay": "1-line description of the type style the layout engine should use for headlines (only relevant for bold_typographic / editorial_collage)",
-    "image_prompt_without_text": "Detailed prompt for the image model. NO TEXT, NO LETTERS, NO LOGOS, NO WATERMARKS, NO UI in the image. Background and subject only. The same prompt will be re-rendered at multiple aspect ratios, so keep the main subject centred and composition flexible. Include: medium, composition, lighting, textures, colour mood, brand mood. Be specific and avoid every banned phrase.",
-    "negative_prompt": "what to avoid (e.g. 'blurry, low resolution, generic gradient')",
-    "text_overlay_plan": {{
-      "headline": "the headline copy if the post already has one (empty if not yet decided)",
-      "subtext": "...",
-      "cta": "...",
-      "layout_notes": "where the layout engine should place the text (e.g. 'top-left, leave 25% of canvas empty', 'bottom-right above safe zone')"
-    }},
-    "avoid": ["anti-patterns specific to this style choice, e.g. 'no fake text', 'no centred template look'"]
+    "font_mood": "1-line description of the typography (e.g. 'geometric sans-serif weight 800 headline with weight 700 brand-colour emphasis word, weight 400 italic quote, weight 400 body')",
+    "image_prompt": "Detailed prompt for the image model. INCLUDES the marketing copy as part of the image. Specify: medium, composition, lighting, textures, colour mood, brand mood, and the typography. Be specific: 'render the headline \"<exact text>\" in geometric sans-serif weight 800 at top-left, 60% of canvas height; render the word \"<word>\" in <brand colour> weight 700; render an italic quote in weight 400 at 30% width below the headline; render a product mockup (laptop+phone showing the brand's UI) at the right two-thirds of the canvas'. Include 1-2 glowing orb accents. Include the brand logo top-left and feature chips at the bottom. The same prompt will be re-rendered at multiple aspect ratios, so keep the main subject centred and composition flexible. Avoid every banned phrase.",
+    "negative_prompt": "what to avoid (e.g. 'blurry, low resolution, generic gradient, no fake text, no centered template look')",
+    "headline_text": "the headline copy as it should appear in the image (use must_use_copy from CONTEXT, or invent if not provided)",
+    "subtext": "the quote or subtitle, if any",
+    "cta": "the call-to-action, if any",
+    "feature_chips": ["up to 4 short labels for the footer feature row, e.g. 'AI Content Creation', 'Newsletter Automation'"],
+    "avoid": ["anti-patterns specific to this style choice, e.g. 'no centered template look', 'no repeated icon grid'"]
   }}
 ]
 
-The image generator will receive only `image_prompt_without_text` and
-`negative_prompt`. Everything else is for the layout engine, the QA
-critic, and the user-facing 'why this looks like this' explanation.
+The image generator receives `image_prompt` + `negative_prompt` as-is.
+`headline_text`, `subtext`, `cta`, and `feature_chips` are the exact
+copy the user-facing editor will show next to the image so they can
+copy-paste it for captions. Everything else is for the QA critic and
+the user-facing 'why this looks like this' explanation.
 
 ELEMENTS:
 {element_lines}
@@ -648,12 +672,13 @@ def _infer_style_family(prompt: str) -> str:
 def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> list[list[dict]]:
     """Pure parse of the Visual Agent's structured output (Stage 1.3+).
 
-    Reads the new schema: one object per element with `image_prompt_without_text`
-    and `negative_prompt` (used by the image generator), plus the full
-    `text_overlay_plan` and `style_family` (consumed later by the layout
-    engine and the QA critic). Falls back to the old `{prompts: [...]}`
-    shape if the agent emits it, so an admin who hasn't updated their
-    `LLMConfig.system_prompt` for the visual_agent yet still works.
+    Reads the new schema: one object per element with `image_prompt`
+    and `negative_prompt` (used by the image generator — copy is now
+    IN the prompt by design, see VISUAL_INSTRUCTIONS). Also pulls the
+    `style_family`, `headline_text`, `subtext`, `cta`, and `feature_chips`
+    that the agent decided to render. Falls back to the old
+    `image_prompt_without_text` / `prompts: [...]` shapes for an admin
+    who hasn't updated their visual_agent system_prompt yet.
     """
     results = parse_json_value(raw, opener="[", closer="]")
     if not isinstance(results, list):
@@ -665,7 +690,7 @@ def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> li
             item = {}
         # New schema: each item IS a single style direction (not wrapped
         # in `prompts`). If the agent emitted the old shape, unwrap it.
-        if "image_prompt_without_text" in item:
+        if "image_prompt" in item or "image_prompt_without_text" in item:
             directions = [item]
         else:
             directions = item.get("prompts", item.get("images", [])) or []
@@ -674,13 +699,17 @@ def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> li
             d = directions[slot] if slot < len(directions) else {}
             if not isinstance(d, dict):
                 d = {}
-            # Image prompt is `image_prompt_without_text` (new) or `prompt`
-            # (old fallback).
+            # Image prompt: prefer the new `image_prompt`, fall back to
+            # the Stage-1.3 `image_prompt_without_text` (admin hasn't
+            # updated system_prompt), then to the old `prompt` shape.
             img_prompt = (
-                d.get("image_prompt_without_text")
+                d.get("image_prompt")
+                or d.get("image_prompt_without_text")
                 or d.get("prompt")
                 or ""
             )
+            # text_overlay_plan is deprecated by the new direct-in-prompt
+            # approach but kept for backwards-compat.
             overlay = d.get("text_overlay_plan") or {}
             slots.append({
                 "prompt": str(img_prompt).strip(),
@@ -690,7 +719,11 @@ def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> li
                 "novelty_reason": str(d.get("novelty_reason", "")).strip(),
                 "visual_keywords": [str(k).strip() for k in (d.get("visual_keywords") or []) if str(k).strip()],
                 "colour_mood": str(d.get("colour_mood", "")).strip(),
-                "font_mood_for_overlay": str(d.get("font_mood_for_overlay", "")).strip(),
+                "font_mood": str(d.get("font_mood", "")).strip() or str(d.get("font_mood_for_overlay", "")).strip(),
+                "headline_text": str(d.get("headline_text", "") or overlay.get("headline", "")).strip(),
+                "subtext": str(d.get("subtext", "") or overlay.get("subtext", "")).strip(),
+                "cta": str(d.get("cta", "") or overlay.get("cta", "")).strip(),
+                "feature_chips": [str(c).strip() for c in (d.get("feature_chips") or []) if str(c).strip()],
                 "text_overlay_plan": {
                     "headline": str(overlay.get("headline", "")).strip(),
                     "subtext": str(overlay.get("subtext", "")).strip(),

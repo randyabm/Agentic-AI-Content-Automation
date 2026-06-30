@@ -46,11 +46,18 @@ def _data_url_to_bytes(data_url: str) -> tuple[bytes, str]:
     return base64.b64decode(payload), content_type
 
 
-# Appended to every prompt so the model keeps text/subjects off the edges
-# (gpt-image-1 otherwise clips headlines asked to sit "at the top").
+# Appended to every prompt so the model keeps the main subject and
+# critical text in the safe zone across aspect ratios. As of the
+# example-image revision the prompt IS the final asset (text rendered
+# inside the image), so we allow headlines and CTAs to sit near the
+# edges — but the main subject and any feature chips need to survive
+# the square/4:5/9:16 re-crop.
 _SAFE_MARGINS = (
-    "Keep all text, logos and key subjects fully inside the frame with comfortable margins; "
-    "never let anything touch or get cut off at the top, bottom or side edges."
+    "Keep the main subject and any feature chips / footer row inside the "
+    "frame with at least 6% margin. Headlines and CTAs may sit near the "
+    "edges but their baselines must stay at least 4% inside the frame so "
+    "they survive re-cropping to 1:1, 4:5, and 9:16. Avoid clipping "
+    "the product mockup or any text."
 )
 
 
