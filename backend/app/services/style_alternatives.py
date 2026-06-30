@@ -31,7 +31,7 @@ from app.services.campaign_gen import (
     _snapshot_cfg,
     get_llm_config,
 )
-from app.services.llm import complete_text
+from app.services.extraction import complete_text
 from app.services.style_repetition import StyleHistorySource
 from app.schemas.style_alternative import StyleAlternativeOut
 
