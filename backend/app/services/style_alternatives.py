@@ -61,7 +61,10 @@ def _patch_prompt_for_force_family(user_prompt: str, family: str) -> str:
     """
     override = (
         f"\n\nOverride for this call: pick style_family='{family}'. Do not pick "
-        f"any other family. The repetition-penalty block in CONTEXT above is "
+        f"any other family and do not remix it with another family even if the "
+        f"creativity guidance above allows remixing — for this call, '{family}' "
+        f"alone, no blend, is_remix=false, base_families=[]. "
+        f"The repetition-penalty block in CONTEXT above is "
         f"suspended for this single call — the user has explicitly asked for "
         f"a '{family}' take."
     )

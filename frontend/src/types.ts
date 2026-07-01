@@ -568,6 +568,7 @@ export interface PostImage {
   prompt: string;
   negative_prompt: string;
   additional_guidance: string;
+  style_family: string | null;
   prompt_history: PromptVersion[];
   image_model_id: string | null;
   base_object_key: string;

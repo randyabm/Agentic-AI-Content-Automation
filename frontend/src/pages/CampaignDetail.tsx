@@ -20,6 +20,7 @@ import { WorkflowStepper } from "../components/WorkflowStepper";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { cn } from "@/lib/utils";
+import { isRemix, styleFamilyLabel, styleFamilyTint } from "@/lib/styleFamilies";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1349,6 +1350,18 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
       )}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {image.status === "failed" && <Badge variant="destructive">failed</Badge>}
+        {image.style_family && (
+          <span
+            title={image.style_family}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full bg-gradient-to-r px-2 py-0.5 text-[0.65rem] font-medium text-white",
+              styleFamilyTint(image.style_family),
+            )}
+          >
+            {isRemix(image.style_family) && <span className="opacity-75">Remix ·</span>}
+            {styleFamilyLabel(image.style_family)}
+          </span>
+        )}
       </div>
       {(error || image.error) && (
         <div className="rounded-lg border-l-[3px] border-red-500 bg-red-50 p-2.5 text-sm text-red-700">

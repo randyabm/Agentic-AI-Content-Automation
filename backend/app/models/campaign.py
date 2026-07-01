@@ -289,6 +289,7 @@ class PostImage(Base):
     prompt: Mapped[str] = mapped_column(Text, default="")               # current editable image prompt
     negative_prompt: Mapped[str] = mapped_column(Text, default="")      # current editable negative prompt
     additional_guidance: Mapped[str] = mapped_column(Text, default="")  # appended supplementary guidance
+    style_family: Mapped[str | None] = mapped_column(String(140), nullable=True)  # visual agent pick, e.g. "dark_mode_luxury" or "a+b" for remix
     # [{prompt, negative_prompt, created_at}] — restorable prompt history (§5.5.3)
     prompt_history: Mapped[list] = mapped_column(JSON, default=list)
 

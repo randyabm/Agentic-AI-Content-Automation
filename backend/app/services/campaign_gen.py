@@ -6,6 +6,7 @@ negative prompt for every image slot. Both agents are grounded in the client
 profile, competitive context, and the client's Brand Memory (§5.3.3).
 """
 import logging
+import random
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -32,6 +33,69 @@ def creativity_to_temperature(level: int) -> float:
     """Map the 1–10 creativity slider (§5.3.1) to an LLM temperature in [0.2, 1.0]."""
     level = max(1, min(10, level))
     return round(0.2 + (level - 1) / 9 * 0.8, 2)
+
+
+# Remix: when creativity is high (7-10) the agent may blend two style families.
+# Code rolls the dice before the prompt is built; the LLM then decides freely
+# whether to take the remix invitation or stay with a single family.
+REMIX_CREATIVITY_THRESHOLD = 7
+
+
+def remix_probability(creativity_level: int) -> float:
+    """Gradual remix odds: 0 below 7, ramping 0.15 → 0.65 across 7-10."""
+    level = max(1, min(10, creativity_level))
+    if level < REMIX_CREATIVITY_THRESHOLD:
+        return 0.0
+    return round(0.15 + (level - 7) / 3 * 0.5, 2)
+
+
+def remix_family_id(family_a: str, family_b: str) -> str:
+    """Canonical remix id: alphabetically sorted, joined with '+'.
+
+    Stable regardless of which family the agent listed first, so
+    style_history never creates two separate buckets for the same pair.
+    """
+    a, b = sorted([family_a, family_b])
+    return f"{a}+{b}"
+
+
+def _is_trackable_family(fam: str, allowed: tuple) -> bool:
+    """Accept either a single closed-list family or a remix pair 'a+b'."""
+    if fam in allowed:
+        return True
+    if "+" in fam:
+        parts = fam.split("+", 1)
+        return len(parts) == 2 and all(p in allowed for p in parts)
+    return False
+
+
+_REMIX_GUIDANCE_ON = """\
+## Creative freedom ({creativity_level}/10)
+
+Creativity is set high for this campaign. You MAY deviate from picking a \
+single style_family if a genuine blend serves the brief better:
+- Blend exactly TWO families from the closed list (e.g. "glassmorphism_layered \
++ dark_mode_luxury" for a premium translucent-on-black look). Pick families \
+whose visual_cues are NOT contradictory — do not blend neo_brutalist_web with \
+claymorphism_soft_3d (hard-edge vs. soft-edge cancel each other out).
+- Set "is_remix": true and "base_families": [family_a, family_b] (exactly two \
+values, both from the closed list, alphabetical order).
+- The image_prompt must draw concretely from BOTH families' visual_cues — name \
+specific elements from each. A remix must be at least as specific as a single \
+family pick, not vaguer.
+- You are NOT required to remix. If a single family from the closed list \
+genuinely fits best, pick that instead and set "is_remix": false, \
+"base_families": [].
+- Do not remix more than two families. Do not invent vocabulary outside the \
+closed list's visual_cues.
+"""
+
+_REMIX_GUIDANCE_OFF = """\
+## Creative freedom ({creativity_level}/10)
+
+Pick exactly ONE style_family from the closed list above for this campaign's \
+creativity level. Creative remixing is not in play for this generation.
+"""
 
 
 def _brand_memory_text(client: Client) -> str:
@@ -186,12 +250,24 @@ Write all content in {language}. Ground everything in the provided context.
 # layout engine (Phase 2) is no longer the source of truth for copy;
 # it becomes a re-render safety net for when the AI gets text wrong.
 _ALLOWED_STYLE_FAMILIES = (
+    # Original 6
     "bold_typographic",
     "lifestyle_ugc",
     "editorial_collage",
     "3d_product_hero",
     "imperfect_hand_drawn",
     "surreal_seasonal_scene",
+    # 2025-2026 trend additions
+    "glassmorphism_layered",
+    "neo_brutalist_web",
+    "y2k_retro_futurism",
+    "dark_mode_luxury",
+    "claymorphism_soft_3d",
+    "maximalist_eclectic_collage",
+    "swiss_international_minimal",
+    "gradient_mesh_abstract",
+    "organic_blob_botanical",
+    "kinetic_motion_typography",
 )
 
 # Banned phrases — these are the symptoms of "every image looks the same"
@@ -228,37 +304,76 @@ Image elements need 1 direction, carousels need one per slide
 (visually coherent as a sequence), and video elements need 1 motion/video
 direction.
 
-## Allowed style_families (pick ONE per element, no others)
+## Allowed style_families (pick from this list only)
 
-The visual library is intentionally closed. Do not invent a new family.
-The six families and when to use them. Read the `style_cards` table for
-the full visual_cues + negative_constraints of each:
+The visual library is intentionally curated. Do not invent a family name
+not on this list. Read the style_cards in the system for the full
+visual_cues + negative_constraints of each:
 
-- bold_typographic        — SaaS product launches, punchy offers, hero ads.
-                            Oversized typographic headline with ONE
-                            emphasis word in a contrasting brand colour,
-                            split or centred layout, soft gradient
-                            background, 1-2 glowing orb accents,
-                            laptop and/or phone mockup showing the
-                            actual product UI, brand logo top-left, footer
-                            with feature chips. The image IS the final
-                            asset — copy is part of it.
-- lifestyle_ugc            — trust-building, local services, community.
-                            Real-world setting, candid human moment,
-                            phone-camera grain, NOT studio polish.
-- editorial_collage        — campaigns, fashion, events. Cut-outs,
-                            layered paper, torn edges, mixed type scale,
-                            asymmetric grid, warm neutrals + one accent.
-- 3d_product_hero          — products, SaaS feature launch, tech. Single
-                            hero object, studio lighting, rim light,
-                            soft shadow, reflective surface, depth of
-                            field, bokeh background.
-- imperfect_hand_drawn     — friendly brands, education, small business.
-                            Scribbles, marker textures, uneven shapes,
-                            playful grid, paper-like background.
-- surreal_seasonal_scene   — awareness, festivals, playful offers.
-                            Unexpected scale, dreamlike backdrop,
-                            cinematic colour grade, golden-hour lighting.
+- bold_typographic              — SaaS product launches, punchy offers, hero ads.
+                                  Oversized typographic headline, ONE emphasis word
+                                  in a contrasting brand colour, soft gradient
+                                  background, glowing orbs, product mockup,
+                                  logo top-left, feature chips footer.
+- lifestyle_ugc                 — trust-building, local services, community.
+                                  Real-world setting, candid human moment,
+                                  phone-camera grain, NOT studio polish.
+- editorial_collage             — campaigns, fashion, events. Cut-outs,
+                                  layered paper, torn edges, mixed type scale,
+                                  asymmetric grid, warm neutrals + one accent.
+- 3d_product_hero               — products, SaaS feature launch, tech. Single
+                                  hero object, studio lighting, rim light,
+                                  soft shadow, reflective surface, bokeh background.
+- imperfect_hand_drawn          — friendly brands, education, small business.
+                                  Scribbles, marker textures, uneven shapes,
+                                  playful grid, paper-like background.
+- surreal_seasonal_scene        — awareness, festivals, playful offers.
+                                  Unexpected scale, dreamlike backdrop,
+                                  cinematic colour grade, golden-hour lighting.
+- glassmorphism_layered         — SaaS dashboards, fintech, premium digital products.
+                                  Frosted-glass translucent panels over a vivid
+                                  blurred gradient; thin light-catching borders;
+                                  soft inner glow; UI mockup floating inside glass.
+- neo_brutalist_web             — streetwear, indie tech, Gen-Z, anti-corporate.
+                                  Thick black border, hard-edge offset drop shadow,
+                                  flat clashing colour blocks, raw/grid-breaking
+                                  layout, condensed monospace headline.
+- y2k_retro_futurism            — Gen-Z, music, nostalgia, beauty, fashion.
+                                  Chrome/metallic gradient text, holographic foil,
+                                  bubble-shaped frames, starburst/lens-flare accents,
+                                  saturated candy palette, thin chrome type outline.
+- dark_mode_luxury              — luxury goods, finance/wealth, VIP offers.
+                                  Near-black background, single metallic accent
+                                  (gold/copper), generous negative space, thin-weight
+                                  serif or geometric sans, soft directional studio light.
+- claymorphism_soft_3d          — consumer apps, wellness, friendly fintech.
+                                  Matte clay-like 3D shapes, heavily rounded edges,
+                                  dual soft shadow (inset + outset), pastel palette,
+                                  even diffused lighting, flat-matte background.
+- maximalist_eclectic_collage   — fashion, festivals, Gen-Z, limited drops.
+                                  3+ competing focal elements, clashing pattern-on-
+                                  pattern, dense layering, 4+ saturated colour blocks,
+                                  mixed-media feel, rotated/overlapping elements.
+- swiss_international_minimal   — design-forward B2B, editorial, conferences.
+                                  Strict modular grid, geometric grotesque sans
+                                  (weight 400-700), 1-2 flat colours, large confident
+                                  numerals, structured whitespace, thin rule dividers.
+- gradient_mesh_abstract        — SaaS/AI products, devtools, modern B2B.
+                                  Multi-point mesh gradient (4+ colour nodes), fine
+                                  grain/noise overlay to prevent banding, crisp
+                                  foreground card floating above, asymmetric gradient
+                                  brightest point.
+- organic_blob_botanical        — wellness, clean beauty, eco, food & beverage.
+                                  Soft organic blob shapes, botanical motifs (leaves/
+                                  florals), bright-but-earthy palette (terracotta/
+                                  sage/coral), paper/linen texture, natural shadow.
+- kinetic_motion_typography     — flash sales, sports, urgency campaigns, app drops.
+                                  Directional motion blur on headline/hero, diagonal
+                                  compositional energy (15-30° off horizontal), speed-
+                                  line accents, bold condensed italic headline weight
+                                  800-900, one 'hot' accent colour (orange-red/yellow).
+
+{remix_guidance}
 
 ## Hard rules (apply in this order)
 
@@ -267,9 +382,13 @@ the full visual_cues + negative_constraints of each:
 2. Obey brand kit: brand colours, tone, fonts. Use the brand's primary
    colour for the emphasis word in bold_typographic headlines, and
    the brand's secondary colour for decorative elements.
-3. Pick a style_family from the closed list above. Different elements in
-   the same campaign SHOULD NOT all pick the same family. Carousels may
-   pick one and stay consistent; other elements should differ.
+3. Pick a style_family from the closed list above, OR — only when the
+   creativity guidance above explicitly enables remixing — blend exactly
+   two families (set is_remix=true, base_families=[a, b]). Never invent
+   a family name outside the closed list; a remix uses two existing names,
+   never a new word. Different elements in the same campaign SHOULD NOT
+   all pick the same family. Carousels may pick one and stay consistent;
+   other elements should differ.
 4. AVOID the style_families the user has already seen recently
    (see "Recent style_families" block in CONTEXT below). Only repeat
    one if the user explicitly asked for a series with the same look.
@@ -305,8 +424,10 @@ given. Each element gets exactly the number of directions stated:
 
 [
   {{
-    "style_family": "one of the 6 allowed values above",
-    "style_name": "short evocative name e.g. 'Sun-Washed Product Hero'",
+    "style_family": "one of the 16 allowed values above (empty string if is_remix=true — use base_families instead)",
+    "is_remix": false,
+    "base_families": [],
+    "style_name": "short evocative name e.g. 'Sun-Washed Product Hero' or 'Frosted Dark Launch' for a remix",
     "novelty_reason": "why this differs from the user's recent style_families",
     "visual_keywords": ["specific", "medium", "terms", "not", "generic"],
     "composition": "specific placement, framing, focal point",
@@ -637,8 +758,12 @@ def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElem
         client_id=str(campaign.client_id) if campaign.client_id else None,
     )
     penalty_section = f"\n\n{penalty}" if penalty else ""
+    remix_enabled = random.random() < remix_probability(campaign.creativity_level)
+    remix_guidance = (
+        _REMIX_GUIDANCE_ON if remix_enabled else _REMIX_GUIDANCE_OFF
+    ).format(creativity_level=campaign.creativity_level)
     user_prompt = (
-        f"{VISUAL_INSTRUCTIONS.format(element_lines=lines, banned_phrases=', '.join(VISUAL_BANNED_PHRASES))}{penalty_section}\n\nCONTEXT:\n{context}"
+        f"{VISUAL_INSTRUCTIONS.format(element_lines=lines, banned_phrases=', '.join(VISUAL_BANNED_PHRASES), remix_guidance=remix_guidance)}{penalty_section}\n\nCONTEXT:\n{context}"
     )
     temperature = creativity_to_temperature(campaign.creativity_level)
     plan = [(el.id, _slots_for(el)) for el in visual]
@@ -711,10 +836,27 @@ def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> li
             # text_overlay_plan is deprecated by the new direct-in-prompt
             # approach but kept for backwards-compat.
             overlay = d.get("text_overlay_plan") or {}
+            # Resolve style_family: single pick or remix pair.
+            raw_family = str(d.get("style_family", "")).strip()
+            is_remix = bool(d.get("is_remix", False))
+            base_families_raw = d.get("base_families") or []
+            base_families = [str(f).strip() for f in base_families_raw if str(f).strip()]
+            if is_remix and len(base_families) == 2 and all(f in _ALLOWED_STYLE_FAMILIES for f in base_families):
+                resolved_family = remix_family_id(base_families[0], base_families[1])
+            elif raw_family in _ALLOWED_STYLE_FAMILIES:
+                resolved_family = raw_family
+                is_remix = False
+                base_families = []
+            else:
+                resolved_family = None  # keyword inference fallback handled downstream
+                is_remix = False
+                base_families = []
             slots.append({
                 "prompt": str(img_prompt).strip(),
                 "negative_prompt": str(d.get("negative_prompt", "")).strip(),
-                "style_family": str(d.get("style_family", "")).strip() or None,
+                "style_family": resolved_family,
+                "is_remix": is_remix and resolved_family is not None and "+" in (resolved_family or ""),
+                "base_families": base_families,
                 "style_name": str(d.get("style_name", "")).strip(),
                 "novelty_reason": str(d.get("novelty_reason", "")).strip(),
                 "visual_keywords": [str(k).strip() for k in (d.get("visual_keywords") or []) if str(k).strip()],
@@ -818,8 +960,7 @@ def generate_visuals_and_copy(
                             fam = slot.get("style_family") or _infer_style_family(slot.get("prompt", ""))
                             if not fam or fam == "unknown" or fam in seen:
                                 continue
-                            # Sanity-check the family is one we know about.
-                            if fam not in _ALLOWED_STYLE_FAMILIES:
+                            if not _is_trackable_family(fam, _ALLOWED_STYLE_FAMILIES):
                                 continue
                             seen.add(fam)
                             record_usage(

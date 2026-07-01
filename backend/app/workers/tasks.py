@@ -1040,6 +1040,7 @@ def generate_campaign(campaign_id: str) -> None:
                             aspect_ratio=ratio,
                             prompt=slot["prompt"],
                             negative_prompt=slot["negative_prompt"],
+                            style_family=slot.get("style_family"),
                         ))
 
         # Editorial copy → posts (one per element targeting each platform).

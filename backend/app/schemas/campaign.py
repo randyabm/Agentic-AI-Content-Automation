@@ -111,6 +111,7 @@ class PostImageOut(BaseModel):
     prompt: str
     negative_prompt: str
     additional_guidance: str
+    style_family: str | None
     prompt_history: list
     image_model_id: str | None
     base_object_key: str

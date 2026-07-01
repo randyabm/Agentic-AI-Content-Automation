@@ -13,6 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  FAMILY_ACCENT_BORDER,
+  STYLE_FAMILY_LABEL,
+  STYLE_FAMILY_TINT,
+} from "@/lib/styleFamilies";
 
 export interface StyleAlternative {
   style_family: string;
@@ -25,32 +30,6 @@ export interface StyleAlternative {
   avoid: string[];
 }
 
-const STYLE_FAMILY_LABEL: Record<string, string> = {
-  bold_typographic: "Bold typographic",
-  lifestyle_ugc: "Lifestyle UGC",
-  editorial_collage: "Editorial collage",
-  "3d_product_hero": "3D product hero",
-  imperfect_hand_drawn: "Imperfect hand-drawn",
-  surreal_seasonal_scene: "Surreal seasonal",
-};
-
-const STYLE_FAMILY_TINT: Record<string, string> = {
-  bold_typographic: "from-fuchsia-500 to-rose-500",
-  lifestyle_ugc: "from-amber-400 to-orange-500",
-  editorial_collage: "from-emerald-400 to-teal-500",
-  "3d_product_hero": "from-sky-400 to-indigo-500",
-  imperfect_hand_drawn: "from-rose-300 to-pink-400",
-  surreal_seasonal_scene: "from-violet-400 to-purple-500",
-};
-
-const FAMILY_ACCENT_BORDER: Record<string, string> = {
-  bold_typographic: "ring-fuchsia-300",
-  lifestyle_ugc: "ring-amber-300",
-  editorial_collage: "ring-emerald-300",
-  "3d_product_hero": "ring-sky-300",
-  imperfect_hand_drawn: "ring-rose-300",
-  surreal_seasonal_scene: "ring-violet-300",
-};
 
 export function StyleAlternativesDialog({
   open,
