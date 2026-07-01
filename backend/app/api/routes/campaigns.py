@@ -440,6 +440,17 @@ def approve_campaign(
     campaign.reviewed_by = actor.id
     campaign.reviewed_at = datetime.now(timezone.utc)
     campaign.review_note = body.note
+    # Full-campaign approval implies every post is approved too — otherwise
+    # posts stay stuck in draft/pending_review, blocking publish (which
+    # requires post.approval_status == approved) even though the campaign
+    # itself shows "Approved".
+    posts = db.scalars(select(Post).where(Post.campaign_id == campaign.id)).all()
+    for p in posts:
+        if p.approval_status != ApprovalStatus.approved:
+            p.approval_status = ApprovalStatus.approved
+            p.reviewed_by = actor.id
+            p.reviewed_at = datetime.now(timezone.utc)
+            p.review_note = body.note
     db.commit()
     audit.record(db, actor, "campaign.approve", "campaign", campaign.id)
     db.refresh(campaign)
