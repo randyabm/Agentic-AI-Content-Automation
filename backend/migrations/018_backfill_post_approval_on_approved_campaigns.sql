@@ -7,7 +7,7 @@
 
 UPDATE posts
 SET approval_status = 'approved',
-    reviewed_at = COALESCE(reviewed_at, now())
+    reviewed_at = COALESCE(posts.reviewed_at, now())
 FROM campaigns
 WHERE posts.campaign_id = campaigns.id
   AND campaigns.approval_status = 'approved'
