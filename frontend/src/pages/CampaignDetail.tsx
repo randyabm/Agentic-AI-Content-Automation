@@ -1272,6 +1272,12 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
   const [error, setError] = useState("");
   const { preview, full } = useImageUrl(campaignId, image);
 
+  useEffect(() => {
+    setPrompt(image.prompt);
+    setNegative(image.negative_prompt);
+    setGuidance(image.additional_guidance);
+  }, [image.prompt, image.negative_prompt, image.additional_guidance]);
+
   async function savePrompt() {
     await api(`/campaigns/${campaignId}/images/${image.id}/prompt`, { method: "PATCH", body: { prompt, negative_prompt: negative, additional_guidance: guidance } });
     await onChange();
