@@ -1093,8 +1093,16 @@ def _raise_for(r: httpx.Response, context: str) -> None:
             retry_after=retry_after,
         )
 
-    # 401/403 — token rejected.
+    # 401/403 — token rejected. Log the full response once so we can tell an
+    # actually-revoked token apart from an insufficient-scope/permission
+    # rejection (X and other platforms return 403 for both, with different
+    # response headers/bodies that aren't surfaced in the short `detail`).
     if r.status_code in (401, 403):
+        logger.warning(
+            "%s: %s %s — headers=%s body=%s",
+            context, r.status_code, r.reason_phrase if hasattr(r, "reason_phrase") else "",
+            dict(r.headers), r.text[:1000],
+        )
         raise DirectSocialError(
             f"{context}: authentication failed ({r.status_code}). {detail}",
             code="auth_expired",
