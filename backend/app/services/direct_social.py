@@ -1098,11 +1098,30 @@ def _raise_for(r: httpx.Response, context: str) -> None:
     # rejection (X and other platforms return 403 for both, with different
     # response headers/bodies that aren't surfaced in the short `detail`).
     if r.status_code in (401, 403):
+        headers = dict(r.headers)
         logger.warning(
             "%s: %s %s — headers=%s body=%s",
             context, r.status_code, r.reason_phrase if hasattr(r, "reason_phrase") else "",
-            dict(r.headers), r.text[:1000],
+            headers, r.text[:1000],
         )
+        # X sometimes rejects tweet creation with a generic 403 "not
+        # permitted" (RFC7807 problem+json, no error code) instead of the
+        # documented 402, even though x-access-level on the SAME response
+        # confirms the token has read-write scope. This combination — valid
+        # read-write token, no rate-limit exhaustion, still forbidden — is
+        # the Free-tier API access restriction, not an auth problem. Don't
+        # mark the channel expired for this: the token is fine, the plan
+        # isn't. (Meta 401/403 has no x-access-level header, so this branch
+        # only fires for X/Twitter responses.)
+        is_twitter_context = "twitter" in context.lower() or "tweet" in context.lower()
+        if is_twitter_context and headers.get("x-access-level") == "read-write":
+            raise DirectSocialError(
+                f"{context}: rejected (403) even though the token has read-write access. This matches "
+                "X's Free-tier API restriction on posting tweets — the token/app permissions are fine. "
+                "Upgrade the Twitter/X Developer app's Project to Basic ($100/month) at developer.x.com "
+                f"to enable publishing. Raw response: {detail}",
+                code="permanent",
+            )
         raise DirectSocialError(
             f"{context}: authentication failed ({r.status_code}). {detail}",
             code="auth_expired",
