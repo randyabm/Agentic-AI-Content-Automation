@@ -41,9 +41,9 @@ def creativity_to_temperature(level: int) -> float:
 REMIX_CREATIVITY_THRESHOLD = 7
 
 
-def remix_probability(creativity_level: int) -> float:
+def remix_probability(creativity_level: int | None) -> float:
     """Gradual remix odds: 0 below 7, ramping 0.15 → 0.65 across 7-10."""
-    level = max(1, min(10, creativity_level))
+    level = max(1, min(10, creativity_level or 5))
     if level < REMIX_CREATIVITY_THRESHOLD:
         return 0.0
     return round(0.15 + (level - 7) / 3 * 0.5, 2)
@@ -758,10 +758,11 @@ def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElem
         client_id=str(campaign.client_id) if campaign.client_id else None,
     )
     penalty_section = f"\n\n{penalty}" if penalty else ""
-    remix_enabled = random.random() < remix_probability(campaign.creativity_level)
+    _creativity = campaign.creativity_level or 5
+    remix_enabled = random.random() < remix_probability(_creativity)
     remix_guidance = (
         _REMIX_GUIDANCE_ON if remix_enabled else _REMIX_GUIDANCE_OFF
-    ).format(creativity_level=campaign.creativity_level)
+    ).format(creativity_level=_creativity)
     user_prompt = (
         f"{VISUAL_INSTRUCTIONS.format(element_lines=lines, banned_phrases=', '.join(VISUAL_BANNED_PHRASES), remix_guidance=remix_guidance)}{penalty_section}\n\nCONTEXT:\n{context}"
     )
