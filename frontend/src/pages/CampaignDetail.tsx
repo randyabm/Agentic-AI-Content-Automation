@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Download, Eye, EyeOff, FileImage, Film, Layers, Maximize2, Pencil, Sparkles, Type, Upload as UploadIcon, Wand2, X } from "lucide-react";
+import { CalendarDays, ChevronRight, Download, Eye, EyeOff, FileImage, Film, Layers, Maximize2, Pencil, Rocket, Sparkles, Type, Upload as UploadIcon, Wand2, X } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { getBlobUrl, hashKey } from "../lib/blobCache";
 import { ImageEditor } from "../components/ImageEditor";
@@ -979,11 +979,15 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
   const [busy, setBusy] = useState("");
   const { user } = useAuth();
   const promptDialog = usePrompt();
+  const confirmDialog = useConfirm();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
 
   const canReview = !!user?.is_platform_admin || user?.org_role === "reviewer" || user?.org_role === "org_admin";
   const canSubmit = canReview || user?.org_role === "analyst" || user?.org_role === "creative";
+  const canPublish = !!user?.is_platform_admin || user?.org_role === "org_admin" || user?.org_role === "analyst";
   const ps = post.publish_state;
+  const canPublishNow = post.approval_status === "approved"
+    && (!ps || (ps.status !== "published" && ps.status !== "publishing" && ps.status !== "scheduled"));
 
   async function review(action: "submit" | "approve" | "reject") {
     let note = "";
@@ -1000,6 +1004,22 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
       await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, { method: "POST", body: action === "reject" ? { note } : {} });
       toast.success(action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected");
       await onChange();
+    } finally { setBusy(""); }
+  }
+
+  async function publishNow() {
+    const ok = await confirmDialog({
+      title: "Publish now", description: "This sends the post to its connected channel immediately. Continue?",
+      confirmLabel: "Publish now",
+    });
+    if (!ok) return;
+    setBusy("Publishing…");
+    try {
+      await api(`/campaigns/${campaignId}/posts/${post.id}/publish`, { method: "POST" });
+      toast.success("Post published");
+      await onChange();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not publish the post");
     } finally { setBusy(""); }
   }
 
@@ -1129,6 +1149,11 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
           {canReview && post.approval_status === "pending_review" && (
             <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
               Reject
+            </Button>
+          )}
+          {canPublish && canPublishNow && (
+            <Button size="sm" onClick={publishNow} disabled={!!busy}>
+              <Rocket size={14} /> Publish now
             </Button>
           )}
         </div>
