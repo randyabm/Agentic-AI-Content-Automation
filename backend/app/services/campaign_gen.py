@@ -393,14 +393,22 @@ visual_cues + negative_constraints of each:
    (see "Recent style_families" block in CONTEXT below). Only repeat
    one if the user explicitly asked for a series with the same look.
 5. The image IS the final asset — render headline, subtitle, body
-   copy, CTA, brand logo and any feature chips as part of the image.
-   Be specific about typography: name the font family (geometric
-   sans-serif, modern serif, hand-drawn display), the weight
-   (weight 800 for headlines, weight 400 for body), and the exact
-   placement (e.g. 'headline top-left, 60% of canvas height').
-   The brand's headline copy is in the user's CONTEXT block below
-   under 'must_use_copy' — use the exact wording in the image, with
-   ONE word highlighted in a contrasting brand colour.
+   copy, CTA and brand logo as part of the image. Feature chips are
+   OPTIONAL and only belong in styles whose visual_cues call for a
+   chip/pill row (e.g. bold_typographic) — do NOT default to a
+   rounded-pill footer row for every style; it is the single most
+   common way every poster ends up looking the same. Placement of
+   the logo and any chips must follow the chosen style_family's own
+   visual language (e.g. dark_mode_luxury wants a discreet corner
+   mark, not a footer bar; swiss_international_minimal places the
+   logo inside the grid, not floating over it). Be specific about
+   typography: name the font family (geometric sans-serif, modern
+   serif, hand-drawn display), the weight (weight 800 for headlines,
+   weight 400 for body), and the exact placement (e.g. 'headline
+   top-left, 60% of canvas height'). The brand's headline copy is in
+   the user's CONTEXT block below under 'must_use_copy' — use the
+   exact wording in the image, with ONE word highlighted in a
+   contrasting brand colour.
 6. NEVER use these banned phrases (or close variants):
    {banned_phrases}.
    These are the symptoms of "every poster looks the same". If you
@@ -433,12 +441,12 @@ given. Each element gets exactly the number of directions stated:
     "composition": "specific placement, framing, focal point",
     "colour_mood": "named palette, not hex (e.g. 'warm amber + aqua')",
     "font_mood": "1-line description of the typography (e.g. 'geometric sans-serif weight 800 headline with weight 700 brand-colour emphasis word, weight 400 italic quote, weight 400 body')",
-    "image_prompt": "Detailed prompt for the image model. INCLUDES the marketing copy as part of the image. Specify: medium, composition, lighting, textures, colour mood, brand mood, and the typography. Be specific: 'render the headline \"<exact text>\" in geometric sans-serif weight 800 at top-left, 60% of canvas height; render the word \"<word>\" in <brand colour> weight 700; render an italic quote in weight 400 at 30% width below the headline; render a product mockup (laptop+phone showing the brand's UI) at the right two-thirds of the canvas'. Include 1-2 glowing orb accents. Include the brand logo top-left and feature chips at the bottom. The same prompt will be re-rendered at multiple aspect ratios, so keep the main subject centred and composition flexible. Avoid every banned phrase.",
+    "image_prompt": "Detailed prompt for the image model. INCLUDES the marketing copy as part of the image. Specify: medium, composition, lighting, textures, colour mood, brand mood, and the typography. Be specific and DERIVE the layout from THIS element's chosen style_family's visual_cues — do not reuse the same generic layout every time (e.g. 'render the headline \"<exact text>\" in geometric sans-serif weight 800 at top-left, 60% of canvas height; render the word \"<word>\" in <brand colour> weight 700' is one possible layout for bold_typographic, not a template for every style). Name where the brand logo sits using language that matches the style (discreet corner mark for dark_mode_luxury, inside the grid for swiss_international_minimal, etc.) and only add a feature-chip row if the style calls for one. The same prompt will be re-rendered at multiple aspect ratios, so keep the main subject centred and composition flexible. Avoid every banned phrase.",
     "negative_prompt": "what to avoid (e.g. 'blurry, low resolution, generic gradient, no fake text, no centered template look')",
     "headline_text": "the headline copy as it should appear in the image (use must_use_copy from CONTEXT, or invent if not provided)",
     "subtext": "the quote or subtitle, if any",
     "cta": "the call-to-action, if any",
-    "feature_chips": ["up to 4 short labels for the footer feature row, e.g. 'AI Content Creation', 'Newsletter Automation'"],
+    "feature_chips": ["0-4 short labels for a footer feature row, ONLY if the chosen style_family's visual_cues call for one — leave empty for styles like dark_mode_luxury, swiss_international_minimal, y2k_retro_futurism where a pill-row footer would look generic"],
     "avoid": ["anti-patterns specific to this style choice, e.g. 'no centered template look', 'no repeated icon grid'"]
   }}
 ]
