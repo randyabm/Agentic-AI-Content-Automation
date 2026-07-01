@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -71,6 +71,18 @@ export function StyleAlternativesDialog({
     }
   }
 
+  useEffect(() => {
+    if (open) {
+      void load();
+    } else {
+      setAlternatives([]);
+      setExcluded([]);
+      setError(null);
+      setPicked(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   async function apply(alt: StyleAlternative) {
     setApplying(alt.style_family);
     setPicked(alt.style_family);
@@ -90,13 +102,7 @@ export function StyleAlternativesDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next);
-        if (next) void load();
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
