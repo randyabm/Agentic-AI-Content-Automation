@@ -62,6 +62,9 @@ class ScheduledPostOut(BaseModel):
     last_attempt_at: datetime | None = None
     attempt_history: list = []
     created_at: datetime
+    # Why the schedule won't publish on its own (model property):
+    # waiting_approval | needs_channel | overdue | "" (on track)
+    blocked_reason: str = ""
 
 
 # --- scheduling (Phase 3) ---
@@ -173,6 +176,8 @@ class CalendarItemOut(BaseModel):
     client_id: str = ""
     client_name: str = ""
     approval_status: str = ""
+    # waiting_approval | needs_channel | overdue | "" (on track)
+    blocked_reason: str = ""
 
 
 class ScheduleablePostOut(BaseModel):

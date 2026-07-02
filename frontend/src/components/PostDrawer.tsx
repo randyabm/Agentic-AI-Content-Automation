@@ -22,6 +22,7 @@ import {
 import { useConfirm } from "@/components/ui/dialogs";
 import { cn } from "@/lib/utils";
 import { friendlyPublishError, nextAttemptNote, statusLabel, statusVariant } from "@/lib/publishStatus";
+import BlockedReasonBadge, { BLOCKED_REASON_HINTS } from "./BlockedReasonBadge";
 
 const APPROVAL_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   draft: "secondary",
@@ -220,7 +221,13 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
                 {item.approval_status.replace("_", " ")}
               </Badge>
             )}
+            <BlockedReasonBadge reason={item.blocked_reason} />
           </div>
+          {item.blocked_reason && BLOCKED_REASON_HINTS[item.blocked_reason] && (
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {BLOCKED_REASON_HINTS[item.blocked_reason]}
+            </p>
+          )}
         </SheetHeader>
 
         <ScrollArea className="flex-1 h-[calc(100vh-140px)]">

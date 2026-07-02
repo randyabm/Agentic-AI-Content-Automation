@@ -176,6 +176,8 @@ export interface CalendarItem {
   client_id: string;
   client_name: string;
   approval_status: string;
+  /** waiting_approval | needs_channel | overdue | "" — why it won't publish on its own. */
+  blocked_reason?: string;
 }
 
 export interface ScheduleablePost {
@@ -631,6 +633,8 @@ export interface PublishState {
   next_attempt_at: string | null;
   channel_id: string;
   updated_at: string | null;
+  /** waiting_approval | needs_channel | overdue | "" — why it won't publish on its own. */
+  blocked_reason?: string;
 }
 
 export interface PostAsset {

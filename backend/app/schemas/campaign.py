@@ -166,6 +166,8 @@ class PublishStateOut(BaseModel):
     next_attempt_at: datetime | None = None
     channel_id: str = ""
     updated_at: datetime | None = None
+    # waiting_approval | needs_channel | overdue | "" (on track)
+    blocked_reason: str = ""
 
 
 class PostOut(BaseModel):

@@ -7,11 +7,11 @@ exposes an account id + live health (status, token expiry) that we mirror here.
 """
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
@@ -114,3 +114,40 @@ class ScheduledPost(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    # Read-only context for computing blocked_reason (identity-map hits when
+    # the caller already loaded the post/channel in the same session).
+    post: Mapped["Post | None"] = relationship("Post", viewonly=True, lazy="select")  # noqa: F821
+    channel: Mapped["SocialAccount | None"] = relationship("SocialAccount", viewonly=True, lazy="select")
+
+    # Grace before a still-scheduled past-due row is reported as overdue —
+    # covers the normal gap between due time and the next Beat sweep tick.
+    _OVERDUE_GRACE = timedelta(minutes=10)
+
+    @property
+    def blocked_reason(self) -> str:
+        """Why this schedule will not publish on its own. Empty = on track.
+
+        The due sweep intentionally skips unapproved / channel-less posts
+        without changing their status, so a bare `scheduled` badge can hide a
+        row that will never go out. Exposed on every scheduled-post API
+        response so the UI can say so instead of showing "Scheduled" forever.
+            waiting_approval — the post isn't approved yet
+            needs_channel    — no connected channel to publish to
+            overdue          — due in the past but still unsent (sweep issue)
+        """
+        if self.status != PublishStatus.scheduled:
+            return ""
+        from app.models.campaign import ApprovalStatus  # local import: avoid cycle at module load
+
+        if self.post is not None and self.post.approval_status != ApprovalStatus.approved:
+            return "waiting_approval"
+        if not self.social_account_id or self.channel is None or self.channel.status != ChannelStatus.connected:
+            return "needs_channel"
+        if self.scheduled_at is not None:
+            due = self.scheduled_at
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - due > self._OVERDUE_GRACE:
+                return "overdue"
+        return ""

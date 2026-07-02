@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformIcon, platformLabel } from "./PlatformIcon";
 import { cn } from "@/lib/utils";
 import { statusLabel, statusVariant } from "@/lib/publishStatus";
+import BlockedReasonBadge from "./BlockedReasonBadge";
 import type { CalendarItem } from "../types";
 
 function dayLabel(iso: string | null): string {
@@ -94,6 +95,7 @@ export function CalendarListView({ items, onSelectItem }: CalendarListViewProps)
                         </p>
                       </div>
                     </div>
+                    <BlockedReasonBadge reason={item.blocked_reason} className="shrink-0" />
                     <Badge variant={statusVariant(item.status)} className="shrink-0">
                       {statusLabel(item.status)}
                     </Badge>

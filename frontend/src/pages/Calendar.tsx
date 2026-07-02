@@ -107,11 +107,21 @@ export default function Calendar() {
       return;
     }
     try {
-      await api(`/campaigns/${campaignId}/posts/${postId}/schedule${force ? "?force=true" : ""}`, {
-        method: "POST",
-        body: { scheduled_at: when.toISOString(), timezone: tz },
-      });
+      const sp = await api<{ blocked_reason?: string }>(
+        `/campaigns/${campaignId}/posts/${postId}/schedule${force ? "?force=true" : ""}`,
+        {
+          method: "POST",
+          body: { scheduled_at: when.toISOString(), timezone: tz },
+        },
+      );
       toast.success(`Scheduled for ${when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} at ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`);
+      // Honest feedback: a schedule that can't publish on its own must say so
+      // now, not sit silently as "Scheduled" forever.
+      if (sp.blocked_reason === "waiting_approval") {
+        toast.warning("This post is not approved yet — it will NOT publish until someone approves it.", { duration: 8000 });
+      } else if (sp.blocked_reason === "needs_channel") {
+        toast.warning("No connected channel for this platform — the post will NOT publish until one is connected.", { duration: 8000 });
+      }
       await load();
     } catch (e) {
       // 409 duplicate → confirm and retry with force=true.

@@ -16,6 +16,7 @@ import { ApprovedBanner } from "../components/ApprovedBanner";
 import { EditWarningDialog } from "../components/EditWarningDialog";
 import { ApprovalTimeline, type TimelineEvent } from "../components/ApprovalTimeline";
 import { ApprovalBadge } from "../components/ApprovalBadge";
+import BlockedReasonBadge from "../components/BlockedReasonBadge";
 import { WorkflowStepper } from "../components/WorkflowStepper";
 import { toast } from "sonner";
 import { useConfirm, usePrompt } from "@/components/ui/dialogs";
@@ -680,12 +681,20 @@ function QuickSchedule({ campaignId, post, onDone }: { campaignId: string; post:
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     setBusy(true);
     try {
+      let blocked: string | undefined;
       if (isScheduled && ps?.id) {
-        await api(`/scheduled-posts/${ps.id}`, { method: "PATCH", body: { scheduled_at: when.toISOString(), timezone: tz } });
+        const r = await api<{ blocked_reason?: string }>(`/scheduled-posts/${ps.id}`, { method: "PATCH", body: { scheduled_at: when.toISOString(), timezone: tz } });
+        blocked = r.blocked_reason;
       } else {
-        await api(`/campaigns/${campaignId}/posts/${post.id}/schedule`, { method: "POST", body: { scheduled_at: when.toISOString(), timezone: tz } });
+        const r = await api<{ blocked_reason?: string }>(`/campaigns/${campaignId}/posts/${post.id}/schedule`, { method: "POST", body: { scheduled_at: when.toISOString(), timezone: tz } });
+        blocked = r.blocked_reason;
       }
       toast.success("Schedule updated");
+      if (blocked === "waiting_approval") {
+        toast.warning("This post is not approved yet — it will NOT publish until someone approves it.", { duration: 8000 });
+      } else if (blocked === "needs_channel") {
+        toast.warning("No connected channel for this platform — the post will NOT publish until one is connected.", { duration: 8000 });
+      }
       setOpen(false);
       onDone();
     } catch (e) { toast.error(e instanceof Error ? e.message : "Scheduling failed"); }
@@ -1189,7 +1198,12 @@ function PublishBadge({ ps }: { ps: PublishState; busy?: boolean }) {
   }
   if (ps.status === "publishing") return <Badge variant="warning">Publishing…</Badge>;
   if (ps.status === "scheduled") {
-    return <span className="text-sm text-muted-foreground">⏰ Scheduled{ps.scheduled_at ? ` for ${new Date(ps.scheduled_at).toLocaleString()}` : ""}</span>;
+    return (
+      <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+        ⏰ Scheduled{ps.scheduled_at ? ` for ${new Date(ps.scheduled_at).toLocaleString()}` : ""}
+        <BlockedReasonBadge reason={ps.blocked_reason} />
+      </span>
+    );
   }
   if (ps.status === "retrying" || ps.status === "throttled") {
     return (

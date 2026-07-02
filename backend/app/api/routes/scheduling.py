@@ -36,7 +36,9 @@ def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_ca
         return []
     items: list[ReviewQueueItem] = []
 
-    # 1) Per-post pending reviews
+    # 1) Per-post pending reviews. Posts submitted as part of a FULL-campaign
+    # review are represented by the campaign card below — listing them here
+    # too would duplicate every item in the queue.
     rows = db.execute(
         select(Post, Campaign, Client)
         .join(Campaign, Campaign.id == Post.campaign_id)
@@ -44,6 +46,13 @@ def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_ca
         .where(Client.org_id == actor.org_id, Post.approval_status == ApprovalStatus.pending_review)
         .order_by(Post.updated_at.desc())
     ).all()
+    rows = [
+        (post, campaign, client) for post, campaign, client in rows
+        if not (
+            campaign.approval_status == CampaignApprovalStatus.pending_review
+            and campaign.approval_scope == "full_campaign"
+        )
+    ]
     for post, campaign, client in rows:
         items.append(ReviewQueueItem(
             review_type="post",
@@ -129,6 +138,7 @@ def _to_item(
         client_id=client.id if client else "",
         client_name=client.company_name if client else "",
         approval_status=post.approval_status.value if post.approval_status else "",
+        blocked_reason=sp.blocked_reason,
     )
 
 
