@@ -1,6 +1,7 @@
 """Platform specifications (PRD §5.2): copy character limits, supported visual
 formats, and recommended image aspect ratios per platform.
 """
+import re
 from dataclasses import dataclass, field
 
 from app.models.campaign import Platform, VisualFormat
@@ -61,21 +62,40 @@ def _char_weight(ch: str, platform: Platform) -> int:
     return 2 if platform == Platform.x and ord(ch) >= 0x1100 else 1
 
 
+# X auto-links URLs AND bare domains (e.g. "i4tglobal.com") and wraps each in a
+# t.co link that always counts as 23 characters — regardless of actual length.
+# Verified live 2026-07-02: a 272-weighted-char tweet with a 13-char bare domain
+# was rejected 403 (272 - 13 + 23 = 282 > 280).
+_X_URL_RE = re.compile(r"(?i)\bhttps?://\S+|\bwww\.\S+|\b(?:[a-z0-9][a-z0-9-]*\.)+[a-z]{2,6}(?:/[^\s]*)?")
+_TCO_LEN = 23
+
+
+def _char_weights(text: str, platform: Platform) -> list[int]:
+    """Per-character weights; on X each URL span costs a flat 23 (t.co)."""
+    weights = [_char_weight(ch, platform) for ch in text]
+    if platform == Platform.x:
+        for m in _X_URL_RE.finditer(text):
+            for i in range(m.start(), m.end()):
+                weights[i] = 0
+            weights[m.start()] = _TCO_LEN
+    return weights
+
+
 def weighted_len(text: str, platform: Platform) -> int:
-    return sum(_char_weight(ch, platform) for ch in text)
+    return sum(_char_weights(text, platform))
 
 
 def truncate_to_limit(text: str, limit: int, platform: Platform) -> str:
     """Truncate so weighted_len(result) <= limit, on a word boundary, with an ellipsis."""
-    if weighted_len(text, platform) <= limit:
+    weights = _char_weights(text, platform)
+    if sum(weights) <= limit:
         return text
     budget = limit - _char_weight("…", platform)
     if budget <= 0:
         return ""
     used = 0
     end = 0
-    for i, ch in enumerate(text):
-        w = _char_weight(ch, platform)
+    for i, w in enumerate(weights):
         if used + w > budget:
             break
         used += w
