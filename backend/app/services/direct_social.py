@@ -1076,8 +1076,9 @@ def _raise_for(r: httpx.Response, context: str) -> None:
 
     if r.status_code == 402:
         raise DirectSocialError(
-            f"{context}: your Twitter/X Developer app is on the Free tier, which does not allow posting tweets. "
-            "Upgrade to Basic ($100/month) at developer.x.com to enable publishing.",
+            f"{context}: your Twitter/X Developer app's plan does not allow posting tweets "
+            "(402 Payment Required). Check your Project's billing/spending limit and enabled "
+            "products at developer.x.com.",
             code="permanent",
         )
 
@@ -1108,18 +1109,20 @@ def _raise_for(r: httpx.Response, context: str) -> None:
         # permitted" (RFC7807 problem+json, no error code) instead of the
         # documented 402, even though x-access-level on the SAME response
         # confirms the token has read-write scope. This combination — valid
-        # read-write token, no rate-limit exhaustion, still forbidden — is
-        # the Free-tier API access restriction, not an auth problem. Don't
-        # mark the channel expired for this: the token is fine, the plan
-        # isn't. (Meta 401/403 has no x-access-level header, so this branch
-        # only fires for X/Twitter responses.)
+        # read-write token, no rate-limit exhaustion, still forbidden — rules
+        # out an expired/insufficient-scope token. X's current pricing is
+        # pay-per-use credits (not the old Free/Basic subscription tiers),
+        # so this is most likely the Project's billing/spending-limit or
+        # product entitlement in the Developer Portal, not the token. Don't
+        # mark the channel expired for this: the token is fine. (Meta
+        # 401/403 has no x-access-level header, so this branch only fires
+        # for X/Twitter responses.)
         is_twitter_context = "twitter" in context.lower() or "tweet" in context.lower()
         if is_twitter_context and headers.get("x-access-level") == "read-write":
             raise DirectSocialError(
-                f"{context}: rejected (403) even though the token has read-write access. This matches "
-                "X's Free-tier API restriction on posting tweets — the token/app permissions are fine. "
-                "Upgrade the Twitter/X Developer app's Project to Basic ($100/month) at developer.x.com "
-                f"to enable publishing. Raw response: {detail}",
+                f"{context}: rejected (403) even though the token has read-write access — this rules out "
+                "an expired/insufficient-scope token. Check the Project's billing/spending limit and "
+                f"that the 'Create Post' product is enabled at developer.x.com. Raw response: {detail}",
                 code="permanent",
             )
         raise DirectSocialError(
