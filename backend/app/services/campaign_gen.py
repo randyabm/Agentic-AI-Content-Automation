@@ -24,7 +24,7 @@ from app.services.extraction import (
     get_llm_config,
     parse_json_value,
 )
-from app.services.platforms import spec
+from app.services.platforms import fit_post_fields, spec
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ element's type and concept:
 {element_lines}
 
 Platform rules:
-- Copy MUST NOT exceed {char_limit} characters.
+{length_rules}
 - Emoji usage: {emojis}.
 - Include {hashtag_count} hashtags following this mix: {hashtag_mix} (branded/trending/niche percentages).
 - Call to action: {cta_rule}
@@ -472,17 +472,52 @@ def _emoji_rule(value: str) -> str:
     )
 
 
-def _parse_posts(raw: str, num_posts: int, pspec) -> list[dict]:
+# Below this composed-post limit the platform is "tight" (X: 280): the budget
+# must cover headline + copy + CTA + hashtags together, so the prompt gets an
+# explicit per-field budget and the hashtag count is capped.
+_TIGHT_LIMIT = 300
+
+
+def _effective_hashtag_count(pspec, requested: int) -> int:
+    return min(requested, 2) if pspec.char_limit <= _TIGHT_LIMIT else requested
+
+
+def _length_rules(pspec, hashtag_count: int) -> str:
+    if pspec.char_limit <= _TIGHT_LIMIT:
+        return (
+            f"- HARD LENGTH LIMIT: the COMPLETE post — headline + copy + CTA + hashtags COMBINED — "
+            f"must fit within {pspec.char_limit} characters. {pspec.label} REJECTS anything longer, "
+            "and emoji count as 2 characters each. Budget guide: headline ≤40 chars (or empty), "
+            f"copy ≤160 chars, CTA ≤30 chars, at most {hashtag_count} short hashtags. "
+            "Count before answering; when in doubt, write LESS."
+        )
+    return (
+        f"- Copy MUST NOT exceed {pspec.char_limit} characters "
+        "(headline + copy + CTA + hashtags combined must stay within that limit)."
+    )
+
+
+def _parse_posts(raw: str, num_posts: int, platform: Platform) -> list[dict]:
+    pspec = spec(platform)
     results = parse_json_value(raw, opener="[", closer="]")
     if not isinstance(results, list) or not results:
         raise ExtractionError(f"The Editorial Agent did not return posts for {pspec.label}")
     posts: list[dict] = []
     for item in results[:num_posts]:
+        # Enforce the platform limit on the COMPOSED post (same fitting the
+        # publisher uses), so stored posts are always publishable as-is.
+        headline, copy, cta, hashtags = fit_post_fields(
+            platform,
+            str(item.get("headline", "")),
+            str(item.get("copy", "")),
+            str(item.get("cta", "")),
+            [str(h) for h in item.get("hashtags", [])],
+        )
         posts.append({
-            "headline": str(item.get("headline", "")).strip(),
-            "copy": str(item.get("copy", "")).strip()[: pspec.char_limit],
-            "cta": str(item.get("cta", "")).strip(),
-            "hashtags": [str(h).strip() for h in item.get("hashtags", []) if str(h).strip()],
+            "headline": headline,
+            "copy": copy,
+            "cta": cta,
+            "hashtags": hashtags,
             "best_time": str(item.get("best_time", "")).strip(),
             "rationale": str(item.get("rationale", "")).strip(),
         })
@@ -502,14 +537,15 @@ def _normal_instructions(
         else "include a call to action" if cp.include_cta
         else "do not include a call to action"
     )
+    hashtag_count = _effective_hashtag_count(pspec, cp.hashtag_count)
     return EDITORIAL_INSTRUCTIONS.format(
         num_posts=len(elements),
         platform=pspec.label,
         objective=campaign.objective.value,
         element_lines=_element_lines(elements),
-        char_limit=pspec.char_limit,
+        length_rules=_length_rules(pspec, hashtag_count),
         emojis=_emoji_rule(cp.emojis),
-        hashtag_count=cp.hashtag_count,
+        hashtag_count=hashtag_count,
         hashtag_mix=cp.hashtag_mix,
         cta_rule=cta_rule,
         tone=cp.tone or client.communication_tone or "match the brand voice",
@@ -526,7 +562,7 @@ element's type and concept:
 {element_lines}
 
 Platform rules:
-- Copy MUST NOT exceed {char_limit} characters.
+{length_rules}
 - Emoji usage: {emojis}.
 - Include {hashtag_count} hashtags following this mix: {hashtag_mix} (branded/trending/niche percentages).
 - Platform tone: {tone}
@@ -598,14 +634,15 @@ def _article_instructions(
 ) -> str:
     """Format the Article-to-Content editorial instructions for one platform (PRD §6)."""
     pspec = spec(cp.platform)
+    hashtag_count = _effective_hashtag_count(pspec, cp.hashtag_count)
     return ARTICLE_EDITORIAL_INSTRUCTIONS.format(
         num_posts=len(elements),
         platform=pspec.label,
         element_lines=_element_lines(elements),
         angle=_ANGLE_LABELS.get(campaign.content_angle, "informational"),
-        char_limit=pspec.char_limit,
+        length_rules=_length_rules(pspec, hashtag_count),
         emojis=_emoji_rule(cp.emojis),
-        hashtag_count=cp.hashtag_count,
+        hashtag_count=hashtag_count,
         hashtag_mix=cp.hashtag_mix,
         tone=cp.tone or client.communication_tone or "match the brand voice",
         language=campaign.content_language,
@@ -665,7 +702,7 @@ def generate_platform_copy(
     instructions = _editorial_instructions(client, campaign, cp, elements, article_meta)
     temperature = creativity_to_temperature(campaign.creativity_level)
     raw = complete_text(cfg, cfg.system_prompt, instructions, temperature, cache_prefix=f"CONTEXT:\n{context}")
-    return _parse_posts(raw, len(elements), pspec)
+    return _parse_posts(raw, len(elements), cp.platform)
 
 
 # Quick "improve with AI" actions for a single copy field. Each maps to a short
@@ -707,9 +744,16 @@ def improve_copy(
             else "Preserve the original language of the text."
         )
     )
-    limit_note = (
-        "" if is_hashtags else f"\nThe {platform.value} copy limit is {pspec.char_limit} characters — stay within it."
-    )
+    if pspec.char_limit <= _TIGHT_LIMIT:
+        limit_note = (
+            f"\nSTRICT: on {platform.value} the WHOLE post (headline + copy + CTA + hashtags combined) "
+            f"must fit in {pspec.char_limit} characters and emoji count as 2 — keep this field short "
+            "(copy ≤160 chars; at most 2 short hashtags)."
+        )
+    elif is_hashtags:
+        limit_note = ""
+    else:
+        limit_note = f"\nThe {platform.value} copy limit is {pspec.char_limit} characters — stay within it."
     prompt = (
         f"BRAND CONTEXT:\n{_client_context(client)}\n\n"
         f"PLATFORM: {platform.value}{limit_note}\n\n"
@@ -984,5 +1028,5 @@ def generate_visuals_and_copy(
                 logger.exception("Failed to record style_history for campaign %s", campaign.id)
         else:
             _, platform, pspec, num = key
-            posts_by_platform[platform] = _parse_posts(raw, num, pspec)
+            posts_by_platform[platform] = _parse_posts(raw, num, platform)
     return element_prompts, posts_by_platform

@@ -20,73 +20,34 @@ from app.services import zernio
 from app.services.direct_social import DirectSocialError, get_publishing_mode
 from app.services.direct_social import publish as direct_publish
 from app.services.media_links import public_media_url
-from app.services.platforms import PLATFORM_SPECS
+from app.services.platforms import compose_post_text, fit_post_fields
 from app.services.publishing_limits import backoff_for, limit_for
 
 
-def _char_weight(ch: str, platform: str) -> int:
-    # X's weighted length: emoji/CJK/etc. count as 2 (simplified twitter-text
-    # rule — everything from U+1100 up weighs 2). Other platforms count plain
-    # characters.
-    return 2 if platform == "x" and ord(ch) >= 0x1100 else 1
-
-
-def _weighted_len(text: str, platform: str) -> int:
-    return sum(_char_weight(ch, platform) for ch in text)
-
-
-def _char_limit_for(platform: str) -> int | None:
+def _platform_enum(platform: str | None) -> Platform | None:
     key = "x" if platform == "twitter" else platform
     try:
-        return PLATFORM_SPECS[Platform(key)].char_limit
-    except (ValueError, KeyError):
+        return Platform(key) if key else None
+    except ValueError:
         return None
-
-
-def _truncate_to_limit(text: str, limit: int, platform: str) -> str:
-    budget = limit - _char_weight("…", platform)
-    used = 0
-    end = 0
-    for i, ch in enumerate(text):
-        w = _char_weight(ch, platform)
-        if used + w > budget:
-            break
-        used += w
-        end = i + 1
-    cut = text[:end].rstrip()
-    space = cut.rfind(" ")
-    if space > len(cut) // 2:  # prefer a word boundary unless it costs too much
-        cut = cut[:space].rstrip()
-    return cut + "…"
 
 
 def compose_text(post: Post, platform: str | None = None) -> str:
     """Join headline/copy/CTA/hashtags into the outgoing text.
 
-    When `platform` is given, the text is fitted to that platform's char limit
-    (X rejects >280 with an opaque 403 "You are not permitted to perform this
-    action"): the hashtag line is dropped first, then the text is truncated on
-    a word boundary with an ellipsis.
+    When `platform` is given, the fields are fitted to that platform's char
+    limit first (X rejects >280 weighted chars with an opaque 403 "You are not
+    permitted to perform this action"): hashtags are dropped first, then the
+    copy/CTA/headline are truncated on a word boundary with an ellipsis.
+    Generation already fits posts at the source (campaign_gen); this is the
+    publish-time safety net for hand-edited or legacy posts.
     """
-    parts: list[str] = []
-    for value in (post.headline, post.copy, post.cta):
-        if value and value.strip():
-            parts.append(value.strip())
-    tags = post.hashtags or []
-    tag_line = " ".join(str(t) if str(t).startswith("#") else f"#{t}" for t in tags)
-
-    text = "\n\n".join(parts + ([tag_line] if tag_line else []))
-    if platform is None:
-        return text
-    platform = "x" if platform == "twitter" else platform
-    limit = _char_limit_for(platform)
-    if limit is None or _weighted_len(text, platform) <= limit:
-        return text
-
-    text = "\n\n".join(parts)
-    if _weighted_len(text, platform) > limit:
-        text = _truncate_to_limit(text, limit, platform)
-    return text
+    headline, copy, cta = post.headline or "", post.copy or "", post.cta or ""
+    tags = list(post.hashtags or [])
+    p = _platform_enum(platform)
+    if p is not None:
+        headline, copy, cta, tags = fit_post_fields(p, headline, copy, cta, tags)
+    return compose_post_text(headline, copy, cta, tags)
 
 
 def resolve_image(db: Session, post: Post) -> PostImage | None:
