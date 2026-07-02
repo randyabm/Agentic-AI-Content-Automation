@@ -292,6 +292,12 @@ class CampaignListItem(BaseModel):
     # Breakdown of element types, e.g. {"image": 2, "video": 1, "carousel": 1, "text": 0}.
     element_types: dict[str, int] = {}
     post_count: int = 0
+    # Lifecycle status column: approval rollup + publish counts (latest
+    # scheduled_post per post wins, same rule as the publish-states endpoint).
+    approval_status: CampaignApprovalStatus = CampaignApprovalStatus.draft
+    posts_published: int = 0
+    posts_scheduled: int = 0
+    posts_failed: int = 0
 
 
 class PostUpdate(BaseModel):

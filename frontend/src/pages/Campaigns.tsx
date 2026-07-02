@@ -64,6 +64,23 @@ const APPROVAL_BADGE: Record<string, { bg: string; text: string; label: string }
   changes_requested: { bg: "#fef3c7", text: "#d97706", label: "Changes Requested" },
 };
 
+/** Compact publish rollup for the Status column (failed needs action → wins). */
+function publishSummary(c: CampaignListItem): { label: string; cls: string } | null {
+  const pub = c.posts_published ?? 0;
+  const sch = c.posts_scheduled ?? 0;
+  const fail = c.posts_failed ?? 0;
+  const total = c.post_count ?? 0;
+  if (fail > 0) return { label: `✗ ${fail} failed`, cls: "text-red-600" };
+  if (pub > 0 && total > 0 && pub >= total) return { label: "✓ All published", cls: "text-emerald-600" };
+  if (pub > 0) return { label: `✓ ${pub}/${total} published`, cls: "text-emerald-600" };
+  if (sch > 0) return { label: `⏰ ${sch} scheduled`, cls: "text-sky-600" };
+  return null;
+}
+
+function publishTooltip(c: CampaignListItem): string {
+  return `${c.posts_published ?? 0} published · ${c.posts_scheduled ?? 0} scheduled · ${c.posts_failed ?? 0} failed · ${c.post_count ?? 0} posts`;
+}
+
 const STATUS_VARIANT: Record<string, "success" | "secondary" | "destructive"> = {
   ready: "success", generating: "secondary", failed: "destructive", draft: "secondary",
 };
@@ -254,21 +271,23 @@ export default function Campaigns() {
 
           {view === "list" && (
             <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(0,1.2fr)_110px_150px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)_100px_120px_150px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 <div>Campaign</div>
                 <div>Client</div>
                 <div>Platforms</div>
                 <div className="text-center">Elements</div>
+                <div>Status</div>
                 <div>Updated</div>
                 <div></div>
               </div>
               {visible.map((c) => {
-                const ab = (c as any).approval_status ? APPROVAL_BADGE[(c as any).approval_status] : null;
+                const ab = c.approval_status ? APPROVAL_BADGE[c.approval_status] : null;
+                const pub = publishSummary(c);
                 return (
                   <div
                     key={c.id}
                     onClick={() => navigate(`/campaigns/${c.id}`)}
-                    className="grid cursor-pointer grid-cols-[minmax(0,1.8fr)_minmax(0,1.2fr)_110px_150px_90px_40px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/40"
+                    className="grid cursor-pointer grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)_100px_120px_150px_90px_40px] items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/40"
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span
@@ -282,9 +301,6 @@ export default function Campaigns() {
                         <div className="truncate text-sm font-medium">{c.name}</div>
                         <div className="mt-0.5 flex items-center gap-1.5">
                           <span className="rounded bg-muted px-1.5 py-px text-[10px] capitalize text-muted-foreground">{c.objective}</span>
-                          {ab && (
-                            <span className="rounded px-1.5 py-px text-[10px] font-medium" style={{ background: ab.bg, color: ab.text }}>{ab.label}</span>
-                          )}
                           {c.status !== "generating" && c.visuals_generating && (
                             <span className="text-[10px] text-amber-600">⏳ visuals</span>
                           )}
@@ -312,6 +328,14 @@ export default function Campaigns() {
                         ));
                       })()}
                     </div>
+                    <div className="flex min-w-0 flex-col gap-1" title={publishTooltip(c)}>
+                      {ab && (
+                        <span className="w-fit rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: ab.bg, color: ab.text }}>
+                          {ab.label}
+                        </span>
+                      )}
+                      {pub && <span className={cn("text-[11px] font-medium", pub.cls)}>{pub.label}</span>}
+                    </div>
                     <div className="text-xs text-muted-foreground">{new Date(c.updated_at).toLocaleDateString()}</div>
                     <button
                       className="flex items-center justify-center rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-destructive"
@@ -338,7 +362,8 @@ export default function Campaigns() {
               {visible.map((c) => {
                 const client = clients.find((cl) => cl.id === c.client_id) ?? null;
                 const colors = client?.brand_colors?.length ? client.brand_colors : null;
-                const ab = (c as any).approval_status ? APPROVAL_BADGE[(c as any).approval_status] : null;
+                const ab = c.approval_status ? APPROVAL_BADGE[c.approval_status] : null;
+                const pub = publishSummary(c);
                 return (
                   <div key={c.id} className="group relative block overflow-hidden rounded-xl border border-border bg-card text-inherit">
                     <div
@@ -365,6 +390,9 @@ export default function Campaigns() {
                           <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: ab.bg, color: ab.text }}>
                             {ab.label}
                           </span>
+                        )}
+                        {pub && (
+                          <span className={cn("text-[11px] font-medium", pub.cls)} title={publishTooltip(c)}>{pub.label}</span>
                         )}
                         <span className="text-xs text-muted-foreground">{new Date(c.updated_at).toLocaleDateString()}</span>
                       </div>

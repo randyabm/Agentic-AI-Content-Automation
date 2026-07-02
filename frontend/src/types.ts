@@ -693,4 +693,10 @@ export interface CampaignListItem {
   element_count?: number;
   element_types?: Partial<Record<ElementType, number>>;
   post_count?: number;
+  /** Approval rollup derived from the campaign's posts. */
+  approval_status?: CampaignApprovalStatus;
+  /** Publish rollup: latest scheduled_post per post wins. */
+  posts_published?: number;
+  posts_scheduled?: number;
+  posts_failed?: number;
 }

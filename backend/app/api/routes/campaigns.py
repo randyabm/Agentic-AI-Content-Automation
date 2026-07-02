@@ -204,6 +204,29 @@ def list_campaigns(
                 platform.value if hasattr(platform, "value") else str(platform)
             )
 
+    # Publish rollup for the status column: the LATEST scheduled_post per post
+    # wins (same rule as the publish-states endpoint), then counted per campaign.
+    publish_rollup: dict[str, dict[str, int]] = {}
+    if camp_ids:
+        sp_rows = db.execute(
+            select(ScheduledPost, Post.campaign_id)
+            .join(Post, Post.id == ScheduledPost.post_id)
+            .where(Post.campaign_id.in_(camp_ids))
+            .order_by(ScheduledPost.created_at)
+        ).all()
+        latest_sp: dict[str, tuple[ScheduledPost, str]] = {}
+        for sp, cid in sp_rows:  # ordered oldest→newest, so the last write wins
+            latest_sp[sp.post_id] = (sp, cid)
+        for sp, cid in latest_sp.values():
+            counts = publish_rollup.setdefault(cid, {"published": 0, "scheduled": 0, "failed": 0})
+            if sp.status == PublishStatus.published:
+                counts["published"] += 1
+            elif sp.status == PublishStatus.failed:
+                counts["failed"] += 1
+            elif sp.status in (PublishStatus.scheduled, PublishStatus.publishing,
+                               PublishStatus.retrying, PublishStatus.throttled):
+                counts["scheduled"] += 1
+
     return [
         CampaignListItem(
             id=c.id,
@@ -218,6 +241,10 @@ def list_campaigns(
             element_count=element_counts.get(c.id, 0),
             element_types=element_types_by_campaign.get(c.id, {}),
             post_count=post_counts.get(c.id, 0),
+            approval_status=c.approval_status,
+            posts_published=publish_rollup.get(c.id, {}).get("published", 0),
+            posts_scheduled=publish_rollup.get(c.id, {}).get("scheduled", 0),
+            posts_failed=publish_rollup.get(c.id, {}).get("failed", 0),
         )
         for c in campaigns
     ]
