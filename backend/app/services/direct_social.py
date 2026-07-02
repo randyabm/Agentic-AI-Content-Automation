@@ -289,7 +289,7 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
             "response_type": "code",
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "twitter"),
-            "scope": "tweet.read tweet.write users.read offline.access",
+            "scope": "tweet.read tweet.write users.read media.write offline.access",
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
@@ -685,7 +685,9 @@ def publish(
     if p == "instagram":
         return _publish_instagram(account_id, access_token, text, image_urls, video_url)
     if p in ("twitter", "x"):
-        return _publish_twitter(access_token, text)
+        post_id, _ = _publish_twitter(access_token, text, image_urls)
+        url = f"https://x.com/{channel.username}/status/{post_id}" if post_id and channel.username else ""
+        return post_id, url
     if p == "linkedin":
         return _publish_linkedin(account_id, access_token, text)
 
@@ -976,10 +978,49 @@ def _publish_instagram_carousel(ig_account_id: str, page_token: str, text: str, 
     return media_id, published_url
 
 
-def _publish_twitter(access_token: str, text: str) -> tuple[str, str]:
+def _twitter_upload_image(access_token: str, image_url: str) -> str:
+    """Upload one image to X (POST /2/media/upload) and return its media id.
+
+    Requires the `media.write` OAuth scope — channels authorized before that
+    scope was added must be reconnected.
+    """
+    img = httpx.get(image_url, timeout=60)
+    if img.status_code >= 400:
+        raise DirectSocialError(
+            f"Twitter media upload: could not fetch the image ({img.status_code}) from the signed URL.",
+            code="transient",
+        )
+    content_type = img.headers.get("Content-Type", "image/png")
+
+    r = httpx.post(f"{TWITTER_API}/2/media/upload",
+        headers={"Authorization": f"Bearer {access_token}"},
+        data={"media_category": "tweet_image"},
+        files={"media": ("image", img.content, content_type)},
+        timeout=120)
+    logger.info(f"Twitter media upload: {r.status_code} - {r.text[:300]}")
+    if r.status_code in (401, 403):
+        raise DirectSocialError(
+            f"Twitter media upload rejected ({r.status_code}) — the access token probably lacks the "
+            "media.write scope (added later). Reconnect the X channel to re-authorize. "
+            f"Raw response: {r.text[:200]}",
+            code="auth_expired",
+        )
+    _raise_for(r, "Twitter media upload")
+    data = r.json().get("data", {})
+    media_id = data.get("id") or data.get("media_id_string") or ""
+    if not media_id:
+        raise DirectSocialError(f"Twitter media upload returned no media id: {r.text[:200]}")
+    return str(media_id)
+
+
+def _publish_twitter(access_token: str, text: str, image_urls: list[str] | None = None) -> tuple[str, str]:
+    media_ids = [_twitter_upload_image(access_token, u) for u in (image_urls or [])[:4]]
+    payload: dict = {"text": text}
+    if media_ids:
+        payload["media"] = {"media_ids": media_ids}
     r = httpx.post(f"{TWITTER_API}/2/tweets",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-        json={"text": text}, timeout=60)
+        json=payload, timeout=60)
     _raise_for(r, "Twitter tweet")
     return r.json().get("data", {}).get("id", ""), ""
 

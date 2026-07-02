@@ -199,7 +199,14 @@ Images served via authenticated FastAPI routes that read from MinIO (S3). Optimi
 
 ## Social Publishing: Direct Platform APIs
 
-**Status**: Facebook Pages ✅; Instagram Business Account ✅; Twitter/LinkedIn (TBD).
+**Status**: Facebook Pages ✅; Instagram Business Account ✅; Twitter/X ✅ (text + images); LinkedIn (TBD).
+
+### Twitter / X — gotchas (verified live 2026-07-02)
+
+- **Opaque 403** `"You are not permitted to perform this action"` on `POST /2/tweets` = **text over 280 weighted chars** (emoji/CJK count as 2). NOT a billing/tier problem when `x-access-level: read-write` is present. `compose_text()` now fits text to the platform's `char_limit` (drops hashtags first, then truncates with an ellipsis).
+- **Images** upload via `POST /2/media/upload` (OAuth 2.0 user context) and require the **`media.write` scope**. Channels authorized before that scope was added must be **reconnected** (refresh does not add scopes).
+- X tokens last 2h; `maybe_refresh_token()` rotates them on every publish (X invalidates the old refresh token on use).
+- The retry endpoint arms `scheduled_at` for immediate publishes (NULL never matches the due sweep's `scheduled_at <= now` filter).
 
 ### Architecture
 
