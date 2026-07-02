@@ -14,24 +14,79 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app.models.campaign import CampaignElement, ElementType, Post, PostImage, PostVideo, VideoStatus
+from app.models.campaign import CampaignElement, ElementType, Platform, Post, PostImage, PostVideo, VideoStatus
 from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
 from app.services import zernio
 from app.services.direct_social import DirectSocialError, get_publishing_mode
 from app.services.direct_social import publish as direct_publish
 from app.services.media_links import public_media_url
+from app.services.platforms import PLATFORM_SPECS
 from app.services.publishing_limits import backoff_for, limit_for
 
 
-def compose_text(post: Post) -> str:
+def _char_weight(ch: str, platform: str) -> int:
+    # X's weighted length: emoji/CJK/etc. count as 2 (simplified twitter-text
+    # rule — everything from U+1100 up weighs 2). Other platforms count plain
+    # characters.
+    return 2 if platform == "x" and ord(ch) >= 0x1100 else 1
+
+
+def _weighted_len(text: str, platform: str) -> int:
+    return sum(_char_weight(ch, platform) for ch in text)
+
+
+def _char_limit_for(platform: str) -> int | None:
+    key = "x" if platform == "twitter" else platform
+    try:
+        return PLATFORM_SPECS[Platform(key)].char_limit
+    except (ValueError, KeyError):
+        return None
+
+
+def _truncate_to_limit(text: str, limit: int, platform: str) -> str:
+    budget = limit - _char_weight("…", platform)
+    used = 0
+    end = 0
+    for i, ch in enumerate(text):
+        w = _char_weight(ch, platform)
+        if used + w > budget:
+            break
+        used += w
+        end = i + 1
+    cut = text[:end].rstrip()
+    space = cut.rfind(" ")
+    if space > len(cut) // 2:  # prefer a word boundary unless it costs too much
+        cut = cut[:space].rstrip()
+    return cut + "…"
+
+
+def compose_text(post: Post, platform: str | None = None) -> str:
+    """Join headline/copy/CTA/hashtags into the outgoing text.
+
+    When `platform` is given, the text is fitted to that platform's char limit
+    (X rejects >280 with an opaque 403 "You are not permitted to perform this
+    action"): the hashtag line is dropped first, then the text is truncated on
+    a word boundary with an ellipsis.
+    """
     parts: list[str] = []
     for value in (post.headline, post.copy, post.cta):
         if value and value.strip():
             parts.append(value.strip())
     tags = post.hashtags or []
-    if tags:
-        parts.append(" ".join(str(t) if str(t).startswith("#") else f"#{t}" for t in tags))
-    return "\n\n".join(parts)
+    tag_line = " ".join(str(t) if str(t).startswith("#") else f"#{t}" for t in tags)
+
+    text = "\n\n".join(parts + ([tag_line] if tag_line else []))
+    if platform is None:
+        return text
+    platform = "x" if platform == "twitter" else platform
+    limit = _char_limit_for(platform)
+    if limit is None or _weighted_len(text, platform) <= limit:
+        return text
+
+    text = "\n\n".join(parts)
+    if _weighted_len(text, platform) > limit:
+        text = _truncate_to_limit(text, limit, platform)
+    return text
 
 
 def resolve_image(db: Session, post: Post) -> PostImage | None:
@@ -172,15 +227,16 @@ def _mark_channel_expired(db: Session, channel: SocialAccount) -> None:
 
 
 def _resolve_content(
-    db: Session, post: Post
+    db: Session, post: Post, platform: str | None = None
 ) -> tuple[str, list[PostImage], list[str], PostVideo | None, str]:
     """Compose text + pick image(s)/video rendition; raise if there's nothing to send.
 
     Returns (text, images, image_keys, video, video_key).
     `images` / `image_keys` are lists — multiple items for carousels, one for
-    single-image posts, empty for video/text-only.
+    single-image posts, empty for video/text-only. `platform` (the target
+    channel's platform) fits the text to that platform's char limit.
     """
-    text = compose_text(post)
+    text = compose_text(post, platform)
     element = db.get(CampaignElement, post.element_id) if post.element_id else None
 
     if element and element.element_type == ElementType.carousel:
@@ -207,7 +263,7 @@ def publish_post(
     actor_id: str,
 ) -> ScheduledPost:
     """Publish `post` to `channel` immediately, recording a ScheduledPost."""
-    text, images, image_keys, video, video_key = _resolve_content(db, post)
+    text, images, image_keys, video, video_key = _resolve_content(db, post, channel.platform)
     fingerprint = content_fingerprint(text, image_keys, video_key)
 
     sp = ScheduledPost(
@@ -255,7 +311,9 @@ def schedule_post(
     error (HTTP 409 upstream). Pass `force=True` to override — the user
     explicitly confirmed they want the duplicate anyway.
     """
-    text, images, image_keys, video, video_key = _resolve_content(db, post)  # validate there's something to send
+    text, images, image_keys, video, video_key = _resolve_content(
+        db, post, channel.platform if channel else None
+    )  # validate there's something to send
     fingerprint = content_fingerprint(text, image_keys, video_key)
 
     if channel is not None and not force:
@@ -304,7 +362,7 @@ def send_scheduled_post(db: Session, sp: ScheduledPost, post: Post, channel: Soc
     min-gap limits, marking the post as `throttled` (deferred) when either
     threshold is reached instead of failing it.
     """
-    text, _, image_keys, _, video_key = _resolve_content(db, post)
+    text, _, image_keys, _, video_key = _resolve_content(db, post, channel.platform)
 
     # Throttle gates (per account). The check uses the account's own limits;
     # if the gate is closed we defer rather than burn through retries.

@@ -809,7 +809,7 @@ def schedule_post_for_later(
             from sqlalchemy import select as _select
             from app.services.publishing import content_fingerprint as _fp, _resolve_content as _rc
             from app.models.campaign import CampaignElement as _CE
-            text, images, image_keys, video, video_key = _rc(db, post)
+            text, images, image_keys, video, video_key = _rc(db, post, channel.platform if channel else None)
             fingerprint = _fp(text, image_keys, video_key)
             from datetime import timedelta
             cutoff = datetime.now(timezone.utc) - timedelta(hours=24)

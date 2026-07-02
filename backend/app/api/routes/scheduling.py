@@ -338,6 +338,10 @@ def retry_scheduled(
     sp.error_code = ""
     sp.retry_count = 0
     sp.next_attempt_at = datetime.now(timezone.utc)
+    # Immediate publishes have scheduled_at NULL, which the due sweep's
+    # `scheduled_at <= now` filter never matches — arm it so the retry fires.
+    if sp.scheduled_at is None:
+        sp.scheduled_at = datetime.now(timezone.utc)
     db.commit()
     audit.record(
         db, actor, "post.retry", "post", post.id,

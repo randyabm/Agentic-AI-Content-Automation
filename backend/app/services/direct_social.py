@@ -1105,24 +1105,21 @@ def _raise_for(r: httpx.Response, context: str) -> None:
             context, r.status_code, r.reason_phrase if hasattr(r, "reason_phrase") else "",
             headers, r.text[:1000],
         )
-        # X sometimes rejects tweet creation with a generic 403 "not
-        # permitted" (RFC7807 problem+json, no error code) instead of the
-        # documented 402, even though x-access-level on the SAME response
-        # confirms the token has read-write scope. This combination — valid
-        # read-write token, no rate-limit exhaustion, still forbidden — rules
-        # out an expired/insufficient-scope token. X's current pricing is
-        # pay-per-use credits (not the old Free/Basic subscription tiers),
-        # so this is most likely the Project's billing/spending-limit or
-        # product entitlement in the Developer Portal, not the token. Don't
-        # mark the channel expired for this: the token is fine. (Meta
-        # 401/403 has no x-access-level header, so this branch only fires
-        # for X/Twitter responses.)
+        # X rejects tweet creation with a generic 403 "You are not permitted
+        # to perform this action" (RFC7807 problem+json, no error code) while
+        # x-access-level on the SAME response confirms the token has
+        # read-write scope. Verified 2026-07-02 against the live API: the
+        # usual trigger is TEXT OVER X'S 280 WEIGHTED-CHARACTER LIMIT
+        # (281 chars → this 403; the same token posts ≤280 fine). Other
+        # possible triggers: Project billing/entitlement issues. Don't mark
+        # the channel expired for this: the token is fine. (Meta 401/403 has
+        # no x-access-level header, so this branch only fires for X.)
         is_twitter_context = "twitter" in context.lower() or "tweet" in context.lower()
         if is_twitter_context and headers.get("x-access-level") == "read-write":
             raise DirectSocialError(
-                f"{context}: rejected (403) even though the token has read-write access — this rules out "
-                "an expired/insufficient-scope token. Check the Project's billing/spending limit and "
-                f"that the 'Create Post' product is enabled at developer.x.com. Raw response: {detail}",
+                f"{context}: rejected (403) with a valid read-write token. The usual cause is the tweet "
+                "text exceeding X's 280-character limit (emoji count double); otherwise check the "
+                f"Project's billing at developer.x.com. Raw response: {detail}",
                 code="permanent",
             )
         raise DirectSocialError(
