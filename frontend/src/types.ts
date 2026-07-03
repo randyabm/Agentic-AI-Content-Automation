@@ -478,6 +478,7 @@ export interface PlatformSpec {
   char_limit: number;
   aspect_ratios: string[];
   formats: VisualFormat[];
+  requires_media: boolean;
 }
 
 export interface PlatformConfig {

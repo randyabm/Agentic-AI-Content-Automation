@@ -491,9 +491,13 @@ function CreateCampaign({
   }, []);
 
   function addElement(type: ElementType) {
+    // Text-only elements can't target platforms that require an image/video (e.g. Instagram).
+    const allowed = type === "text"
+      ? globalPlatforms.filter((p) => !specs.find((s) => s.platform === p)?.requires_media)
+      : globalPlatforms;
     setElements((prev) => [
       ...prev,
-      { key: nextKey, element_type: type, theme: "", platforms: [...globalPlatforms], ratio_overrides: {}, carousel_slides: 3, video_duration_seconds: 8 },
+      { key: nextKey, element_type: type, theme: "", platforms: [...allowed], ratio_overrides: {}, carousel_slides: 3, video_duration_seconds: 8 },
     ]);
     setNextKey((k) => k + 1);
   }
@@ -540,7 +544,10 @@ function CreateCampaign({
         start_date: startDate || null, end_date: endDate || null, creativity_level: creativity,
         article_id: articleId || null, article_url: articleUrl,
         elements: elements.map((el) => ({
-          element_type: el.element_type, theme: el.theme, platforms: el.platforms,
+          element_type: el.element_type, theme: el.theme,
+          platforms: el.element_type === "text"
+            ? el.platforms.filter((p) => !specs.find((s) => s.platform === p)?.requires_media)
+            : el.platforms,
           ratio_overrides: el.ratio_overrides, carousel_slides: el.carousel_slides,
           video_duration_seconds: el.video_duration_seconds,
         })),
@@ -880,12 +887,17 @@ function ElementCard({ el, specs, onChange, onRemove, onDuplicate }: { el: Eleme
             )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {specs.map((s) => (
-              <label key={s.platform} className="flex flex-row items-center gap-1.5 text-sm" title={s.label}>
-                <input type="checkbox" checked={el.platforms.includes(s.platform)} onChange={(e) => togglePlatform(s.platform, e.target.checked)} className="size-4 accent-primary" />
-                <PlatformIcon platform={s.platform} size={16} color={el.platforms.includes(s.platform) ? "#6d28d9" : "#4a4455"} />
-              </label>
-            ))}
+            {specs.map((s) => {
+              const blocked = el.element_type === "text" && s.requires_media;
+              return (
+                <label key={s.platform} className={cn("flex flex-row items-center gap-1.5 text-sm", blocked && "cursor-not-allowed opacity-40")}
+                  title={blocked ? `${s.label} requires an image or video — not available for text-only posts` : s.label}>
+                  <input type="checkbox" checked={!blocked && el.platforms.includes(s.platform)} disabled={blocked}
+                    onChange={(e) => togglePlatform(s.platform, e.target.checked)} className="size-4 accent-primary" />
+                  <PlatformIcon platform={s.platform} size={16} color={!blocked && el.platforms.includes(s.platform) ? "#6d28d9" : "#4a4455"} />
+                </label>
+              );
+            })}
           </div>
           {el.platforms.length > 0 && el.element_type !== "text" && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">

@@ -21,6 +21,7 @@ from app.models.campaign import (
     CampaignElement,
     CampaignPlatform,
     CampaignStatus,
+    ElementType,
     Platform,
     Post,
     PostAsset,
@@ -131,6 +132,7 @@ def platform_specs(actor: User = Depends(get_current_user)):
             "char_limit": s.char_limit,
             "aspect_ratios": s.aspect_ratios,
             "formats": [f.value for f in s.formats],
+            "requires_media": s.requires_media,
         }
         for platform, s in PLATFORM_SPECS.items()
     ]
@@ -258,6 +260,14 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
     assert_client_access(actor, client)  # can't create a campaign for another org's client
     if not any(el.platforms for el in body.elements):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every element needs at least one platform")
+    for el in body.elements:
+        if el.element_type == ElementType.text:
+            bad = [PLATFORM_SPECS[p].label for p in el.platforms if PLATFORM_SPECS[p].requires_media]
+            if bad:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"{', '.join(bad)} require(s) an image or video — text-only elements can't target it.",
+                )
     if body.generation_mode == "article" and not (body.article_id or body.article_url or body.article_text):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

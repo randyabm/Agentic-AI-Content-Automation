@@ -22,6 +22,9 @@ class PlatformSpec:
     char_limit: int
     aspect_ratios: list[str]
     formats: list[VisualFormat] = field(default_factory=lambda: [VisualFormat.static_image])
+    # Platform rejects posts without an image/video (e.g. Instagram's media
+    # container API), so text-only elements must not target it.
+    requires_media: bool = False
 
     @property
     def default_ratio(self) -> str:
@@ -33,16 +36,20 @@ PLATFORM_SPECS: dict[Platform, PlatformSpec] = {
         "Facebook", 63206, ["1:1", "4:5", "16:9"], [VisualFormat.static_image, VisualFormat.carousel]
     ),
     Platform.instagram: PlatformSpec(
-        "Instagram", 2200, ["1:1", "4:5", "9:16"], [VisualFormat.static_image, VisualFormat.carousel]
+        "Instagram", 2200, ["1:1", "4:5", "9:16"], [VisualFormat.static_image, VisualFormat.carousel],
+        requires_media=True,
     ),
     Platform.linkedin: PlatformSpec(
         "LinkedIn", 3000, ["1:1", "1.91:1"], [VisualFormat.static_image, VisualFormat.carousel]
     ),
     Platform.tiktok: PlatformSpec(
-        "TikTok", 2200, ["9:16"], [VisualFormat.static_image, VisualFormat.carousel]
+        "TikTok", 2200, ["9:16"], [VisualFormat.static_image, VisualFormat.carousel],
+        requires_media=True,
     ),
     Platform.x: PlatformSpec("X (Twitter)", 280, ["16:9", "1:1"], [VisualFormat.static_image]),
-    Platform.youtube: PlatformSpec("YouTube", 5000, ["16:9"], [VisualFormat.static_image]),
+    Platform.youtube: PlatformSpec(
+        "YouTube", 5000, ["16:9"], [VisualFormat.static_image], requires_media=True
+    ),
 }
 
 

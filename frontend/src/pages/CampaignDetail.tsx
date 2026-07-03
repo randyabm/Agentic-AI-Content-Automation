@@ -1150,7 +1150,7 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
               Submit for review
             </Button>
           )}
-          {canReview && post.approval_status !== "approved" && (
+          {canReview && post.approval_status === "pending_review" && (
             <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
               Approve
             </Button>
