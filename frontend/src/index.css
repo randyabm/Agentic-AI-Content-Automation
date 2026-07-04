@@ -86,6 +86,51 @@
   --status-changes: #f59e0b;
 }
 
+/* Dark theme — activated by adding .dark to <html> (see ThemeToggle.tsx and
+ * the boot script in index.html). Same hue system as light: deep neutral
+ * surfaces, brighter purple for contrast on dark, statuses lifted one step. */
+.dark {
+  --background: #0f1117;
+  --foreground: #e7e9ee;
+
+  --card: #171a23;
+  --card-foreground: #e7e9ee;
+
+  --popover: #171a23;
+  --popover-foreground: #e7e9ee;
+
+  --primary: #8b5cf6;
+  --primary-foreground: #ffffff;
+
+  --secondary: #21242e;
+  --secondary-foreground: #d6d3d1;
+
+  --muted: #21242e;
+  --muted-foreground: #a8a29e;
+
+  --surface: #171a23;
+  --surface-alt: #21242e;
+
+  --accent: #221a3a;
+  --accent-foreground: #c4b5fd;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: #2c2f3a;
+  --input: #2c2f3a;
+  --ring: #8b5cf6;
+
+  --tertiary: #14b8a6;
+  --warning: #f59e0b;
+
+  --status-draft: #9ca3af;
+  --status-pending: #fbbf24;
+  --status-approved: #34d399;
+  --status-rejected: #f87171;
+  --status-changes: #fbbf24;
+}
+
 /* Expose the variables above as Tailwind theme tokens (text-primary, bg-card,
  * border-border, rounded-lg, etc.) used by the shadcn components. */
 @theme inline {

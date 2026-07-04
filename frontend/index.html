@@ -16,6 +16,17 @@
     />
   </head>
   <body>
+    <!-- Apply the saved theme before first paint to avoid a light-mode flash.
+         Mirrors applyTheme() in src/components/ThemeToggle.tsx. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          var dark = t === "dark" || (t !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
