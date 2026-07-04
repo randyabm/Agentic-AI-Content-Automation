@@ -28,6 +28,23 @@
   ::after {
     box-sizing: border-box;
   }
+
+  /* Preflight is off, so nothing applied the theme's background/text tokens to
+   * the page. In light mode the browser's default white happened to match
+   * --background, hiding the gap; in dark mode the page stayed white. Bind the
+   * body (and the color-scheme hint for native form controls/scrollbars) to the
+   * tokens so switching .dark actually repaints the whole surface. */
+  html {
+    background-color: var(--background);
+  }
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+  html.dark {
+    color-scheme: dark;
+  }
 }
 
 @custom-variant dark (&:is(.dark *));
