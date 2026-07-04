@@ -85,7 +85,7 @@ export function TextareaZoom({
               readOnly={readOnly}
               className={cn(
                 "min-h-[240px] w-full resize-y rounded-[10px] border-[1.5px] border-border bg-input px-4 py-3.5 font-sans text-[0.95rem] leading-relaxed",
-                "focus:border-primary focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-primary/15",
+                "focus:border-primary focus:bg-card focus:outline-none focus:ring-[3px] focus:ring-primary/15",
               )}
             />
             <div className="flex items-center justify-between gap-2">

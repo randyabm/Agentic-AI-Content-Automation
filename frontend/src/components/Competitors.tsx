@@ -285,7 +285,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
                   onClick={() => setSelectedId(c.id)}
                   title={c.company_name}
                   className={cn(
-                    "inline-flex max-w-[220px] flex-shrink-0 cursor-pointer items-center gap-2 rounded-t-lg border border-b-0 border-border bg-surface-alt px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-white hover:text-foreground",
+                    "inline-flex max-w-[220px] flex-shrink-0 cursor-pointer items-center gap-2 rounded-t-lg border border-b-0 border-border bg-surface-alt px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-card hover:text-foreground",
                     selected?.id === c.id && "z-10 -mb-px border-border-b border-b border-surface bg-surface font-semibold text-primary",
                   )}
                 >

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { resolvePlatformRatios } from "../ratios";
 import type {
@@ -96,6 +97,7 @@ export default function Campaigns() {
   const [clients, setClients] = useState<Client[]>([]);
   const [mode, setMode] = useState<"none" | "campaign" | "article">(fromArticle ? "article" : "none");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
   const [filterClient, setFilterClient] = useState(initClient);
@@ -112,7 +114,7 @@ export default function Campaigns() {
   async function load() { setCampaigns(await api<CampaignListItem[]>("/campaigns")); }
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e.message)).finally(() => setLoading(false));
     api<Client[]>("/clients").then(setClients).catch(() => {});
   }, []);
 
@@ -272,7 +274,9 @@ export default function Campaigns() {
             </div>
           </div>
 
-          {view === "list" && (
+          {loading && <TableSkeleton rows={5} cols={7} />}
+
+          {!loading && view === "list" && (
             <div className="overflow-hidden rounded-xl border border-border bg-card">
               <div className="grid grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)_100px_120px_150px_90px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 <div>Campaign</div>
@@ -360,7 +364,7 @@ export default function Campaigns() {
             </div>
           )}
 
-          {view === "cards" && (
+          {!loading && view === "cards" && (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
               {visible.map((c) => {
                 const client = clients.find((cl) => cl.id === c.client_id) ?? null;

@@ -7,6 +7,7 @@ import { ClientAvatar } from "../components/ClientAvatar";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { Client } from "../types";
 
@@ -23,6 +24,7 @@ export default function Clients() {
   const navigate = useNavigate();
   const canEdit = user?.role === "admin" || user?.role === "editor";
   const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -36,7 +38,10 @@ export default function Clients() {
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
-    api<Client[]>("/clients").then(setClients).catch((e) => setError(e.message));
+    api<Client[]>("/clients")
+      .then(setClients)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   const loadStatuses = useCallback(
@@ -151,7 +156,9 @@ export default function Clients() {
         </div>
       </div>
 
-      {view === "list" && (
+      {loading && <TableSkeleton rows={6} cols={5} />}
+
+      {!loading && view === "list" && (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_140px_120px_40px] gap-3 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             <div>Client</div>
@@ -240,7 +247,7 @@ export default function Clients() {
         </div>
       )}
 
-      {view === "cards" && (
+      {!loading && view === "cards" && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
           {visible.map((c) => {
             const badge = ONBOARDING_BADGE[statuses[c.id]];
