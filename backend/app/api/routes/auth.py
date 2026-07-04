@@ -2,12 +2,13 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt as pyjwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.config import get_settings
+from app.core.ratelimit import SlidingWindowLimiter, rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -30,6 +31,16 @@ from app.services.email import send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Brute-force protection (per client IP; login also throttles per email).
+_login_ip_limiter = SlidingWindowLimiter(max_hits=10, window_seconds=300)
+_login_email_limiter = SlidingWindowLimiter(max_hits=8, window_seconds=300)
+_forgot_limiter = SlidingWindowLimiter(max_hits=5, window_seconds=3600)
+_reset_limiter = SlidingWindowLimiter(max_hits=10, window_seconds=300)
+
+# Constant-time-ish login: hash to compare against when the email doesn't
+# exist, so the response time doesn't reveal which emails are registered.
+_DUMMY_HASH = hash_password("dummy-password-for-timing")
+
 
 def _issue_tokens(db: Session, user: User) -> TokenPair:
     settings = get_settings()
@@ -47,10 +58,18 @@ def _issue_tokens(db: Session, user: User) -> TokenPair:
     return TokenPair(access_token=access, refresh_token=refresh)
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login", response_model=TokenPair,
+             dependencies=[Depends(rate_limit(_login_ip_limiter, "login"))])
 def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == body.email.lower()))
-    if user is None or not verify_password(body.password, user.hashed_password):
+    email = body.email.lower()
+    if not _login_email_limiter.allow(f"login-email:{email}"):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Too many attempts. Try again in a few minutes.")
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None:
+        verify_password(body.password, _DUMMY_HASH)  # burn the same bcrypt time
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+    if not verify_password(body.password, user.hashed_password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated")
@@ -84,7 +103,8 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return out
 
 
-@router.post("/forgot-password")
+@router.post("/forgot-password",
+             dependencies=[Depends(rate_limit(_forgot_limiter, "forgot"))])
 def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == body.email.lower()))
     # Always return 200 to avoid revealing which emails exist.
@@ -108,7 +128,8 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
     return {"message": "If the email exists, a reset link has been sent."}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password",
+             dependencies=[Depends(rate_limit(_reset_limiter, "reset"))])
 def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
     reset = db.get(PasswordResetToken, body.token)
     now = datetime.now(timezone.utc)

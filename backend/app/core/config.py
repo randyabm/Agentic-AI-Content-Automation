@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "AI Marketing Platform"
+    # "development" | "production". In production the app refuses to boot with
+    # placeholder secrets (see validate_production_secrets).
+    environment: str = "development"
 
     database_url: str = "postgresql+psycopg2://marketing:marketing@db:5432/marketing"
     redis_url: str = "redis://redis:6379/0"
@@ -47,6 +50,35 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@marketing-platform.local"
 
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() in ("production", "prod")
+
+
+_PLACEHOLDER_SECRETS = {
+    "jwt_secret": "change-me",
+    "app_encryption_key": "change-me-too",
+    "admin_password": "ChangeMe123!",
+}
+
+
+def validate_production_secrets(settings: "Settings") -> None:
+    """In production, refuse to start if security-critical secrets were left at
+    their placeholder defaults — a forgotten JWT_SECRET lets anyone forge tokens."""
+    if not settings.is_production:
+        return
+    bad = [name for name, placeholder in _PLACEHOLDER_SECRETS.items()
+           if getattr(settings, name) == placeholder]
+    if settings.cors_origins and any("localhost" in o or "127.0.0.1" in o for o in settings.cors_origins):
+        bad.append("cors_origins (still contains localhost)")
+    if bad:
+        raise RuntimeError(
+            "Refusing to start in production with default/placeholder values for: "
+            + ", ".join(bad)
+            + ". Set these via environment variables."
+        )
 
 
 @lru_cache

@@ -54,10 +54,21 @@ class CrawledPage:
 
 
 def fetch_page(client: httpx.Client, url: str) -> httpx.Response | None:
+    from app.core.ssrf import SSRFError, assert_url_is_safe
+
+    try:
+        assert_url_is_safe(url)
+    except SSRFError as exc:
+        logger.warning("Blocked SSRF-unsafe URL %s: %s", url, exc)
+        return None
     try:
         response = client.get(url, follow_redirects=True)
+        # A redirect could land on an internal address; re-check the final URL.
+        assert_url_is_safe(str(response.url))
         if response.status_code == 200 and "text/html" in response.headers.get("content-type", ""):
             return response
+    except SSRFError as exc:
+        logger.warning("Blocked SSRF-unsafe redirect from %s: %s", url, exc)
     except httpx.HTTPError as exc:
         logger.warning("Fetch failed for %s: %s", url, exc)
     return None

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_production_secrets
 from app.db.migrations import run_migrations
 from app.db.session import Base, SessionLocal, engine
 from app.services import storage
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 settings = get_settings()
+validate_production_secrets(settings)
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
