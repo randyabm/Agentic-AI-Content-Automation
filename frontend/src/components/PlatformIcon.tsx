@@ -24,8 +24,10 @@ const PLATFORMS: Record<string, { Icon: IconCmp; color: string; label: string }>
   facebook: { Icon: SiFacebook as IconCmp, color: "#1877F2", label: "Facebook" },
   instagram: { Icon: SiInstagram as IconCmp, color: "#E4405F", label: "Instagram" },
   linkedin: { Icon: LinkedInIcon, color: "#0A66C2", label: "LinkedIn" },
-  x: { Icon: SiX as IconCmp, color: "#1c1917", label: "X" },
-  tiktok: { Icon: SiTiktok as IconCmp, color: "#1c1917", label: "TikTok" },
+  // X and TikTok are near-black brands; use currentColor so they inherit the
+  // surrounding text color and stay visible in both light and dark themes.
+  x: { Icon: SiX as IconCmp, color: "currentColor", label: "X" },
+  tiktok: { Icon: SiTiktok as IconCmp, color: "currentColor", label: "TikTok" },
   youtube: { Icon: SiYoutube as IconCmp, color: "#FF0000", label: "YouTube" },
   pinterest: { Icon: SiPinterest as IconCmp, color: "#BD081C", label: "Pinterest" },
 };
