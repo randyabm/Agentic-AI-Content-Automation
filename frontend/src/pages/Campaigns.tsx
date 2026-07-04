@@ -118,7 +118,10 @@ export default function Campaigns() {
 
   useEffect(() => {
     if (!campaigns.some((c) => c.status === "generating" || c.visuals_generating)) return;
-    const t = setInterval(() => load().catch(() => {}), 4000);
+    const t = setInterval(() => {
+      if (document.hidden) return; // don't poll from background tabs
+      load().catch(() => {});
+    }, 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaigns]);

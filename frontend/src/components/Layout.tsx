@@ -33,8 +33,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="mb-8 flex items-center gap-2 font-serif text-[1.2rem] font-bold tracking-tight">
           <span className="w-10 h-10 rounded-xl bg-[#6d28d9] flex items-center justify-center text-white font-bold text-sm mr-2">SF</span>
           <div>
-            <span className="font-bold text-[#5300b7]" style={{ fontSize: "1.1rem" }}>SocialFlow</span>
-            <p className="text-[10px] text-[#4a4455] opacity-70 -mt-0.5">Enterprise Plan</p>
+            <span className="font-bold text-white" style={{ fontSize: "1.1rem" }}>SocialFlow</span>
+            <p className="text-[10px] text-indigo-200/60 -mt-0.5">Enterprise Plan</p>
           </div>
         </div>
         <nav className="flex flex-1 flex-col gap-1">
@@ -62,7 +62,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {user?.is_platform_admin ? "Super Admin" : (user?.org_role ?? user?.role)}
             </span>
           </div>
-          <Button variant="ghost" onClick={logout} className="justify-start bg-surface border border-border-strong hover:bg-surface-alt hover:border-text-muted">
+          <Button variant="ghost" onClick={logout}
+            className="justify-start border border-white/15 text-[#c7c5dd] hover:bg-white/10 hover:text-white">
             <LogOut size={14} /> Sign out
           </Button>
         </div>

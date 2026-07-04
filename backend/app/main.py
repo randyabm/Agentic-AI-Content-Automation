@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.router import api_router
 from app.core.config import get_settings, validate_production_secrets
@@ -38,6 +39,10 @@ async def lifespan(app: FastAPI):
 settings = get_settings()
 validate_production_secrets(settings)
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+
+# Large JSON payloads (campaign detail with all posts/elements) compress ~10x;
+# images/videos are served pre-encoded and skip gzip via the size threshold check.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_middleware(
     CORSMiddleware,

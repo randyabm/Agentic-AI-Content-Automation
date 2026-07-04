@@ -338,6 +338,34 @@ def create_campaign(body: CampaignCreate, db: Session = Depends(get_db), actor: 
     return campaign
 
 
+@router.get("/{campaign_id}/generation-status")
+def campaign_generation_status(
+    campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)
+):
+    """Lightweight polling payload: campaign status + per-slot media statuses.
+
+    The frontend polls this every few seconds while generation runs and only
+    refetches the full campaign detail when something here changes — the full
+    payload (posts + elements + canvas states) is hundreds of KB.
+    """
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    images = db.execute(
+        select(PostImage.id, PostImage.status)
+        .join(CampaignElement, PostImage.element_id == CampaignElement.id)
+        .where(CampaignElement.campaign_id == campaign_id)
+    ).all()
+    videos = db.execute(
+        select(PostVideo.id, PostVideo.status)
+        .join(CampaignElement, PostVideo.element_id == CampaignElement.id)
+        .where(CampaignElement.campaign_id == campaign_id)
+    ).all()
+    return {
+        "status": campaign.status.value,
+        "images": {row[0]: row[1].value for row in images},
+        "videos": {row[0]: row[1].value for row in videos},
+    }
+
+
 @router.get("/{campaign_id}", response_model=CampaignDetail)
 def get_campaign(campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
     campaign = _get_campaign_or_404(db, campaign_id, actor)

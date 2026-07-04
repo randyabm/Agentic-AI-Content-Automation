@@ -1,22 +1,26 @@
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
 import { Layout } from "./components/Layout";
-import Articles from "./pages/Articles";
-import Calendar from "./pages/Calendar";
-import CampaignDetail from "./pages/CampaignDetail";
-import CampaignPreview from "./pages/CampaignPreview";
-import Campaigns from "./pages/Campaigns";
-import ClientDetail from "./pages/ClientDetail";
-import Clients from "./pages/Clients";
-import ClientSetup from "./pages/ClientSetup";
-import Login from "./pages/Login";
-import NewClient from "./pages/NewClient";
-import OAuthCallback from "./pages/OAuthCallback";
-import Organizations from "./pages/Organizations";
-import ReviewQueue from "./pages/ReviewQueue";
-import SystemSettings from "./pages/SystemSettings";
-import Team from "./pages/Team";
-import Users from "./pages/Users";
+
+// Route-level code splitting: each page loads on first visit instead of
+// shipping the whole app (image editor, calendar, dnd-kit…) on login.
+const Articles = lazy(() => import("./pages/Articles"));
+const Calendar = lazy(() => import("./pages/Calendar"));
+const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
+const CampaignPreview = lazy(() => import("./pages/CampaignPreview"));
+const Campaigns = lazy(() => import("./pages/Campaigns"));
+const ClientDetail = lazy(() => import("./pages/ClientDetail"));
+const Clients = lazy(() => import("./pages/Clients"));
+const ClientSetup = lazy(() => import("./pages/ClientSetup"));
+const Login = lazy(() => import("./pages/Login"));
+const NewClient = lazy(() => import("./pages/NewClient"));
+const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
+const Organizations = lazy(() => import("./pages/Organizations"));
+const ReviewQueue = lazy(() => import("./pages/ReviewQueue"));
+const SystemSettings = lazy(() => import("./pages/SystemSettings"));
+const Team = lazy(() => import("./pages/Team"));
+const Users = lazy(() => import("./pages/Users"));
 
 function Protected({
   children,
@@ -49,6 +53,7 @@ function Home() {
 
 export default function App() {
   return (
+    <Suspense fallback={<div className="py-12 text-center text-muted-foreground">Loading…</div>}>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Home />} />
@@ -69,5 +74,6 @@ export default function App() {
       <Route path="/auth/callback" element={<OAuthCallback />} />
       <Route path="*" element={<Home />} />
     </Routes>
+    </Suspense>
   );
 }

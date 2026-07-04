@@ -113,7 +113,20 @@ export default function CampaignDetail() {
 
   useEffect(() => {
     if (campaign?.status !== "generating" && !mediaGenerating) return;
-    const t = setInterval(() => load().catch(() => {}), 4000);
+    // Poll the tiny status payload and refetch the full campaign only when
+    // something actually changed (a slot finished, generation completed).
+    let lastSnapshot = "";
+    const t = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const s = await api<unknown>(`/campaigns/${campaignId}/generation-status`);
+        const snapshot = JSON.stringify(s);
+        if (snapshot !== lastSnapshot) {
+          lastSnapshot = snapshot;
+          await load();
+        }
+      } catch { /* transient poll errors are fine */ }
+    }, 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaign?.status, mediaGenerating]);
@@ -737,9 +750,7 @@ function PostThumbnail({ campaignId, image }: { campaignId: string; image: PostI
   useEffect(() => {
     if (!image.base_object_key) return;
     let active = true;
-    import("../lib/blobCache").then(({ getBlobUrl }) => {
-      getBlobUrl(`/campaigns/${campaignId}/images/${image.id}/display`).then((u) => { if (active) setUrl(u); });
-    });
+    getBlobUrl(`/campaigns/${campaignId}/images/${image.id}/display`).then((u) => { if (active) setUrl(u); });
     return () => { active = false; };
   }, [campaignId, image.id, image.base_object_key]);
   return url ? <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" /> : null;
