@@ -303,7 +303,9 @@ def get_connect_url(db: Session, platform: str, client_id: str, user_id: str) ->
             "response_type": "code",
             "client_id": app_id,
             "redirect_uri": _redirect_uri(db, "linkedin"),
-            "scope": "r_liteprofile w_member_social",
+            # OpenID Connect scopes — LinkedIn no longer grants r_liteprofile
+            # to new apps; identity comes from /v2/userinfo instead of /v2/me.
+            "scope": "openid profile email w_member_social",
             "state": state,
         }
         return f"https://www.linkedin.com/oauth/v2/authorization?{urlencode(params)}"
@@ -489,23 +491,22 @@ def _exchange_linkedin(db: Session, code: str) -> list[dict]:
     access_token = data["access_token"]
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=data.get("expires_in", 5_184_000))
 
-    r = httpx.get(f"{LINKEDIN_API}/v2/me",
+    # OIDC userinfo: `sub` is the member id (usable in urn:li:person:{sub}).
+    r = httpx.get(f"{LINKEDIN_API}/v2/userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
-        params={"projection": "(id,firstName,lastName,profilePicture(displayImage~:playableStreams))"},
         timeout=30)
     _raise_for(r, "LinkedIn profile")
     profile = r.json()
 
-    first = list((profile.get("firstName") or {}).get("localized", {}).values())
-    last = list((profile.get("lastName") or {}).get("localized", {}).values())
-    name = f"{first[0] if first else ''} {last[0] if last else ''}".strip()
+    name = (profile.get("name")
+            or f"{profile.get('given_name', '')} {profile.get('family_name', '')}".strip())
 
     return [{
         "platform": "linkedin",
-        "platform_account_id": profile.get("id", ""),
+        "platform_account_id": profile.get("sub", ""),
         "display_name": name or "LinkedIn User",
-        "username": "",
-        "avatar_url": "",
+        "username": profile.get("email", ""),
+        "avatar_url": profile.get("picture", ""),
         "access_token": access_token,
         "access_token_secret": "",
         "refresh_token": data.get("refresh_token", ""),
@@ -646,7 +647,7 @@ def verify_channel_health(channel: SocialAccount) -> ChannelStatus:
             r = httpx.get(f"{TWITTER_API}/2/users/me",
                 headers={"Authorization": f"Bearer {token}"}, timeout=10)
         elif p == "linkedin":
-            r = httpx.get(f"{LINKEDIN_API}/v2/me",
+            r = httpx.get(f"{LINKEDIN_API}/v2/userinfo",
                 headers={"Authorization": f"Bearer {token}"}, timeout=10)
         else:
             return ChannelStatus.error
@@ -689,7 +690,7 @@ def publish(
         url = f"https://x.com/{channel.username}/status/{post_id}" if post_id and channel.username else ""
         return post_id, url
     if p == "linkedin":
-        return _publish_linkedin(account_id, access_token, text)
+        return _publish_linkedin(account_id, access_token, text, image_urls)
 
     raise DirectSocialError(f"Platform not supported for direct publishing: {p}")
 
@@ -1025,27 +1026,68 @@ def _publish_twitter(access_token: str, text: str, image_urls: list[str] | None 
     return r.json().get("data", {}).get("id", ""), ""
 
 
-def _publish_linkedin(author_id: str, access_token: str, text: str) -> tuple[str, str]:
+def _linkedin_headers(access_token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0",
+    }
+
+
+def _linkedin_upload_image(author_urn: str, access_token: str, image_url: str) -> str:
+    """Register + upload one image to LinkedIn's asset store; returns the asset URN."""
+    r = httpx.post(f"{LINKEDIN_API}/v2/assets?action=registerUpload",
+        headers=_linkedin_headers(access_token),
+        json={"registerUploadRequest": {
+            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "owner": author_urn,
+            "serviceRelationships": [
+                {"relationshipType": "OWNER", "identifier": "urn:li:userGeneratedContent"}
+            ],
+        }}, timeout=30)
+    _raise_for(r, "LinkedIn image register")
+    value = r.json()["value"]
+    upload_url = value["uploadMechanism"][
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]["uploadUrl"]
+    asset_urn = value["asset"]
+
+    img = httpx.get(image_url, timeout=60, follow_redirects=True)
+    if img.status_code != 200:
+        raise DirectSocialError(f"Could not download image for LinkedIn: HTTP {img.status_code}")
+    up = httpx.put(upload_url, content=img.content,
+        headers={"Authorization": f"Bearer {access_token}"}, timeout=120)
+    if up.status_code not in (200, 201):
+        raise DirectSocialError(f"LinkedIn image upload failed: HTTP {up.status_code} {up.text[:200]}")
+    return asset_urn
+
+
+def _publish_linkedin(author_id: str, access_token: str, text: str,
+                      image_urls: list[str] | None = None) -> tuple[str, str]:
+    author_urn = f"urn:li:person:{author_id}"
+    image_urls = image_urls or []
+
+    share_content: dict = {
+        "shareCommentary": {"text": text},
+        "shareMediaCategory": "IMAGE" if image_urls else "NONE",
+    }
+    if image_urls:
+        share_content["media"] = [
+            {"status": "READY", "media": _linkedin_upload_image(author_urn, access_token, url)}
+            for url in image_urls
+        ]
+
     payload = {
-        "author": f"urn:li:person:{author_id}",
+        "author": author_urn,
         "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": text},
-                "shareMediaCategory": "NONE",
-            }
-        },
+        "specificContent": {"com.linkedin.ugc.ShareContent": share_content},
         "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
     }
     r = httpx.post(f"{LINKEDIN_API}/v2/ugcPosts",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-            "X-Restli-Protocol-Version": "2.0.0",
-        },
-        json=payload, timeout=60)
+        headers=_linkedin_headers(access_token), json=payload, timeout=60)
     _raise_for(r, "LinkedIn post")
-    return r.headers.get("x-restli-id", "") or r.json().get("id", ""), ""
+    post_id = r.headers.get("x-restli-id", "") or r.json().get("id", "")
+    url = f"https://www.linkedin.com/feed/update/{post_id}/" if post_id.startswith("urn:") else ""
+    return post_id, url
 
 
 # ---------------------------------------------------------------------------
