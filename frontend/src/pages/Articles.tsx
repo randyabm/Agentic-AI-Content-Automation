@@ -7,6 +7,8 @@ import { useAuth } from "../auth";
 import { ArticleModal } from "../components/ArticleModal";
 import type { Article, ArticleListItem, Client } from "../types";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +24,7 @@ export default function Articles() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [items, setItems] = useState<ArticleListItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [q, setQ] = useState("");
@@ -91,7 +94,7 @@ export default function Articles() {
   }, [q, entryType, statusFilter, reviewOnly, clientId, tag]);
 
   useEffect(() => {
-    load().catch((e) => setError(e.message));
+    load().catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, [load]);
 
   useEffect(() => {
@@ -158,19 +161,19 @@ export default function Articles() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h1>Article Library</h1>
-        {canEdit && (
-          <div className="flex flex-shrink-0 items-center gap-2">
+      <PageHeader
+        title="Article Library"
+        actions={canEdit && (
+          <>
             <Button variant="ghost" onClick={() => setAddMode(addMode === "url" ? null : "url")}>
               <Plus size={14} /> From URL
             </Button>
             <Button onClick={() => setAddMode(addMode === "text" ? null : "text")}>
               <Plus size={14} /> Paste text
             </Button>
-          </div>
+          </>
         )}
-      </div>
+      />
 
       {addMode === "url" && <AddFromUrl onDone={() => { setAddMode(null); load(); }} onError={setError} />}
       {addMode === "text" && <AddFromText onDone={() => { setAddMode(null); load(); }} onError={setError} />}
@@ -210,7 +213,9 @@ export default function Articles() {
         <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{notice}</div>
       )}
 
-      {items.length === 0 ? (
+      {loading ? (
+        <TableSkeleton rows={6} cols={7} />
+      ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No articles match these filters.</p>
       ) : (
         <Card>

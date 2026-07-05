@@ -4,6 +4,7 @@ import { BookOpen, ExternalLink, FileText, Search, Share2, Users } from "lucide-
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ArticleModal } from "../components/ArticleModal";
 import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
@@ -181,7 +182,20 @@ export default function ClientDetail() {
     }
   }
 
-  if (!client) return <div className="py-12 text-center text-muted-foreground">{error || "Loading…"}</div>;
+  if (!client) {
+    if (error) return <div className="py-12 text-center text-muted-foreground">{error}</div>;
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-4 w-40" />
+        <div className="flex items-center gap-4">
+          <Skeleton className="size-12 rounded-full" />
+          <Skeleton className="h-8 w-64" />
+        </div>
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
+    );
+  }
 
   const running = job && RUNNING.includes(job.status);
   const profileEmpty = !client.industry && !client.description && !client.products_services && !client.target_audience && !client.value_proposition && (client.business_objectives?.length ?? 0) === 0;
@@ -198,7 +212,7 @@ export default function ClientDetail() {
       <div className="mb-5 flex items-center gap-4">
         <ClientAvatar client={client} />
         <div className="flex-1">
-          <h1>{client.company_name}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{client.company_name}</h1>
           <a href={client.website_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline">
             {client.website_url} <ExternalLink size={12} />
           </a>

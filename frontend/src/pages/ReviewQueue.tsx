@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
+import { PageHeader } from "@/components/ui/page-header";
 import type { ReviewQueueItem } from "../types";
 import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { usePrompt } from "@/components/ui/dialogs";
@@ -94,14 +95,10 @@ export default function ReviewQueue() {
 
   return (
     <div>
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h1>
-            <CheckCircle2 size={20} style={{ verticalAlign: "-4px" }} /> Review Queue
-          </h1>
-          <p className="text-sm text-muted-foreground">Posts and campaigns awaiting your approval.</p>
-        </div>
-      </div>
+      <PageHeader
+        title={<span className="inline-flex items-center gap-1.5"><CheckCircle2 size={20} /> Review Queue</span>}
+        description="Posts and campaigns awaiting your approval."
+      />
 
       {error && (
         <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">

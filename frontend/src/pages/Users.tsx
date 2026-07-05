@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 import { api } from "../api";
 import type { Role, User } from "../types";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -49,12 +50,12 @@ export default function Users() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h1>Users</h1>
-        <Button onClick={() => setShowForm((v) => !v)}>
+      <PageHeader
+        title="Users"
+        actions={<Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> New user</>}
-        </Button>
-      </div>
+        </Button>}
+      />
 
       {showForm && (
         <Card className="mb-4">

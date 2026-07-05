@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
+import { ViewToggle } from "@/components/ui/view-toggle";
 import { cn } from "@/lib/utils";
 import { resolvePlatformRatios } from "../ratios";
 import type {
@@ -171,9 +173,9 @@ export default function Campaigns() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h1>Campaigns</h1>
-        <div className="flex flex-shrink-0 items-center gap-2">
+      <PageHeader
+        title="Campaigns"
+        actions={<>
           <Button
             variant={mode === "campaign" ? "ghost" : "default"}
             onClick={() => setMode((m) => (m === "campaign" ? "none" : "campaign"))}
@@ -186,8 +188,8 @@ export default function Campaigns() {
           >
             {mode === "article" ? "Cancel" : "+ From article"}
           </Button>
-        </div>
-      </div>
+        </>}
+      />
       {error && (
         <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
       )}
@@ -248,30 +250,7 @@ export default function Campaigns() {
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
             </select>
-            <div className="ml-auto inline-flex overflow-hidden rounded-md border border-border">
-              <button
-                type="button"
-                onClick={() => setView("list")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors",
-                  view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
-                )}
-                title="List view"
-              >
-                <span className="material-symbols-outlined text-base">list</span> List
-              </button>
-              <button
-                type="button"
-                onClick={() => setView("cards")}
-                className={cn(
-                  "flex items-center gap-1.5 border-l border-border px-3 py-1.5 text-sm transition-colors",
-                  view === "cards" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
-                )}
-                title="Card view"
-              >
-                <span className="material-symbols-outlined text-base">grid_view</span> Cards
-              </button>
-            </div>
+            <ViewToggle value={view} onChange={setView} />
           </div>
 
           {loading && <TableSkeleton rows={5} cols={7} />}

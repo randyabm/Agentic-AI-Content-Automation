@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArticleSources } from "../components/ArticleSources";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/ui/page-header";
 import { ProvidersSection } from "./settings/ProvidersSection";
 import { LLMConfigSection } from "./settings/LLMConfigSection";
 import { ImageModelSection } from "./settings/ImageModelSection";
@@ -24,7 +25,7 @@ export default function SystemSettings() {
   const [tab, setTab] = useState<TabKey>("providers");
   return (
     <div>
-      <div className="mb-5"><h1>System Settings</h1></div>
+      <PageHeader title="System Settings" />
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
         <TabsList>
           {TABS.map((t) => (

@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 import { api } from "../api";
 import type { Organization } from "../types";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -45,12 +46,12 @@ export default function Organizations() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h1>Organizations</h1>
-        <Button onClick={() => setShowForm((v) => !v)}>
+      <PageHeader
+        title="Organizations"
+        actions={<Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> New organization</>}
-        </Button>
-      </div>
+        </Button>}
+      />
 
       <p className="mb-4 text-sm text-muted-foreground">
         Each organization is an isolated tenant: its members only ever see that

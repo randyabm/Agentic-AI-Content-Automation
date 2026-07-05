@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Capability, OrgRole, PermissionMatrix, User } from "../types";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -81,7 +82,7 @@ export default function Team() {
   if (!orgId) {
     return (
       <div>
-        <div className="mb-5"><h1>Team</h1></div>
+        <PageHeader title="Team" />
         <Card><CardContent className="pt-6">You are not a member of an organization.</CardContent></Card>
       </div>
     );
@@ -89,12 +90,12 @@ export default function Team() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h1>Team</h1>
-        <Button onClick={() => setShowForm((v) => !v)}>
+      <PageHeader
+        title="Team"
+        actions={<Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> New member</>}
-        </Button>
-      </div>
+        </Button>}
+      />
 
       {showForm && (
         <Card className="mb-4">

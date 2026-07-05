@@ -8,6 +8,8 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/ui/page-header";
+import { ViewToggle } from "@/components/ui/view-toggle";
 import { cn } from "@/lib/utils";
 import type { Client } from "../types";
 
@@ -101,9 +103,9 @@ export default function Clients() {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h1>Clients</h1>
-        {canEdit && (
+      <PageHeader
+        title="Clients"
+        actions={canEdit && (
           <Button asChild>
             <Link to="/clients/new">
               <Plus className="h-4 w-4" />
@@ -111,7 +113,7 @@ export default function Clients() {
             </Link>
           </Button>
         )}
-      </div>
+      />
 
       {error && (
         <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
@@ -130,30 +132,7 @@ export default function Clients() {
         <span className="text-sm text-muted-foreground">
           {visible.length} client{visible.length !== 1 ? "s" : ""}
         </span>
-        <div className="ml-auto inline-flex overflow-hidden rounded-md border border-border">
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors",
-              view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
-            )}
-            title="List view"
-          >
-            <span className="material-symbols-outlined text-base">list</span> List
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("cards")}
-            className={cn(
-              "flex items-center gap-1.5 border-l border-border px-3 py-1.5 text-sm transition-colors",
-              view === "cards" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
-            )}
-            title="Card view"
-          >
-            <span className="material-symbols-outlined text-base">grid_view</span> Cards
-          </button>
-        </div>
+        <ViewToggle value={view} onChange={setView} />
       </div>
 
       {loading && <TableSkeleton rows={6} cols={5} />}
