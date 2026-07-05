@@ -226,7 +226,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
                 </div>
               )}
               {searchJob?.status === "failed" && (
-                <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+                <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
                   Last search failed: {searchJob.error}
                 </div>
               )}
@@ -243,7 +243,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
       )}
 
       {error && (
-        <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
       )}
 
       {competitors.length === 0 ? (
@@ -325,7 +325,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
                     </Button>
                   )}
                   {canEdit && (
-                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => remove(selected.id)}>
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={() => remove(selected.id)}>
                       <Trash2 size={14} /> Remove
                     </Button>
                   )}
@@ -339,7 +339,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
               )}
 
               {selected.analysis_status === "failed" && (
-                <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+                <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
                   {selected.analysis_error}
                 </div>
               )}
@@ -353,13 +353,13 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
               {selected.analysis_status === "completed" && (
                 <>
                   <div className="my-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
                       <h4 className="mb-2 font-semibold text-emerald-700">Strengths vs {client.company_name}</h4>
                       <ul className="m-0 pl-4 text-[0.92rem]">
                         {selected.strengths.map((s, i) => <li key={i} className="mb-1.5 leading-relaxed">{s}</li>)}
                       </ul>
                     </div>
-                    <div className="rounded-md border border-red-200 bg-red-50 p-4">
+                    <div className="rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
                       <h4 className="mb-2 font-semibold text-red-700">Weaknesses vs {client.company_name}</h4>
                       <ul className="m-0 pl-4 text-[0.92rem]">
                         {selected.weaknesses.map((w, i) => <li key={i} className="mb-1.5 leading-relaxed">{w}</li>)}

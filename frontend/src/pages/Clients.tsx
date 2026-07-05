@@ -114,7 +114,7 @@ export default function Clients() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="mb-4 flex items-center gap-3">
@@ -184,8 +184,8 @@ export default function Clients() {
                       <span
                         className={cn(
                           "mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
-                          badge.variant === "warning" && "bg-amber-100 text-amber-800",
-                          badge.variant === "destructive" && "bg-red-100 text-red-700",
+                          badge.variant === "warning" && "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+                          badge.variant === "destructive" && "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
                         )}
                       >
                         {badge.spin && <span className="size-2.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
@@ -288,8 +288,8 @@ export default function Clients() {
                       <span
                         className={cn(
                           "mb-1.5 inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold",
-                          badge.variant === "warning" && "bg-amber-100 text-amber-800",
-                          badge.variant === "destructive" && "bg-red-100 text-red-700",
+                          badge.variant === "warning" && "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+                          badge.variant === "destructive" && "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
                         )}
                       >
                         {badge.spin && <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />}

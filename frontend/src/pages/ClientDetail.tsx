@@ -235,10 +235,10 @@ export default function ClientDetail() {
       {tab === "profile" && (
         <>
           {notice && (
-            <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</div>
+            <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{notice}</div>
           )}
           {error && (
-            <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+            <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
           )}
 
           <OnboardingProgress
@@ -266,7 +266,7 @@ export default function ClientDetail() {
           )}
 
           {job?.status === "failed" && (
-            <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+            <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
               Last analysis failed: {job.error}
             </div>
           )}
@@ -621,10 +621,10 @@ function ClientArticles({ clientId, canEdit, isAdmin }: { clientId: string; canE
               </>
             )}
             {importNotice && (
-              <div className="mt-3 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{importNotice}</div>
+              <div className="mt-3 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{importNotice}</div>
             )}
             {importError && (
-              <div className="mt-3 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{importError}</div>
+              <div className="mt-3 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{importError}</div>
             )}
           </CardContent>
         </Card>
@@ -753,7 +753,7 @@ function OnboardingProgress({ clientId, clientName, canEdit, compact = false, on
     if (failedSteps.length === 0) return null;
 
     return (
-      <Card className="mb-4 border-amber-300 bg-amber-50">
+      <Card className="mb-4 border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
         <CardContent className="flex items-start gap-4 py-4">
           <div className="flex size-9 flex-shrink-0 items-center justify-center text-xl text-amber-700">⚠</div>
           <div className="min-w-0 flex-1 space-y-2">
@@ -762,7 +762,7 @@ function OnboardingProgress({ clientId, clientName, canEdit, compact = false, on
               {failedSteps.length === 1 ? `"${failedSteps[0].label}" didn't finish.` : `${failedSteps.length} steps didn't finish: ${failedSteps.map((s) => s.label).join(", ")}.`}
             </p>
             {err && (
-              <div className="mt-2 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+              <div className="mt-2 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{err}</div>
             )}
             {canEdit && (
               <div className="flex flex-wrap gap-2">
@@ -789,7 +789,7 @@ function OnboardingProgress({ clientId, clientName, canEdit, compact = false, on
           </Button>
         </CardContent>
         {err && (
-          <div className="mx-5 mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+          <div className="mx-5 mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{err}</div>
         )}
       </Card>
     ) : null;
@@ -823,7 +823,7 @@ function OnboardingProgress({ clientId, clientName, canEdit, compact = false, on
           <span className="text-sm text-muted-foreground">{done} of {total} steps</span>
         </div>
         {err && (
-          <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+          <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{err}</div>
         )}
         <ul className="space-y-1.5">
           {job.steps.map((s) => (

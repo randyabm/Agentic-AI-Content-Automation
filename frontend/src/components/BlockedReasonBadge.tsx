@@ -4,17 +4,17 @@ import { AlertTriangle, Clock3, Unplug } from "lucide-react";
 const SPEC: Record<string, { label: string; className: string; Icon: typeof Clock3 }> = {
   waiting_approval: {
     label: "Awaiting approval",
-    className: "bg-amber-100 text-amber-800 border-amber-300",
+    className: "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800",
     Icon: Clock3,
   },
   needs_channel: {
     label: "No channel connected",
-    className: "bg-orange-100 text-orange-800 border-orange-300",
+    className: "bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-800",
     Icon: Unplug,
   },
   overdue: {
     label: "Overdue — not sent",
-    className: "bg-red-100 text-red-800 border-red-300",
+    className: "bg-red-100 text-red-800 border-red-300 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800",
     Icon: AlertTriangle,
   },
 };
