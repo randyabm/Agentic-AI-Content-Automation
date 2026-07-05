@@ -103,7 +103,7 @@ export function ProvidersSection() {
                 </Button>
               </div>
               {c.has_key && (
-                <Button variant="ghost" size="sm" className="mt-1 text-red-600 hover:bg-red-50" onClick={() => removeKey(c.provider, c.label)}>
+                <Button variant="ghost" size="sm" className="mt-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={() => removeKey(c.provider, c.label)}>
                   Remove key
                 </Button>
               )}

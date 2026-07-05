@@ -90,10 +90,10 @@ export function ArticleSources() {
           automatically, or queued for review first (PRD §7.4).
         </p>
         {error && (
-          <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+          <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
         )}
         {notice && (
-          <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</div>
+          <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{notice}</div>
         )}
 
         {showForm && (
@@ -165,7 +165,7 @@ export function ArticleSources() {
                     <Button variant="ghost" size="sm" onClick={() => syncNow(s.id)} disabled={s.last_sync_status === "running"}>
                       {s.last_sync_status === "running" ? "Syncing…" : "Sync now"}
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => remove(s.id)}>Delete</Button>
+                    <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={() => remove(s.id)}>Delete</Button>
                   </div>
                 </td>
               </tr>

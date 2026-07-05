@@ -120,8 +120,8 @@ export function BrandMemory({ client, canEdit }: { client: Client; canEdit: bool
             </div>
             <p className="mb-2 text-sm text-muted-foreground">Persistent context injected into every campaign prompt. Saved with version history.</p>
 
-            {notice && <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</div>}
-            {error && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+            {notice && <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{notice}</div>}
+            {error && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>}
 
             <div className="space-y-3">
               <label className="block text-sm">Brand tone & voice

@@ -65,7 +65,7 @@ export function ArticleModal({
             {isAdmin && (
               <Button
                 variant="ghost"
-                className="text-red-600 hover:bg-red-50"
+                className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                 onClick={async () => {
                   const ok = await confirm({
                     title: "Delete article",

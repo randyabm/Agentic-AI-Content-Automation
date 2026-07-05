@@ -20,7 +20,7 @@ export function SchedulePostOverlayCard({ post }: { post: ScheduleablePost }) {
     <div
       className={cn(
         "w-60 rounded-lg border bg-card p-2.5 shadow-lg cursor-grabbing",
-        blocked ? "border-amber-300 bg-amber-50/90" : "border-primary/30",
+        blocked ? "border-amber-300 bg-amber-50/90 dark:border-amber-800 dark:bg-amber-950/40" : "border-primary/30",
       )}
     >
       <div className="flex items-start gap-2">
@@ -100,7 +100,7 @@ function BlockedPostCard({ post }: { post: ScheduleablePost }) {
       {...listeners}
       {...attributes}
       className={cn(
-        "group rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 cursor-grab active:cursor-grabbing",
+        "group rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2.5 cursor-grab active:cursor-grabbing dark:border-amber-800 dark:bg-amber-950/30",
         "hover:border-amber-400 hover:shadow-sm transition-all duration-200",
         isDragging && "opacity-40",
       )}

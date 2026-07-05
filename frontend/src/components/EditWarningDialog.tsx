@@ -7,14 +7,14 @@ interface EditWarningDialogProps {
 export function EditWarningDialog({ visible, onCancel, onConfirm }: EditWarningDialogProps) {
   if (!visible) return null;
   return (
-    <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4">
-      <div className="flex items-center gap-3 text-red-800">
+    <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+      <div className="flex items-center gap-3 text-red-800 dark:text-red-200">
         <span className="material-symbols-outlined text-red-500">warning</span>
         <p className="text-sm font-semibold">Editing will void approval and require a re-review.</p>
       </div>
       <div className="flex gap-2">
         <button
-          className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-800 transition-colors hover:bg-red-100"
+          className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-800 transition-colors hover:bg-red-100 dark:text-red-200 dark:hover:bg-red-900/50"
           onClick={onCancel}
         >
           Cancel

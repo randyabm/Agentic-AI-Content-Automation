@@ -189,7 +189,7 @@ export default function Campaigns() {
         </div>
       </div>
       {error && (
-        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
       )}
 
       {mode === "campaign" && (
@@ -579,7 +579,7 @@ function CreateCampaign({
   return (
     <form onSubmit={handleSubmit}>
       {error && (
-        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[5fr_7fr]">
@@ -743,7 +743,7 @@ function CreateCampaign({
           <div className="mb-3 flex flex-col gap-3">
             {elements.length === 0 && (
               <div className="rounded-xl border-2 border-dashed border-border p-8 text-center">
-                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-violet-100 text-violet-700">
+                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
                   <span className="material-symbols-outlined">post_add</span>
                 </div>
                 <h4 className="mb-1 text-base font-semibold">Add your first element</h4>
@@ -868,7 +868,7 @@ function ElementCard({ el, specs, onChange, onRemove, onDuplicate }: { el: Eleme
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={onDuplicate}><Copy size={12} /> Duplicate</Button>
-          <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={onRemove}>✕</Button>
+          <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40" onClick={onRemove}>✕</Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded((v) => !v)} aria-label={expanded ? "Collapse" : "Expand"}>
             {expanded ? "▲" : "▼"}
           </Button>
@@ -991,7 +991,7 @@ function CampaignConfirmModal({ clientName, campaignName, objective, language, c
         )}
 
         {!theme && (
-          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-700">
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
             ⚠ No central theme set — the AI will infer one from the client profile and objective.
           </div>
         )}

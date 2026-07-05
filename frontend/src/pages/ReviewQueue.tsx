@@ -104,7 +104,7 @@ export default function ReviewQueue() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </div>
       )}
