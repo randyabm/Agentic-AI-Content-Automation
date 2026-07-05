@@ -72,13 +72,13 @@ export function CalendarMonthGrid({
           {format(currentMonth, "MMMM yyyy")}
         </h3>
         <div className="flex gap-1">
-          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+          <Button variant="outline" size="icon" aria-label="Previous month" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
             <ChevronLeft size={16} />
           </Button>
           <Button variant="outline" size="sm" onClick={() => setCurrentMonth(new Date())}>
             Today
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+          <Button variant="outline" size="icon" aria-label="Next month" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
             <ChevronRight size={16} />
           </Button>
         </div>

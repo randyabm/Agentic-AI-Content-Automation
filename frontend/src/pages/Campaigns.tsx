@@ -658,7 +658,7 @@ function CreateCampaign({
                   {articleId ? (articles.find((a) => a.id === articleId)?.title ?? "Article selected") : "Choose article…"}
                 </button>
                 {articleId && (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => setArticleId("")}>
+                  <Button type="button" variant="ghost" size="icon" aria-label="Clear selected article" onClick={() => setArticleId("")}>
                     <X size={14} className="text-red-600" />
                   </Button>
                 )}
@@ -947,7 +947,7 @@ function CampaignConfirmModal({ clientName, campaignName, objective, language, c
       <div className="flex max-h-[88vh] w-full max-w-[520px] flex-col gap-3 overflow-y-auto rounded-xl bg-surface p-6">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="m-0 text-xl font-semibold">Review your campaign</h2>
-          <Button type="button" variant="ghost" size="icon" onClick={onBack}><X size={14} /></Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Close" onClick={onBack}><X size={14} /></Button>
         </div>
 
         <div className="my-2 flex flex-col gap-2">

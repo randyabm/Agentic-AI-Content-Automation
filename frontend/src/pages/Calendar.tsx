@@ -209,7 +209,7 @@ export default function Calendar() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          <Button variant="outline" size="icon" onClick={load} disabled={loading} title="Refresh">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading} title="Refresh" aria-label="Refresh calendar">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </Button>
         </div>

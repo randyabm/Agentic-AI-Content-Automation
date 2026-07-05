@@ -402,8 +402,8 @@ export function ImageEditor({ campaignId, image, client, onClose, onSaved }: { c
                     </button>
                     {l.kind === "asset" && (
                       <>
-                        <button className="cursor-pointer rounded p-0.5 text-base hover:bg-bg" title="Bring forward" onClick={(e) => { e.stopPropagation(); reorder(l.key, 1); }}>↑</button>
-                        <button className="cursor-pointer rounded p-0.5 text-base hover:bg-bg" title="Send backward" onClick={(e) => { e.stopPropagation(); reorder(l.key, -1); }}>↓</button>
+                        <button className="cursor-pointer rounded p-0.5 text-base hover:bg-bg" title="Bring forward" aria-label="Bring layer forward" onClick={(e) => { e.stopPropagation(); reorder(l.key, 1); }}>↑</button>
+                        <button className="cursor-pointer rounded p-0.5 text-base hover:bg-bg" title="Send backward" aria-label="Send layer backward" onClick={(e) => { e.stopPropagation(); reorder(l.key, -1); }}>↓</button>
                       </>
                     )}
                     {l.kind === "logo" && (

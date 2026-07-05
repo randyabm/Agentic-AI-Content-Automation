@@ -54,13 +54,13 @@ export function CalendarWeekView({ items, onSelectItem, onDropPost }: CalendarWe
           {format(weekDays[0], "MMM d")} – {format(weekDays[6], "MMM d, yyyy")}
         </h3>
         <div className="flex gap-1">
-          <Button variant="outline" size="icon" onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}>
+          <Button variant="outline" size="icon" aria-label="Previous week" onClick={() => setCurrentWeek(subWeeks(currentWeek, 1))}>
             <ChevronLeft size={16} />
           </Button>
           <Button variant="outline" size="sm" onClick={() => setCurrentWeek(new Date())}>
             This week
           </Button>
-          <Button variant="outline" size="icon" onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}>
+          <Button variant="outline" size="icon" aria-label="Next week" onClick={() => setCurrentWeek(addWeeks(currentWeek, 1))}>
             <ChevronRight size={16} />
           </Button>
         </div>

@@ -156,7 +156,7 @@ export function BrandMemory({ client, canEdit }: { client: Client; canEdit: bool
                           onChange={(e) => setColor(i, e.target.value)}
                           className="size-10 cursor-pointer rounded-md border border-border" />
                         <Input className="flex-1 font-mono" value={c} placeholder="#1A2B3C" onChange={(e) => setColor(i, e.target.value)} />
-                        <Button type="button" variant="ghost" size="icon" title="Remove color"
+                        <Button type="button" variant="ghost" size="icon" title="Remove color" aria-label="Remove color"
                           onClick={() => setForm({ ...form, brand_colors: form.brand_colors.filter((_, j) => j !== i) })}>
                           <X size={14} />
                         </Button>

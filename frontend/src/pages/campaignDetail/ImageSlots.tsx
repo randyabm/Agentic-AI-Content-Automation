@@ -182,15 +182,15 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
         : <MediaSkeleton label="No image yet" />}
         {preview && image.status !== "generating" && (
           <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity hover:opacity-100">
-            <button title="View full size" onClick={() => setLightbox(true)} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80">
+            <button title="View full size" aria-label="View full size" onClick={() => setLightbox(true)} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80">
               <Maximize2 size={18} />
             </button>
             {canEdit && image.base_object_key && (
-              <button title="Edit image" onClick={() => setEditorOpen(true)} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80">
+              <button title="Edit image" aria-label="Edit image" onClick={() => setEditorOpen(true)} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80">
                 <Pencil size={18} />
               </button>
             )}
-            <button title="Download image" onClick={download} disabled={!!busy} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80 disabled:opacity-50">
+            <button title="Download image" aria-label="Download image" onClick={download} disabled={!!busy} className="flex size-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm hover:bg-black/80 disabled:opacity-50">
               <Download size={18} />
             </button>
           </div>
@@ -199,7 +199,7 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
       </div>
       {lightbox && preview && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setLightbox(false)}>
-          <button title="Close" onClick={() => setLightbox(false)} className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-md bg-white/20 text-white hover:bg-white/30">
+          <button title="Close" aria-label="Close full-size preview" onClick={() => setLightbox(false)} className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-md bg-white/20 text-white hover:bg-white/30">
             <X size={20} />
           </button>
           <img src={full || preview} alt="full size" className="max-h-[90vh] max-w-[90vw] rounded-2xl bg-white object-contain shadow-2xl" onClick={(e) => e.stopPropagation()} />
