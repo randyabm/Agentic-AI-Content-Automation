@@ -315,7 +315,7 @@ export default function ClientDetail() {
           )}
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
-            <Card>
+            <Card className="px-6">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold tracking-tight">Profile</h2>
                 {canEdit && !editing && (
@@ -876,6 +876,11 @@ function ProfileFact({ label, value }: { label: string; value?: string }) {
 
 function ProfileSection({ label, value, list, links }: { label: string; value?: string; list?: string[]; links?: string[] }) {
   const empty = !value && !list?.length && !links?.length;
+  // Detect a numbered list embedded in plain text (e.g. "1. …\n2. …") and
+  // render it as a real ordered list instead of one run-on paragraph.
+  const numbered = value && /(^|\n)\s*1\.\s/.test(value) && /(^|\n)\s*2\.\s/.test(value)
+    ? value.split(/\n(?=\s*\d+\.\s)/).map((s) => s.replace(/^\s*\d+\.\s*/, "").trim()).filter(Boolean)
+    : null;
   return (
     <section className="border-t border-border pt-4">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">{label}</h3>
@@ -884,6 +889,11 @@ function ProfileSection({ label, value, list, links }: { label: string; value?: 
         <ul className="ml-4 list-disc space-y-1.5 text-sm leading-relaxed text-foreground/90 marker:text-primary/60">
           {list.map((item, i) => <li key={i} className="pl-1">{item}</li>)}
         </ul>
+      )
+      : numbered ? (
+        <ol className="ml-4 list-decimal space-y-1.5 text-sm leading-relaxed text-foreground/90 marker:font-medium marker:text-primary/70">
+          {numbered.map((item, i) => <li key={i} className="pl-1 text-justify hyphens-auto">{item}</li>)}
+        </ol>
       )
       : links ? (
         <div className="flex flex-col gap-1">
@@ -897,7 +907,7 @@ function ProfileSection({ label, value, list, links }: { label: string; value?: 
             );
           })}
         </div>
-      ) : <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{value}</p>}
+      ) : <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90 text-justify hyphens-auto">{value}</p>}
     </section>
   );
 }
