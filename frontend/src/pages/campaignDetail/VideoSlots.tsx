@@ -130,7 +130,7 @@ function VideoSlot({ campaignId, video, client, models, canEdit, onChange, isPri
         Video · {video.aspect_ratio} · {video.duration_seconds}s
         {video.status === "failed" && <Badge variant="destructive">failed</Badge>}
       </div>
-      {(error || video.error) && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error || video.error}</div>}
+      {(error || video.error) && <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error || video.error}</div>}
 
       {canEdit && (
         <div className="flex flex-wrap gap-2">

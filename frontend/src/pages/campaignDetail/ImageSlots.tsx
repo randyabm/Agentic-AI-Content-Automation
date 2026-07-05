@@ -221,7 +221,7 @@ function ImageSlot({ campaignId, image, client, models, canEdit, onChange, casca
         )}
       </div>
       {(error || image.error) && (
-        <div className="rounded-lg border-l-[3px] border-red-500 bg-red-50 p-2.5 text-sm text-red-700">
+        <div className="rounded-lg border-l-[3px] border-red-500 bg-red-50 p-2.5 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
           {error || image.error}
         </div>
       )}

@@ -40,9 +40,9 @@ export const SOCIAL_APP_PLATFORMS: { provider: string; label: string; idLabel: s
 
 export function Alert({ kind, children }: { kind: "error" | "success"; children: React.ReactNode }) {
   if (kind === "error") {
-    return <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{children}</div>;
+    return <div className="rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{children}</div>;
   }
-  return <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{children}</div>;
+  return <div className="rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{children}</div>;
 }
 
 export function SettingsGroup({ title, description, accent, children }: { title: string; description: string; accent: string; children: React.ReactNode }) {

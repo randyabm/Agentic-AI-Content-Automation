@@ -235,7 +235,7 @@ export default function CampaignDetail() {
             <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
               {client?.company_name && <span>{client.company_name}</span>}
               <span className="capitalize">· {campaign.objective} ·</span>
-              <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", campaign.status === "ready" ? "bg-emerald-100 text-emerald-700" : campaign.status === "failed" ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground")}>
+              <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", campaign.status === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300" : campaign.status === "failed" ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300" : "bg-muted text-muted-foreground")}>
                 {campaign.status}
               </span>
             </p>
@@ -269,9 +269,9 @@ export default function CampaignDetail() {
         </div>
       </div>
 
-      {error && <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {campaign.status === "failed" && <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700">{campaign.error}</div>}
-      {busy && <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700">{busy}</div>}
+      {error && <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>}
+      {campaign.status === "failed" && <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{campaign.error}</div>}
+      {busy && <div className="mb-4 rounded-lg border-l-4 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{busy}</div>}
 
       {approvalStatus === "approved" && campaign.reviewed_by && (
         <ApprovedBanner reviewerName={approverName(campaign.reviewed_by)} reviewedAt={campaign.reviewed_at ?? ""} quote={campaign.review_note || "Looks great, proceed with the launch!"} />
@@ -281,24 +281,24 @@ export default function CampaignDetail() {
           onConfirm={() => { setShowEditWarning(false); toast.info("Editing mode enabled — approval will be voided on save"); }} />
       )}
       {approvalStatus === "changes_requested" && campaign.review_note && (
-        <div className="mb-6 flex items-start gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+        <div className="mb-6 flex items-start gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
+          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-300">
             <span className="material-symbols-outlined">edit_note</span>
           </div>
           <div>
-            <h3 className="text-sm font-bold text-amber-800">Changes requested by {approverName(campaign.reviewed_by)}</h3>
-            <p className="mt-1 text-sm text-amber-700">"{campaign.review_note}"</p>
+            <h3 className="text-sm font-bold text-amber-800 dark:text-amber-200">Changes requested by {approverName(campaign.reviewed_by)}</h3>
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">"{campaign.review_note}"</p>
           </div>
         </div>
       )}
       {approvalStatus === "rejected" && (
-        <div className="mb-6 flex items-start gap-4 rounded-xl border border-red-200 bg-red-50 p-4">
-          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+        <div className="mb-6 flex items-start gap-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-300">
             <span className="material-symbols-outlined">cancel</span>
           </div>
           <div>
-            <h3 className="text-sm font-bold text-red-800">Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}</h3>
-            {campaign.review_note && <p className="mt-1 text-sm text-red-700">"{campaign.review_note}"</p>}
+            <h3 className="text-sm font-bold text-red-800 dark:text-red-200">Campaign rejected{campaign.reviewed_by ? ` by ${approverName(campaign.reviewed_by)}` : ""}</h3>
+            {campaign.review_note && <p className="mt-1 text-sm text-red-700 dark:text-red-300">"{campaign.review_note}"</p>}
           </div>
         </div>
       )}

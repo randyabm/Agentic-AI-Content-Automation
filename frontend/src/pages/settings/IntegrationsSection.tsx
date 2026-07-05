@@ -281,7 +281,7 @@ export function IntegrationsSection() {
               const editing = appCreds[provider] ?? { app_id: "", app_secret: "" };
               const configured = current?.has_app_id && current?.has_app_secret;
               return (
-                <div key={provider} className={cn("rounded-xl border border-border bg-surface p-4", configured && "border-teal-600 bg-teal-50")}>
+                <div key={provider} className={cn("rounded-xl border border-border bg-surface p-4", configured && "border-teal-600 bg-teal-50 dark:border-teal-500 dark:bg-teal-950/40")}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <strong>{label}</strong>
                     {configured ? (

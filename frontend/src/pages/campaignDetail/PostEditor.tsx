@@ -328,7 +328,7 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
           )}
         </div>
         {post.approval_status === "rejected" && post.review_note && (
-          <p className="m-0 rounded-md border-l-[3px] border-red-500 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+          <p className="m-0 rounded-md border-l-[3px] border-red-500 bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
             {post.review_note}
           </p>
         )}

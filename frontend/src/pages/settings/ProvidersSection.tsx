@@ -71,7 +71,7 @@ export function ProvidersSection() {
               key={c.provider}
               className={cn(
                 "flex flex-col gap-2 rounded-xl border border-border bg-surface p-4",
-                c.has_key && "border-teal-600 bg-teal-50",
+                c.has_key && "border-teal-600 bg-teal-50 dark:border-teal-500 dark:bg-teal-950/40",
               )}
             >
               <div className="flex items-center justify-between gap-2">
@@ -84,7 +84,7 @@ export function ProvidersSection() {
               </div>
               <div className="flex flex-wrap gap-1">
                 {c.kinds.map((k) => (
-                  <span key={k} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[0.7rem] font-medium capitalize text-indigo-700">
+                  <span key={k} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[0.7rem] font-medium capitalize text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300">
                     {k}
                   </span>
                 ))}
