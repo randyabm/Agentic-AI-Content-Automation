@@ -74,7 +74,7 @@ function PlatformTabs({ posts, value, onValueChange }: { posts: Post[]; value: s
   );
 }
 
-export function ElementModal({ campaignId, element, posts, client, models, videoModels, canEdit, onChange, onClose }: { campaignId: string; element: CampaignElement | null; posts: Post[]; client: Client | null; models: ImageModel[]; videoModels: VideoModel[]; canEdit: boolean; onChange: () => Promise<void>; onClose: () => void }) {
+export function ElementModal({ campaignId, element, posts, client, models, videoModels, canEdit, onChange, onClose, previewOnly = false }: { campaignId: string; element: CampaignElement | null; posts: Post[]; client: Client | null; models: ImageModel[]; videoModels: VideoModel[]; canEdit: boolean; onChange: () => Promise<void>; onClose: () => void; previewOnly?: boolean }) {
   const [tab, setTab] = useState(posts[0]?.platform ?? "");
   const [drafts, setDrafts] = useState<Record<string, PreviewDraft>>(() => Object.fromEntries(posts.map((p) => [p.id, makeDraft(p)])));
   const activePost = posts.find((p) => p.platform === tab) ?? posts[0] ?? null;
@@ -88,7 +88,7 @@ export function ElementModal({ campaignId, element, posts, client, models, video
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 p-4 backdrop-blur-sm sm:p-6" onClick={onClose}>
       <div
-        className="flex max-h-[94vh] w-[min(96vw,1180px)] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-black/5"
+        className={cn("flex max-h-[94vh] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-black/5", previewOnly ? "w-[min(96vw,560px)]" : "w-[min(96vw,1180px)]")}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-6 py-3.5">
@@ -119,6 +119,15 @@ export function ElementModal({ campaignId, element, posts, client, models, video
           <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
 
+        {previewOnly ? (
+          <div className="flex-1 overflow-y-auto p-5">
+            {showPreview ? (
+              <LivePreviewColumn campaignId={campaignId} element={element!} posts={posts} client={client!} drafts={drafts} activePlatform={tab} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Preview isn't available for this element yet.</p>
+            )}
+          </div>
+        ) : (
         <div className={cn("grid flex-1 overflow-y-auto", showPreview ? "lg:grid-cols-[minmax(360px,420px)_minmax(0,1fr)_minmax(360px,420px)]" : "lg:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]")}>
           <div className="flex flex-col gap-4 overflow-y-auto border-r border-border bg-surface-alt/30 p-5">
             {element && (
@@ -162,6 +171,7 @@ export function ElementModal({ campaignId, element, posts, client, models, video
             </aside>
           )}
         </div>
+        )}
       </div>
     </div>
   );

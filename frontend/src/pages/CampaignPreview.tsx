@@ -150,6 +150,7 @@ export default function CampaignPreview() {
             models={[]}
             videoModels={[]}
             canEdit={false}
+            previewOnly
             onChange={load}
             onClose={() => setOpenElementId(null)}
           />
