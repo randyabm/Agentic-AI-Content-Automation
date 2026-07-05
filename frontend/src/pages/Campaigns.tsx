@@ -677,7 +677,7 @@ function CreateCampaign({
               <div className="flex flex-wrap gap-2">
                 {refImages.map((file, i) => (
                   <div key={i} className="relative size-16 overflow-hidden rounded-lg border border-border">
-                    <img src={URL.createObjectURL(file)} alt={file.name} className="h-full w-full object-cover" />
+                    <img src={URL.createObjectURL(file)} alt={file.name} loading="lazy" className="h-full w-full object-cover" />
                     <button type="button" onClick={() => setRefImages((prev) => prev.filter((_, j) => j !== i))} className="absolute right-0.5 top-0.5 flex size-[18px] items-center justify-center rounded-full bg-black/50 text-xs text-white">✕</button>
                   </div>
                 ))}
