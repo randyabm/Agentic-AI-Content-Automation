@@ -37,23 +37,6 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
   const [error, setError] = useState("");
   const pollRef = useRef<number | null>(null);
   const tabsRef = useRef<HTMLDivElement | null>(null);
-  const [tabScroll, setTabScroll] = useState({ left: false, right: false });
-
-  const updateTabArrows = useCallback(() => {
-    const el = tabsRef.current;
-    if (!el) return;
-    const maxScroll = el.scrollWidth - el.clientWidth;
-    setTabScroll({
-      left: el.scrollLeft > 1,
-      right: el.scrollLeft < maxScroll - 1,
-    });
-  }, []);
-
-  function scrollTabs(dir: -1 | 1) {
-    const el = tabsRef.current;
-    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7, behavior: "smooth" });
-  }
-
   const load = useCallback(async () => {
     const [list, job] = await Promise.all([
       api<Competitor[]>(`/clients/${client.id}/competitors`),
@@ -93,12 +76,6 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
       }, 4000);
     }
   }, [busy, load]);
-
-  useEffect(() => {
-    updateTabArrows();
-    window.addEventListener("resize", updateTabArrows);
-    return () => window.removeEventListener("resize", updateTabArrows);
-  }, [competitors.length, updateTabArrows]);
 
   async function startSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -255,19 +232,9 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="relative">
-            <button
-              type="button"
-              aria-label="Scroll tabs left"
-              hidden={!tabScroll.left}
-              onClick={() => scrollTabs(-1)}
-              className="absolute left-0 top-0 z-10 flex h-full cursor-pointer items-center bg-gradient-to-r from-surface to-transparent pl-2 pr-4 text-2xl text-muted-foreground transition-colors hover:text-primary"
-            >
-              ‹
-            </button>
             <div
               role="tablist"
               ref={tabsRef}
-              onScroll={updateTabArrows}
               onWheel={(e) => {
                 const el = tabsRef.current;
                 if (el && el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
@@ -294,15 +261,6 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              aria-label="Scroll tabs right"
-              hidden={!tabScroll.right}
-              onClick={() => scrollTabs(1)}
-              className="absolute right-0 top-0 z-10 flex h-full cursor-pointer items-center bg-gradient-to-l from-surface to-transparent pr-2 pl-4 text-2xl text-muted-foreground transition-colors hover:text-primary"
-            >
-              ›
-            </button>
           </div>
 
           {selected && (
