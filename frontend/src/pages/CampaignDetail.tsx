@@ -609,13 +609,13 @@ export default function CampaignDetail() {
         <ElementModal campaignId={campaign.id} element={openElement}
           posts={campaign.posts.filter((p) => p.element_id === openElement.id)}
           client={client} models={models} videoModels={videoModels}
-          canEdit={canEdit && campaign.status !== "generating"}
+          canEdit={canEdit && isEditorMode && campaign.status !== "generating"}
           onChange={load} onClose={() => setOpenElementId(null)} />
       )}
       {openOrphan && (
         <ElementModal campaignId={campaign.id} element={null} posts={[openOrphan]}
           client={client} models={models} videoModels={videoModels}
-          canEdit={canEdit && campaign.status !== "generating"}
+          canEdit={canEdit && isEditorMode && campaign.status !== "generating"}
           onChange={load} onClose={() => setOpenElementId(null)} />
       )}
       {showAutopilot && <AutopilotModal campaignId={campaign.id} onClose={() => setShowAutopilot(false)} onDone={load} />}
