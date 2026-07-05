@@ -36,8 +36,14 @@ export function SendForApprovalModal({ campaignId, onClose, onDone }: SendForApp
 
   useEffect(() => {
     api<User[]>("/team")
-      .then((members) => setApprovers(members.filter((m) => m.org_role === "reviewer" || m.org_role === "org_admin")))
-      .catch(() => {});
+      .then((members) => {
+        const reviewers = members.filter((m) => m.org_role === "reviewer" || m.org_role === "org_admin");
+        setApprovers(reviewers);
+        if (reviewers.length === 0) {
+          setError("No reviewers or org admins are available to approve. Add one under Team first.");
+        }
+      })
+      .catch(() => setError("Couldn't load the approver list. Close this dialog and try again."));
     // Load the campaign's posts so individual-post approval can pick a subset.
     api<CampaignDetail>(`/campaigns/${campaignId}`)
       .then((c) => {
