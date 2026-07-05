@@ -8,8 +8,9 @@ import { WorkflowStepper } from "../components/WorkflowStepper";
 import { SendForApprovalModal } from "../components/SendForApprovalModal";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { ElementModal } from "./campaignDetail/PostEditor";
 import { useAuth } from "../auth";
-import type { CampaignDetail as Campaign, CampaignElement, Post } from "../types";
+import type { CampaignDetail as Campaign, CampaignElement, Client, Post } from "../types";
 import { cn } from "@/lib/utils";
 
 export default function CampaignPreview() {
@@ -17,16 +18,18 @@ export default function CampaignPreview() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [client, setClient] = useState<Client | null>(null);
   const [clientName, setClientName] = useState("");
   const [loading, setLoading] = useState(true);
   const [showApproval, setShowApproval] = useState(false);
+  const [openElementId, setOpenElementId] = useState<string | null>(null);
 
   async function load() {
     if (!campaignId) return;
     const c = await api<Campaign>(`/campaigns/${campaignId}`);
     setCampaign(c);
-    api<{ company_name: string }>(`/clients/${c.client_id}`)
-      .then((cl) => setClientName(cl.company_name))
+    api<Client>(`/clients/${c.client_id}`)
+      .then((cl) => { setClient(cl); setClientName(cl.company_name); })
       .catch(() => {});
   }
 
@@ -103,6 +106,7 @@ export default function CampaignPreview() {
               campaignId={campaign.id}
               element={el}
               posts={posts.filter((p) => p.element_id === el.id)}
+              onOpen={() => setOpenElementId(el.id)}
             />
           ))}
         {campaign.elements.length === 0 && <p className="text-muted-foreground">No elements in this campaign yet.</p>}
@@ -133,6 +137,24 @@ export default function CampaignPreview() {
           }}
         />
       )}
+
+      {openElementId && (() => {
+        const el = campaign.elements.find((e) => e.id === openElementId) ?? null;
+        if (!el) return null;
+        return (
+          <ElementModal
+            campaignId={campaign.id}
+            element={el}
+            posts={posts.filter((p) => p.element_id === el.id)}
+            client={client}
+            models={[]}
+            videoModels={[]}
+            canEdit={false}
+            onChange={load}
+            onClose={() => setOpenElementId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -141,10 +163,12 @@ function ElementPreviewCard({
   campaignId,
   element,
   posts,
+  onOpen,
 }: {
   campaignId: string;
   element: CampaignElement;
   posts: Post[];
+  onOpen: () => void;
 }) {
   const cover = element.images.find((i) => i.base_object_key) ?? null;
   const coverVideo = element.videos.find((v) => v.base_object_key && v.status === "ready") ?? null;
@@ -197,7 +221,13 @@ function ElementPreviewCard({
   ).length;
 
   return (
-    <div className="cursor-pointer overflow-hidden rounded-xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <div
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      className="cursor-pointer overflow-hidden rounded-xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
       <div className="flex aspect-square items-center justify-center overflow-hidden bg-slate-100">
         {imageUrl ? (
           <img src={imageUrl} alt="" loading="lazy" className="h-full w-full object-contain" />
