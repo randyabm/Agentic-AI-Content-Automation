@@ -21,7 +21,10 @@ export function PostThumbnail({ campaignId, image }: { campaignId: string; image
   useEffect(() => {
     if (!image.base_object_key) return;
     let active = true;
-    getBlobUrl(`/campaigns/${campaignId}/images/${image.id}/display`).then((u) => { if (active) setUrl(u); });
+    // Bust the cache on regeneration: the display variant lives at a fixed key
+    // and is served `immutable, max-age=86400`, so without ?v= the browser keeps
+    // showing the old image for 24h. base_object_key changes (v1→v2) every regen.
+    getBlobUrl(`/campaigns/${campaignId}/images/${image.id}/display?v=${encodeURIComponent(image.base_object_key)}`).then((u) => { if (active) setUrl(u); });
     return () => { active = false; };
   }, [campaignId, image.id, image.base_object_key]);
   return url ? <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" /> : null;
