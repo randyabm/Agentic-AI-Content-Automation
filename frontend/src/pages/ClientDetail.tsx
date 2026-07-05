@@ -316,8 +316,8 @@ export default function ClientDetail() {
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
             <Card>
-              <div className="mb-3 flex items-center justify-between">
-                <h2>Profile</h2>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold tracking-tight">Profile</h2>
                 {canEdit && !editing && (
                   <Button variant="ghost" onClick={startEditing} disabled={profileLocked} title={profileLocked ? "Available once the website analysis finishes" : undefined}>
                     Edit profile
@@ -348,8 +348,8 @@ export default function ClientDetail() {
                   </div>
                 </>
               ) : (
-                <>
-                  <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <ProfileFact label="Industry / Sector" value={client.industry} />
                     <ProfileFact label="Communication tone" value={client.communication_tone} />
                   </div>
@@ -359,7 +359,7 @@ export default function ClientDetail() {
                   <ProfileSection label="Value proposition" value={client.value_proposition} />
                   <ProfileSection label="Business objectives" list={client.business_objectives} />
                   {client.notes && <ProfileSection label="Notes" value={client.notes} />}
-                </>
+                </div>
               )}
             </Card>
             <div className="flex flex-col gap-4">
@@ -867,9 +867,9 @@ type ProfileForm = {
 
 function ProfileFact({ label, value }: { label: string; value?: string }) {
   return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="font-medium">{value || "—"}</div>
+    <div className="rounded-lg border border-border bg-surface-alt/50 p-3">
+      <div className="text-[0.7rem] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-medium leading-relaxed">{value || "—"}</div>
     </div>
   );
 }
@@ -877,10 +877,14 @@ function ProfileFact({ label, value }: { label: string; value?: string }) {
 function ProfileSection({ label, value, list, links }: { label: string; value?: string; list?: string[]; links?: string[] }) {
   const empty = !value && !list?.length && !links?.length;
   return (
-    <div className="mt-3">
-      <div className="mb-1 text-xs text-muted-foreground">{label}</div>
-      {empty ? <div className="text-muted-foreground">—</div>
-      : list ? <ul className="ml-5 list-disc text-sm">{list.map((item, i) => <li key={i}>{item}</li>)}</ul>
+    <section className="border-t border-border pt-4">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">{label}</h3>
+      {empty ? <p className="text-sm text-muted-foreground">—</p>
+      : list ? (
+        <ul className="ml-4 list-disc space-y-1.5 text-sm leading-relaxed text-foreground/90 marker:text-primary/60">
+          {list.map((item, i) => <li key={i} className="pl-1">{item}</li>)}
+        </ul>
+      )
       : links ? (
         <div className="flex flex-col gap-1">
           {links.map((url, i) => {
@@ -893,8 +897,8 @@ function ProfileSection({ label, value, list, links }: { label: string; value?: 
             );
           })}
         </div>
-      ) : <div className="text-sm whitespace-pre-wrap">{value}</div>}
-    </div>
+      ) : <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{value}</p>}
+    </section>
   );
 }
 
