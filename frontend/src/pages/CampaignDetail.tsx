@@ -26,6 +26,7 @@ import { useAuth } from "../auth";
 import { ElementVideoThumb, VideoVisual } from "./campaignDetail/VideoSlots";
 import { ElementThumb, ElementVisual, PostThumbnail } from "./campaignDetail/ImageSlots";
 import { ElementModal } from "./campaignDetail/PostEditor";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import type {
   CampaignDetail as Campaign, CampaignApprovalStatus, CampaignElement, Client, ElementType,
   ImageModel, Post, PostImage, PostVideo, User, VideoModel,
@@ -221,11 +222,7 @@ export default function CampaignDetail() {
   return (
     <div>
       <div className="mb-6">
-        <nav className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <button onClick={() => navigate("/campaigns")} className="cursor-pointer text-xs font-semibold text-primary hover:underline">Campaigns</button>
-          <ChevronRight className="size-3.5 text-border" />
-          <span className="font-medium text-foreground">{campaign.name}</span>
-        </nav>
+        <Breadcrumb items={[{ label: "Campaigns", to: "/campaigns" }, { label: campaign.name }]} className="mb-2" />
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">

@@ -7,6 +7,7 @@ import { PlatformIcon, platformLabel } from "../components/PlatformIcon";
 import { WorkflowStepper } from "../components/WorkflowStepper";
 import { SendForApprovalModal } from "../components/SendForApprovalModal";
 import { Button } from "@/components/ui/button";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { useAuth } from "../auth";
 import type { CampaignDetail as Campaign, CampaignElement, Post } from "../types";
 import { cn } from "@/lib/utils";
@@ -51,9 +52,11 @@ export default function CampaignPreview() {
   return (
     <div>
       <div className="mb-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/campaigns/${campaignId}`)}>
-          ← Back to Editor
-        </Button>
+        <Breadcrumb items={[
+          { label: "Campaigns", to: "/campaigns" },
+          { label: campaign.name, to: `/campaigns/${campaignId}` },
+          { label: "Preview" },
+        ]} />
         <h1 className="mt-2 text-2xl font-bold tracking-tight">Preview: {campaign.name}</h1>
         <p className="text-sm text-muted-foreground">
           Review your campaign assets and schedule before final submission.

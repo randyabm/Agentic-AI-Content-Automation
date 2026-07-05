@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { BookOpen, ExternalLink, FileText, Search, Share2, Users } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { ArticleModal } from "../components/ArticleModal";
 import { AvatarCropper } from "../components/AvatarCropper";
 import { BrandMemory } from "../components/BrandMemory";
@@ -191,6 +192,8 @@ export default function ClientDetail() {
       {pendingAvatar && (
         <AvatarCropper file={pendingAvatar} onCancel={() => setPendingAvatar(null)} onConfirm={uploadAvatar} />
       )}
+
+      <Breadcrumb items={[{ label: "Clients", to: "/clients" }, { label: client.company_name }]} />
 
       <div className="mb-5 flex items-center gap-4">
         <ClientAvatar client={client} />

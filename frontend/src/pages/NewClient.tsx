@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { api } from "../api";
 import { Button } from "@/components/ui/button";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -104,12 +105,8 @@ export default function NewClient() {
   return (
     <div className="space-y-6 max-w-6xl">
       {/* Header */}
+      <Breadcrumb items={[{ label: "Clients", to: "/clients" }, { label: "New client" }]} />
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Back to clients">
-          <Link to="/clients">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">New client</h1>
           <p className="text-sm text-muted-foreground">

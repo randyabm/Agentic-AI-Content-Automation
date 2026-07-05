@@ -19,6 +19,7 @@ import { useAuth } from "../auth";
 import { OnboardingStepper } from "../components/OnboardingStepper";
 import { ActivityTimeline } from "../components/ActivityTimeline";
 import { Button } from "@/components/ui/button";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -183,13 +184,13 @@ export default function ClientSetup() {
   return (
     <div className="space-y-6 max-w-6xl">
       {/* Header */}
+      <Breadcrumb items={[
+        { label: "Clients", to: "/clients" },
+        ...(clientName ? [{ label: clientName, to: `/clients/${clientId}` }] : []),
+        { label: "Setup" },
+      ]} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" asChild aria-label="Back to client">
-            <Link to={`/clients/${clientId}`}>
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               Setup
