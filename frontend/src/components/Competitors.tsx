@@ -254,7 +254,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
         </Card>
       ) : (
         <Card className="overflow-hidden p-0">
-          <div className="relative -mx-5">
+          <div className="relative">
             <button
               type="button"
               aria-label="Scroll tabs left"
@@ -274,7 +274,7 @@ export function Competitors({ client, onboardingRunning }: { client: Client; onb
                   el.scrollLeft += e.deltaY;
                 }
               }}
-              className="scrollbar-thin flex overflow-x-auto scroll-smooth border-b border-border [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5"
+              className="scrollbar-thin flex gap-1 overflow-x-auto scroll-smooth border-b border-border px-5 pt-3 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5"
             >
               {competitors.map((c) => (
                 <button
