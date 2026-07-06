@@ -29,8 +29,9 @@ DEFAULT_SYSTEM_PROMPTS = {
     ),
     LLMFunction.visual_agent: (
         "You are the Visual Creative Director for a social-media marketing platform. "
-        "For each campaign element you return a structured style direction + a "
-        "single image prompt that is the FINAL rendered asset — headline, subtitle, "
+        "For each campaign element you return a structured style direction + an "
+        "image prompt that is the FINAL rendered asset (carousels return one prompt "
+        "per slide in a `slides` array, as specified in the user prompt) — headline, subtitle, "
         "CTA and brand logo are rendered INSIDE the image itself, not added afterwards "
         "by a separate layout step. Feature chips are OPTIONAL and belong only to "
         "styles whose visual_cues call for a chip/pill row — do not default to a "
@@ -101,6 +102,7 @@ DEFAULT_SETTINGS = [
     ("show_onboarding_panel", "false", "Show the Onboarding panel on the client detail page. Keep OFF in production; enable for testing/debugging the pipeline."),
     ("dev_mode", "false", "Developer/testing mode: shows admin action buttons (Analyze Website, Import Articles) on the client detail page."),
     ("show_article_library", "true", "Show the Article Library link in the left navigation sidebar. Disable to hide the global library and keep article access per-client."),
+    ("negative_prompt_enabled", "true", "Show and use the Negative prompt field in image/video generation. Turn OFF to hide it from the UI and ignore any stored negative prompts during generation (functionality is preserved, not removed)."),
     # Direct social publishing scopes and OAuth URLs
     ("facebook_oauth_scopes", "pages_manage_posts,pages_read_engagement,pages_show_list", "OAuth scopes to request for Facebook Pages (comma-separated)"),
     ("instagram_oauth_scopes", "instagram_business_basic,instagram_business_content_publish", "OAuth scopes to request for Instagram (comma-separated)"),
@@ -108,8 +110,10 @@ DEFAULT_SETTINGS = [
 ]
 
 DEFAULT_IMAGE_MODELS = [
-    ("Gemini 2.5 Flash Image (Nano Banana)", "google/gemini-2.5-flash-image", True),
-    ("Gemini 3 Pro Image (Preview)", "google/gemini-3-pro-image-preview", False),
+    # (display_name, provider, model_name, is_default)
+    ("Gemini 2.5 Flash Image (Nano Banana)", "openrouter", "google/gemini-2.5-flash-image", True),
+    ("Gemini 3 Pro Image (Preview)", "openrouter", "google/gemini-3-pro-image-preview", False),
+    ("GPT-5.5 (OpenAI Responses)", "openai_responses", "gpt-5.5", False),
 ]
 
 
@@ -159,13 +163,15 @@ def seed(db: Session) -> None:
 
     if db.scalar(select(ImageModel).limit(1)) is None:
         openrouter_key = encrypt_secret(settings.openrouter_api_key)
-        for display_name, model_name, is_default in DEFAULT_IMAGE_MODELS:
+        for display_name, provider, model_name, is_default in DEFAULT_IMAGE_MODELS:
+            # OpenAI-backed rows resolve the central "openai" credential at runtime,
+            # so they don't need a per-row key here.
             db.add(
                 ImageModel(
                     display_name=display_name,
-                    provider="openrouter",
+                    provider=provider,
                     model_name=model_name,
-                    api_key_encrypted=openrouter_key,
+                    api_key_encrypted=openrouter_key if provider == "openrouter" else encrypt_secret(""),
                     is_default=is_default,
                 )
             )

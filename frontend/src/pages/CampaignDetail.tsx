@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Eye, Pencil, Sparkles } from "lucide-react";
+import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Sparkles } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { AutopilotModal } from "../components/AutopilotModal";
+import { PublishAllDialog } from "../components/PublishAllDialog";
+import { MediaSkeleton } from "../components/MediaSkeleton";
 import { CampaignSchedulerModal } from "../components/CampaignSchedulerModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
@@ -60,6 +62,7 @@ export default function CampaignDetail() {
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
+  const [showPublishAll, setShowPublishAll] = useState(false);
   const [postTypeTab, setPostTypeTab] = useState<string>("all");
   const [showEditWarning, setShowEditWarning] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
@@ -69,6 +72,7 @@ export default function CampaignDetail() {
   const canEdit = user?.role === "admin" || user?.role === "editor";
   const canReview = user?.org_role === "reviewer" || user?.org_role === "org_admin" || user?.is_platform_admin;
   const canSubmit = user?.org_role === "analyst" || user?.org_role === "creative" || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+  const canPublish = !!user?.is_platform_admin || user?.org_role === "org_admin" || user?.org_role === "analyst";
 
   const approvalStatus = campaign?.approval_status ?? ("draft" as CampaignApprovalStatus);
 
@@ -256,6 +260,11 @@ export default function CampaignDetail() {
                 </Button>
               </>
             )}
+            {canPublish && approvalStatus === "approved" && campaign.status === "ready" && (
+              <Button onClick={() => setShowPublishAll(true)} disabled={!!busy}>
+                <Rocket className="mr-1 size-3.5" /> Publish all
+              </Button>
+            )}
             {isEditorMode && (
               <>
                 <Button variant="outline" onClick={regenerateAll} disabled={!!busy || campaign.status === "generating"}>Regenerate all</Button>
@@ -415,6 +424,12 @@ export default function CampaignDetail() {
                       const el = campaign.elements.find((e) => e.id === group.elementId);
                       const cover = el?.images.find((i) => i.base_object_key);
                       const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
+                      // Show a live "generating" state instead of the stale previous
+                      // image while any of this element's assets are regenerating.
+                      const elGenerating = !!el && (
+                        el.images.some((i) => i.status === "generating") ||
+                        el.videos.some((v) => v.status === "generating")
+                      );
                       const ptype = postType(rep, campaign.elements);
                       const typeMeta = POST_TYPE_META[ptype];
                       const platforms = Array.from(new Set(group.posts.map((p) => p.platform)));
@@ -430,8 +445,9 @@ export default function CampaignDetail() {
                           onClick={() => { if (group.elementId) setOpenElementId(group.elementId); }}
                           className={cn("overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow", group.elementId && "cursor-pointer hover:shadow-md")}>
                           <div className="flex min-h-32">
-                            <div className="size-32 flex-shrink-0 bg-muted">
-                              {cover ? <PostThumbnail campaignId={campaign.id} image={cover} />
+                            <div className="relative size-32 flex-shrink-0 overflow-hidden bg-muted">
+                              {elGenerating ? <MediaSkeleton loading label="Generating…" />
+                              : cover ? <PostThumbnail campaignId={campaign.id} image={cover} />
                               : coverVid ? <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
                               : ptype === "text" ? (
                                 <div className="flex size-full items-center justify-center bg-accent p-2">
@@ -623,6 +639,9 @@ export default function CampaignDetail() {
         <CampaignSchedulerModal campaignId={campaign.id}
           startDate={campaign.start_date} endDate={campaign.end_date}
           onClose={() => setShowScheduler(false)} onDone={load} />
+      )}
+      {showPublishAll && (
+        <PublishAllDialog campaignId={campaign.id} onClose={() => setShowPublishAll(false)} onDone={load} />
       )}
     </div>
   );

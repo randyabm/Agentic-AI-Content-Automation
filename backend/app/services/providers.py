@@ -46,6 +46,7 @@ _ENTITY_TO_CREDENTIAL = {
     "anthropic": "anthropic",
     "openai": "openai",
     "openai_sora": "openai",
+    "openai_responses": "openai",
     "openrouter": "openrouter",
     "google": "google",
     "google_veo": "google",

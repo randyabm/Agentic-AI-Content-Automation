@@ -167,7 +167,11 @@ def generate_image(
     """
     if not prompt.strip():
         raise ExtractionError("The image prompt is empty.")
-    from app.services import providers
+    from app.services import app_settings, providers
+
+    # When the negative-prompt feature is disabled, ignore any stored negative prompt.
+    if not app_settings.negative_prompt_enabled(db):
+        negative_prompt = ""
 
     api_key = providers.resolve_api_key(db, model.provider, model.api_key_encrypted)
     if not api_key:
@@ -207,6 +211,8 @@ def generate_image(
             return _generate_openrouter(model, api_key, ref_prompt, inputs)
         if model.provider == "openai":
             return _generate_openai_with_refs(model, api_key, ref_prompt, aspect_ratio, inputs)
+        if model.provider == "openai_responses":
+            return _generate_openai_responses(model, api_key, ref_prompt, aspect_ratio, inputs)
         if model.provider == "magnific":
             # structure_reference = first product ref; style_reference = logo if no product ref
             structure = refs[0] if refs else None
@@ -218,6 +224,8 @@ def generate_image(
         return _generate_openrouter(model, api_key, f"{full_prompt}\n\nUse a {aspect_ratio} aspect ratio.")
     if model.provider == "openai":
         return _generate_openai(model, api_key, full_prompt, aspect_ratio)
+    if model.provider == "openai_responses":
+        return _generate_openai_responses(model, api_key, f"{full_prompt}\n\nUse a {aspect_ratio} aspect ratio.", aspect_ratio)
     if model.provider == "magnific":
         return _generate_magnific(model, api_key, full_prompt, aspect_ratio)
     raise ExtractionError(f"Unsupported image provider: {model.provider}")
@@ -272,7 +280,10 @@ def generate_image_from(
     """Reframe an existing image to a new aspect ratio via the provider's
     image-to-image capability. Raises on failure so the caller can fall back to
     reframe_local()."""
-    from app.services import providers
+    from app.services import app_settings, providers
+
+    if not app_settings.negative_prompt_enabled(db):
+        negative_prompt = ""
 
     api_key = providers.resolve_api_key(db, model.provider, model.api_key_encrypted)
     if not api_key:
@@ -290,6 +301,8 @@ def generate_image_from(
         return _reframe_openrouter(model, api_key, source_bytes, instruction)
     if model.provider == "openai":
         return _reframe_openai(model, api_key, source_bytes, instruction, aspect_ratio)
+    if model.provider == "openai_responses":
+        return _generate_openai_responses(model, api_key, instruction, aspect_ratio, [source_bytes])
     if model.provider == "magnific":
         return _generate_magnific(model, api_key, instruction, aspect_ratio, structure_bytes=source_bytes)
     raise ExtractionError(f"Provider '{model.provider}' does not support image reframing.")
@@ -439,6 +452,61 @@ def _generate_openai(model: ImageModel, api_key: str, prompt: str, aspect_ratio:
             raise ExtractionError(f"Could not download the OpenAI image ({download.status_code})")
         return download.content, download.headers.get("content-type", "image/png")
     raise ExtractionError("OpenAI returned no image data.")
+
+
+# --- OpenAI Responses API (GPT-5.x image generation via the image_generation tool) ---
+#
+# GPT-5-class models don't generate through /v1/images/generations; they call the
+# Responses API and emit an `image_generation_call` output item whose `result` is
+# the base64 PNG. Reference/source images are passed as input_image parts and the
+# tool edits from them (image-to-image), so the same path serves generate + reframe.
+
+
+def _openai_responses_post(api_key: str, payload: dict, attempts: int = 6):
+    """POST to the Responses API, retrying transient 5xx like _openai_image_post."""
+    response = None
+    for attempt in range(attempts):
+        response = httpx.post(
+            "https://api.openai.com/v1/responses",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=payload,
+            timeout=300,
+        )
+        if response.status_code < 500:
+            return response
+        logger.warning("OpenAI Responses endpoint returned %s (attempt %d/%d)", response.status_code, attempt + 1, attempts)
+        time.sleep(min(2 * (attempt + 1), 12))
+    return response
+
+
+def _extract_responses_image(response) -> tuple[bytes, str]:
+    if response.status_code >= 400:
+        raise ExtractionError(f"OpenAI image generation failed ({response.status_code}): {response.text[:300]}")
+    try:
+        outputs = response.json().get("output") or []
+    except ValueError as exc:
+        raise ExtractionError(f"Unexpected OpenAI Responses payload: {exc}") from exc
+    for item in outputs:
+        if item.get("type") == "image_generation_call" and item.get("result"):
+            return base64.b64decode(item["result"]), "image/png"
+    raise ExtractionError("OpenAI Responses API returned no image. Try a different prompt or model.")
+
+
+def _generate_openai_responses(
+    model: ImageModel, api_key: str, prompt: str, aspect_ratio: str, refs: list[bytes] | None = None
+) -> tuple[bytes, str]:
+    tool = {"type": "image_generation", "size": _openai_size(model.model_name, aspect_ratio)}
+    if refs:
+        content: list = [{"type": "input_text", "text": prompt}]
+        for rb in refs:
+            content.append(
+                {"type": "input_image", "image_url": "data:image/png;base64," + base64.b64encode(rb).decode()}
+            )
+        input_payload: object = [{"role": "user", "content": content}]
+    else:
+        input_payload = prompt
+    payload = {"model": model.model_name, "input": input_payload, "tools": [tool]}
+    return _extract_responses_image(_openai_responses_post(api_key, payload))
 
 
 def _generate_openai_with_refs(

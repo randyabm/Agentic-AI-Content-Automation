@@ -227,7 +227,7 @@ def get_alternatives(
         return [], excluded_for_ui
     cfg = _snapshot_cfg(raw_cfg)
 
-    prep = _prepare_visual(db, campaign, elements, context=_alternative_context(campaign))
+    prep = _prepare_visual(db, campaign, elements, context=_alternative_context(db, campaign, image))
     if prep is None:
         logger.warning(
             "style_alternatives: _prepare_visual returned None — returning empty. "
@@ -300,16 +300,41 @@ def get_alternatives(
     return alternatives, excluded_for_ui
 
 
-def _alternative_context(campaign: Campaign) -> str:
-    """Trimmed CONTEXT for the alternative-generation calls. We pass
-    brand + campaign info but skip the heavyweight editorial/posts context
-    — alternatives only need enough info to pick a style direction.
+def _alternative_context(db: Session, campaign: Campaign, image: PostImage | None = None) -> str:
+    """Full campaign CONTEXT for the alternative-generation calls.
+
+    Previously this passed only the objective + central theme, so article-based
+    campaigns (whose central_theme is often empty) gave the agent nothing to work
+    with and it invented random, off-brand styles. We now build the SAME grounded
+    context the real generation uses (brand profile, brand memory, reference
+    article, central theme) and anchor it to the exact asset being restyled — so
+    only the art direction changes, not the subject or message.
     """
-    parts = [
-        f"Campaign objective: {campaign.objective.value if campaign.objective else 'awareness'}",
-        f"Campaign central theme: {campaign.central_theme or '(see element descriptors)'}",
-        "Each alternative is a preview — the user will pick one to regenerate with.",
-    ]
+    from app.models.client import Client
+
+    parts: list[str] = []
+    client = db.get(Client, campaign.client_id) if campaign.client_id else None
+    if client is not None:
+        article = campaign_gen.resolve_article(db, campaign)
+        parts.append(campaign_gen.build_context(db, client, campaign, article.get("text", "")))
+    else:
+        parts.append(f"Campaign objective: {campaign.objective.value if campaign.objective else 'awareness'}")
+        if campaign.central_theme:
+            parts.append(f"Campaign central theme: {campaign.central_theme}")
+
+    # Anchor to the asset the user is restyling: keep the same subject and message,
+    # change only the visual style.
+    if image is not None and (image.prompt or "").strip():
+        parts += [
+            "",
+            "=== CURRENT ASSET (restyle this) ===",
+            "The user wants a DIFFERENT visual STYLE for this SAME asset. Keep the same "
+            "subject, product and marketing message — change ONLY the art direction, "
+            "composition, palette and typography. Current image prompt:",
+            image.prompt.strip()[:1500],
+        ]
+
+    parts += ["", "Each alternative is a preview — the user will pick one to regenerate with."]
     return "\n".join(parts)
 
 

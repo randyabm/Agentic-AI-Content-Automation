@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { useNegativePromptEnabled } from "@/lib/useSetting";
 import type { Client, PostVideo, VideoModel } from "../../types";
 import { ModelSelect, ratioRank, statusDot } from "./shared";
 
@@ -58,6 +59,7 @@ export function VideoVisual({ campaignId, videos, client, models, canEdit, onCha
 }
 
 function VideoSlot({ campaignId, video, client, models, canEdit, onChange, isPrimary = false, hasSiblings = false, lockGenerate = false }: { campaignId: string; video: PostVideo; client?: Client | null; models: VideoModel[]; canEdit: boolean; onChange: () => Promise<void>; isPrimary?: boolean; hasSiblings?: boolean; lockGenerate?: boolean }) {
+  const negativePromptEnabled = useNegativePromptEnabled();
   const [url, setUrl] = useState("");
   const [prompt, setPrompt] = useState(video.prompt);
   const [negative, setNegative] = useState(video.negative_prompt);
@@ -172,9 +174,11 @@ function VideoSlot({ campaignId, video, client, models, canEdit, onChange, isPri
           <Label className="text-sm">Video prompt
             <TextareaZoom label="Video prompt" rows={4} value={prompt} onChange={setPrompt} />
           </Label>
-          <Label className="text-sm">Negative prompt
-            <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
-          </Label>
+          {negativePromptEnabled && (
+            <Label className="text-sm">Negative prompt
+              <TextareaZoom label="Negative prompt" rows={2} value={negative} onChange={setNegative} />
+            </Label>
+          )}
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={savePrompt}>Save prompt</Button>
           </div>

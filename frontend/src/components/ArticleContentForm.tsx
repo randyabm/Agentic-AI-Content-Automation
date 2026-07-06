@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { api } from "../api";
 import type { Article, Client } from "../types";
@@ -45,13 +45,24 @@ export function ArticleContentForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Load clients + articles on mount.
+  // Load clients on mount.
   useState(() => {
     if (!clientsProp) {
       api<{ id: string; company_name: string }[]>("/clients").then(setFetchedClients).catch(() => {});
     }
-    api<Article[]>("/articles").then(setArticles).catch(() => {});
   });
+
+  // Load articles filtered by the selected client (newest first, per backend ordering).
+  useEffect(() => {
+    const params = new URLSearchParams({ article_status: "active" });
+    if (clientId) params.set("client_id", clientId);
+    api<Article[]>(`/articles?${params.toString()}`)
+      .then((list) => {
+        setArticles(list);
+        setArticleId((prev) => (prev && !list.some((a) => a.id === prev) ? "" : prev));
+      })
+      .catch(() => {});
+  }, [clientId]);
 
   // Apply initial article id from parent (e.g. /campaigns/new?fromArticle=…).
   useState(() => {
