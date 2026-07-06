@@ -4,6 +4,7 @@ import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Sparkles } from "lucid
 import { api, downloadFile } from "../api";
 import { AutopilotModal } from "../components/AutopilotModal";
 import { PublishAllDialog } from "../components/PublishAllDialog";
+import { MediaSkeleton } from "../components/MediaSkeleton";
 import { CampaignSchedulerModal } from "../components/CampaignSchedulerModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
@@ -423,6 +424,12 @@ export default function CampaignDetail() {
                       const el = campaign.elements.find((e) => e.id === group.elementId);
                       const cover = el?.images.find((i) => i.base_object_key);
                       const coverVid = el?.videos.find((v) => v.base_object_key && v.status === "ready");
+                      // Show a live "generating" state instead of the stale previous
+                      // image while any of this element's assets are regenerating.
+                      const elGenerating = !!el && (
+                        el.images.some((i) => i.status === "generating") ||
+                        el.videos.some((v) => v.status === "generating")
+                      );
                       const ptype = postType(rep, campaign.elements);
                       const typeMeta = POST_TYPE_META[ptype];
                       const platforms = Array.from(new Set(group.posts.map((p) => p.platform)));
@@ -438,8 +445,9 @@ export default function CampaignDetail() {
                           onClick={() => { if (group.elementId) setOpenElementId(group.elementId); }}
                           className={cn("overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow", group.elementId && "cursor-pointer hover:shadow-md")}>
                           <div className="flex min-h-32">
-                            <div className="size-32 flex-shrink-0 bg-muted">
-                              {cover ? <PostThumbnail campaignId={campaign.id} image={cover} />
+                            <div className="relative size-32 flex-shrink-0 overflow-hidden bg-muted">
+                              {elGenerating ? <MediaSkeleton loading label="Generating…" />
+                              : cover ? <PostThumbnail campaignId={campaign.id} image={cover} />
                               : coverVid ? <ElementVideoThumb campaignId={campaign.id} video={coverVid} />
                               : ptype === "text" ? (
                                 <div className="flex size-full items-center justify-center bg-accent p-2">
