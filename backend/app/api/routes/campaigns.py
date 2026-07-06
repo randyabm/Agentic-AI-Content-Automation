@@ -50,6 +50,11 @@ from app.schemas.campaign import (
     PostAssetOut,
     PostOut,
     PostImageOut,
+    PublishAllRequest,
+    PublishAllResponse,
+    PublishCandidate,
+    PublishPreviewResponse,
+    PublishResultItem,
     PublishStateOut,
     PostUpdate,
     ReferenceImageOut,
@@ -855,6 +860,112 @@ def publish_post_now(
     if sp.status == PublishStatus.failed:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, sp.error or "Publishing failed")
     return sp
+
+
+# A post whose latest attempt is in one of these states shouldn't be re-published
+# (avoids duplicates); mirrors the frontend's canPublishNow guard.
+_PUBLISH_DONE_STATES = {"published", "publishing", "scheduled", "retrying", "throttled"}
+
+
+def _build_publish_candidates(
+    db: Session, campaign: Campaign,
+) -> list[tuple[Post, SocialAccount | None, PublishCandidate]]:
+    """For every post in the campaign, resolve its channel and publish eligibility."""
+    posts = db.scalars(
+        select(Post).where(Post.campaign_id == campaign.id).order_by(Post.platform, Post.position)
+    ).all()
+    states = _latest_publish_states(db, [p.id for p in posts])
+    out: list[tuple[Post, SocialAccount | None, PublishCandidate]] = []
+    for post in posts:
+        channel = _connected_channel(db, campaign.client_id, post.platform.value)
+        ps = states.get(post.id)
+        already = bool(ps and ps.status in _PUBLISH_DONE_STATES)
+        approved = post.approval_status == ApprovalStatus.approved
+        connected = channel is not None
+        if already:
+            publishable, reason = False, f"Already {ps.status}"
+        elif not approved:
+            publishable, reason = False, "Not approved yet"
+        elif not connected:
+            publishable, reason = False, f"No connected {post.platform.value} channel"
+        else:
+            publishable, reason = True, ""
+        out.append((
+            post, channel,
+            PublishCandidate(
+                post_id=post.id, element_id=post.element_id, platform=post.platform.value,
+                headline=post.headline, approval_status=post.approval_status.value,
+                channel_connected=connected, already_done=already,
+                publishable=publishable, reason=reason,
+            ),
+        ))
+    return out
+
+
+@router.get("/{campaign_id}/publish-preview", response_model=PublishPreviewResponse)
+def publish_preview(
+    campaign_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.publish)),
+):
+    """List every post in the campaign with its publish eligibility, so the UI can
+    show a 'publish to all platforms' confirmation and skip the ineligible ones."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    candidates = [c for (_, _, c) in _build_publish_candidates(db, campaign)]
+    return PublishPreviewResponse(
+        candidates=candidates,
+        publishable_count=sum(1 for c in candidates if c.publishable),
+    )
+
+
+@router.post("/{campaign_id}/publish", response_model=PublishAllResponse)
+def publish_campaign(
+    campaign_id: str, body: PublishAllRequest, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.publish)),
+):
+    """Publish many approved posts at once. With no post_ids, publishes every
+    currently-publishable post; otherwise only the given ones. One platform's
+    failure never aborts the rest — each result is reported individually."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    triples = _build_publish_candidates(db, campaign)
+    wanted = set(body.post_ids) if body.post_ids is not None else None
+
+    results: list[PublishResultItem] = []
+    published = failed = skipped = 0
+    for post, channel, cand in triples:
+        if wanted is not None and post.id not in wanted:
+            continue
+        if not cand.publishable or channel is None:
+            # Only report a skip when the caller explicitly asked for this post.
+            if wanted is not None:
+                results.append(PublishResultItem(
+                    post_id=post.id, platform=cand.platform, status="skipped", error=cand.reason,
+                ))
+                skipped += 1
+            continue
+        try:
+            sp = publishing.publish_post(db, post, channel, actor.id)
+        except Exception as exc:  # PublishError or an unexpected provider error
+            results.append(PublishResultItem(
+                post_id=post.id, platform=cand.platform, status="failed", error=str(exc),
+            ))
+            failed += 1
+            continue
+        if sp.status == PublishStatus.failed:
+            results.append(PublishResultItem(
+                post_id=post.id, platform=cand.platform, status="failed",
+                error=sp.error or "Publishing failed",
+            ))
+            failed += 1
+        else:
+            results.append(PublishResultItem(
+                post_id=post.id, platform=cand.platform, status="published",
+                published_url=sp.published_url or "",
+            ))
+            published += 1
+
+    audit.record(db, actor, "campaign.publish_all", "campaign", campaign.id,
+                 {"published": published, "failed": failed, "skipped": skipped})
+    return PublishAllResponse(results=results, published=published, failed=failed, skipped=skipped)
 
 
 @router.post("/{campaign_id}/posts/{post_id}/schedule", response_model=ScheduledPostOut)

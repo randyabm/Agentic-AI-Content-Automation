@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Eye, Pencil, Sparkles } from "lucide-react";
+import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Sparkles } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { AutopilotModal } from "../components/AutopilotModal";
+import { PublishAllDialog } from "../components/PublishAllDialog";
 import { CampaignSchedulerModal } from "../components/CampaignSchedulerModal";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { PlatformIcon } from "../components/PlatformIcon";
@@ -60,6 +61,7 @@ export default function CampaignDetail() {
   const [openElementId, setOpenElementId] = useState<string | null>(null);
   const [showAutopilot, setShowAutopilot] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
+  const [showPublishAll, setShowPublishAll] = useState(false);
   const [postTypeTab, setPostTypeTab] = useState<string>("all");
   const [showEditWarning, setShowEditWarning] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
@@ -69,6 +71,7 @@ export default function CampaignDetail() {
   const canEdit = user?.role === "admin" || user?.role === "editor";
   const canReview = user?.org_role === "reviewer" || user?.org_role === "org_admin" || user?.is_platform_admin;
   const canSubmit = user?.org_role === "analyst" || user?.org_role === "creative" || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+  const canPublish = !!user?.is_platform_admin || user?.org_role === "org_admin" || user?.org_role === "analyst";
 
   const approvalStatus = campaign?.approval_status ?? ("draft" as CampaignApprovalStatus);
 
@@ -255,6 +258,11 @@ export default function CampaignDetail() {
                   <Sparkles className="mr-1 size-3.5" /> AI auto-schedule
                 </Button>
               </>
+            )}
+            {canPublish && approvalStatus === "approved" && campaign.status === "ready" && (
+              <Button onClick={() => setShowPublishAll(true)} disabled={!!busy}>
+                <Rocket className="mr-1 size-3.5" /> Publish all
+              </Button>
             )}
             {isEditorMode && (
               <>
@@ -623,6 +631,9 @@ export default function CampaignDetail() {
         <CampaignSchedulerModal campaignId={campaign.id}
           startDate={campaign.start_date} endDate={campaign.end_date}
           onClose={() => setShowScheduler(false)} onDone={load} />
+      )}
+      {showPublishAll && (
+        <PublishAllDialog campaignId={campaign.id} onClose={() => setShowPublishAll(false)} onDone={load} />
       )}
     </div>
   );

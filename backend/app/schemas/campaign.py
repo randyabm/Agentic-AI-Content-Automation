@@ -195,6 +195,45 @@ class ReviewReject(BaseModel):
     note: str = ""
 
 
+class PublishCandidate(BaseModel):
+    """One post's publish eligibility, for the 'publish all' confirmation dialog."""
+
+    post_id: str
+    element_id: str | None = None
+    platform: str
+    headline: str = ""
+    approval_status: str
+    channel_connected: bool
+    already_done: bool          # latest attempt is published/publishing/scheduled
+    publishable: bool
+    reason: str = ""            # why it can't be published (empty when publishable)
+
+
+class PublishPreviewResponse(BaseModel):
+    candidates: list[PublishCandidate]
+    publishable_count: int
+
+
+class PublishAllRequest(BaseModel):
+    # When omitted/None, publish every currently-publishable post in the campaign.
+    post_ids: list[str] | None = None
+
+
+class PublishResultItem(BaseModel):
+    post_id: str
+    platform: str
+    status: str                 # published | failed | skipped
+    published_url: str = ""
+    error: str = ""
+
+
+class PublishAllResponse(BaseModel):
+    results: list[PublishResultItem]
+    published: int
+    failed: int
+    skipped: int
+
+
 class PostAssetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -438,6 +438,38 @@ export interface Setting {
   updated_at: string;
 }
 
+export interface PublishCandidate {
+  post_id: string;
+  element_id: string | null;
+  platform: string;
+  headline: string;
+  approval_status: string;
+  channel_connected: boolean;
+  already_done: boolean;
+  publishable: boolean;
+  reason: string;
+}
+
+export interface PublishPreviewResponse {
+  candidates: PublishCandidate[];
+  publishable_count: number;
+}
+
+export interface PublishResultItem {
+  post_id: string;
+  platform: string;
+  status: "published" | "failed" | "skipped";
+  published_url: string;
+  error: string;
+}
+
+export interface PublishAllResponse {
+  results: PublishResultItem[];
+  published: number;
+  failed: number;
+  skipped: number;
+}
+
 export interface VideoModel {
   id: string;
   display_name: string;
