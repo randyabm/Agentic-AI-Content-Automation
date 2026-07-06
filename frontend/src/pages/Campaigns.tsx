@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, X, Calendar as CalendarIcon, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { api } from "../api";
-import { ArticleContentForm } from "../components/ArticleContentForm";
 import { TextareaZoom } from "../components/TextareaZoom";
 import { ArticlePickerModal } from "../components/ArticlePickerModal";
 import { ClientAvatar } from "../components/ClientAvatar";
@@ -29,6 +28,8 @@ import type {
 const OBJECTIVES: CampaignObjective[] = [
   "awareness", "consideration", "conversion", "retention", "launch", "promotion",
 ];
+
+const ARTICLE_ANGLES = ["informative", "opinion", "announcement", "how-to", "story"] as const;
 
 const ELEMENT_LABELS: Record<ElementType, string> = {
   image: "🖼️ Image", carousel: "🎠 Carousel", video: "🎬 Video", text: "✍️ Text only",
@@ -203,11 +204,13 @@ export default function Campaigns() {
         />
       )}
       {mode === "article" && (
-        <ArticleContentForm
+        <CreateCampaign
           clients={clients}
           defaultClient={initClient}
+          articleMode
           initialArticleId={fromArticle}
           onCreated={(id) => { setMode("none"); navigate(`/campaigns/${id}`); }}
+          onCancel={() => setMode("none")}
         />
       )}
 
@@ -438,25 +441,35 @@ export default function Campaigns() {
 }
 
 function CreateCampaign({
-  clients, defaultClient, onCreated, onCancel,
+  clients, defaultClient, articleMode = false, initialArticleId = "", onCreated, onCancel,
 }: {
   clients: Client[];
   defaultClient: string;
+  articleMode?: boolean;
+  initialArticleId?: string;
   onCreated: (id: string) => void;
   onCancel: () => void;
 }) {
   const [specs, setSpecs] = useState<PlatformSpec[]>([]);
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [clientId, setClientId] = useState(defaultClient || (clients[0]?.id ?? ""));
-  const [name, setName] = useState("");
+  const [name, setName] = useState(articleMode ? "Article content" : "");
   const [objective, setObjective] = useState<CampaignObjective>("awareness");
   const [theme, setTheme] = useState("");
+  const [themeDirty, setThemeDirty] = useState(false);
   const [creativity, setCreativity] = useState(5);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [articleId, setArticleId] = useState("");
   const [articleUrl, setArticleUrl] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Article-to-Content extras (only used when articleMode).
+  const [source, setSource] = useState<"library" | "url" | "paste">("library");
+  const [articleText, setArticleText] = useState("");
+  const [angle, setAngle] = useState<(typeof ARTICLE_ANGLES)[number]>("informative");
+  const [includeLink, setIncludeLink] = useState(true);
+  const [linkFormat, setLinkFormat] = useState("direct");
+  const [mentionAuthor, setMentionAuthor] = useState(false);
   const [globalPlatforms, setGlobalPlatforms] = useState<string[]>(["instagram", "linkedin"]);
   const [elements, setElements] = useState<ElementDraft[]>([]);
   const [nextKey, setNextKey] = useState(1);
@@ -473,8 +486,32 @@ function CreateCampaign({
 
   useEffect(() => {
     api<PlatformSpec[]>("/campaigns/platforms").then(setSpecs);
-    api<ArticleListItem[]>("/articles?article_status=active").then(setArticles).catch(() => {});
   }, []);
+
+  // Load articles (newest first, per backend ordering). In article mode, filter by the
+  // selected client so the library only shows that client's articles.
+  useEffect(() => {
+    const params = new URLSearchParams({ article_status: "active" });
+    if (articleMode && clientId) params.set("client_id", clientId);
+    api<ArticleListItem[]>(`/articles?${params.toString()}`)
+      .then((list) => {
+        setArticles(list);
+        if (articleMode) setArticleId((prev) => (prev && !list.some((a) => a.id === prev) ? "" : prev));
+      })
+      .catch(() => {});
+  }, [articleMode, clientId]);
+
+  // Pre-select the article passed from the library ("From article" deep link).
+  useEffect(() => {
+    if (initialArticleId) { setArticleId(initialArticleId); setSource("library"); }
+  }, [initialArticleId]);
+
+  // Default the central theme to the selected article's summary, until the user edits it.
+  useEffect(() => {
+    if (!articleMode || themeDirty || source !== "library") return;
+    const a = articles.find((x) => x.id === articleId);
+    if (a) setTheme(a.summary || a.title || "");
+  }, [articleMode, themeDirty, source, articleId, articles]);
 
   function addElement(type: ElementType) {
     // Text-only elements can't target platforms that require an image/video (e.g. Instagram).
@@ -516,6 +553,11 @@ function CreateCampaign({
     e.preventDefault();
     setError("");
     if (!clientId) return setError("Select a client.");
+    if (articleMode) {
+      if (source === "library" && !articleId) return setError("Select an article.");
+      if (source === "url" && !articleUrl.trim()) return setError("Enter an article URL.");
+      if (source === "paste" && !articleText.trim()) return setError("Paste the article text.");
+    }
     if (elements.length === 0) return setError("Add at least one element to the campaign.");
     if (elements.some((el) => el.platforms.length === 0)) return setError("Every element needs at least one platform.");
     setConfirmOpen(true);
@@ -528,7 +570,16 @@ function CreateCampaign({
       const payload = {
         client_id: clientId, name, objective, central_theme: theme,
         start_date: startDate || null, end_date: endDate || null, creativity_level: creativity,
-        article_id: articleId || null, article_url: articleUrl,
+        article_id: articleMode ? (source === "library" ? articleId || null : null) : articleId || null,
+        article_url: articleMode ? (source === "url" ? articleUrl : "") : articleUrl,
+        ...(articleMode && {
+          generation_mode: "article",
+          content_angle: angle,
+          article_text: source === "paste" ? articleText : "",
+          include_article_link: includeLink,
+          link_format: linkFormat,
+          mention_author: mentionAuthor,
+        }),
         elements: elements.map((el) => ({
           element_type: el.element_type, theme: el.theme,
           platforms: el.element_type === "text"
@@ -557,6 +608,12 @@ function CreateCampaign({
 
   return (
     <form onSubmit={handleSubmit}>
+      {articleMode && (
+        <div className="mb-4">
+          <h2 className="mb-1">Article-to-Content</h2>
+          <p className="text-sm text-muted-foreground">Generate a full campaign — images, carousels, videos, text — that references a source article, in the client's brand voice (PRD §6).</p>
+        </div>
+      )}
       {error && (
         <div className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>
       )}
@@ -583,6 +640,14 @@ function CreateCampaign({
                   {OBJECTIVES.map((o) => (<option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>))}
                 </select>
               </div>
+              {articleMode && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="cc-angle">Content angle</Label>
+                  <select id="cc-angle" value={angle} onChange={(e) => setAngle(e.target.value as (typeof ARTICLE_ANGLES)[number])} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                    {ARTICLE_ANGLES.map((a) => (<option key={a} value={a}>{a}</option>))}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Platforms</Label>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -621,7 +686,7 @@ function CreateCampaign({
           <Card>
             <CardHeader><CardTitle className="text-sm">Central Theme / Concept <span className="font-normal text-muted-foreground">(optional)</span></CardTitle></CardHeader>
             <CardContent>
-              <TextareaZoom label="Central theme / concept" rows={3} value={theme} onChange={setTheme} placeholder="e.g. Summer lifestyle campaign focused on outdoor adventures" />
+              <TextareaZoom label="Central theme / concept" rows={3} value={theme} onChange={(v) => { setTheme(v); setThemeDirty(true); }} placeholder="e.g. Summer lifestyle campaign focused on outdoor adventures" />
               <div className="mt-3 space-y-1.5">
                 <Label>Creativity: {creativity}/10</Label>
                 <input type="range" min={1} max={10} value={creativity} onChange={(e) => setCreativity(Number(e.target.value))} className="w-full accent-primary" />
@@ -629,25 +694,84 @@ function CreateCampaign({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Reference Article <span className="font-normal text-muted-foreground">(optional)</span></CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-1.5">
-                <button type="button" onClick={() => setPickerOpen(true)} className="flex-1 rounded-lg border border-border bg-accent px-3 py-2 text-left text-sm text-muted-foreground">
-                  {articleId ? (articles.find((a) => a.id === articleId)?.title ?? "Article selected") : "Choose article…"}
-                </button>
-                {articleId && (
-                  <Button type="button" variant="ghost" size="icon" aria-label="Clear selected article" onClick={() => setArticleId("")}>
-                    <X size={14} className="text-red-600" />
-                  </Button>
+          {articleMode ? (
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Source Article</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-1 border-b border-border">
+                  {(["library", "url", "paste"] as const).map((s) => (
+                    <button
+                      type="button"
+                      key={s}
+                      onClick={() => setSource(s)}
+                      className={cn(
+                        "border-b-2 border-transparent bg-transparent px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground",
+                        source === s && "border-primary text-foreground",
+                      )}
+                    >
+                      {s === "library" ? "Internal Library" : s === "url" ? "External URL" : "Paste text"}
+                    </button>
+                  ))}
+                </div>
+                {source === "library" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cc-article">Article</Label>
+                    <select id="cc-article" value={articleId} onChange={(e) => setArticleId(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">Select an article…</option>
+                      {articles.map((a) => (<option key={a.id} value={a.id}>{a.title}</option>))}
+                    </select>
+                  </div>
                 )}
-              </div>
-              <Input value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="…or external article URL" />
-              {pickerOpen && (
-                <ArticlePickerModal articles={articles} onSelect={(a) => { setArticleId(a.id); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />
-              )}
-            </CardContent>
-          </Card>
+                {source === "url" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cc-article-url">Article URL</Label>
+                    <Input id="cc-article-url" value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="https://…" />
+                  </div>
+                )}
+                {source === "paste" && (
+                  <TextareaZoom label="Article text" rows={6} value={articleText} onChange={setArticleText} />
+                )}
+                <div className="space-y-2 border-t border-border pt-3">
+                  <label className="flex flex-row items-center gap-2 text-sm">
+                    <input type="checkbox" checked={includeLink} onChange={(e) => setIncludeLink(e.target.checked)} className="size-4 accent-primary" />
+                    Include article link (where the platform allows)
+                  </label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cc-link">Link format</Label>
+                    <select id="cc-link" value={linkFormat} onChange={(e) => setLinkFormat(e.target.value)} disabled={!includeLink} className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50">
+                      <option value="direct">Direct</option>
+                      <option value="shortened">Shortened</option>
+                      <option value="in_bio">In bio</option>
+                    </select>
+                  </div>
+                  <label className="flex flex-row items-center gap-2 text-sm">
+                    <input type="checkbox" checked={mentionAuthor} onChange={(e) => setMentionAuthor(e.target.checked)} className="size-4 accent-primary" />
+                    Mention author on LinkedIn
+                  </label>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Reference Article <span className="font-normal text-muted-foreground">(optional)</span></CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-1.5">
+                  <button type="button" onClick={() => setPickerOpen(true)} className="flex-1 rounded-lg border border-border bg-accent px-3 py-2 text-left text-sm text-muted-foreground">
+                    {articleId ? (articles.find((a) => a.id === articleId)?.title ?? "Article selected") : "Choose article…"}
+                  </button>
+                  {articleId && (
+                    <Button type="button" variant="ghost" size="icon" aria-label="Clear selected article" onClick={() => setArticleId("")}>
+                      <X size={14} className="text-red-600" />
+                    </Button>
+                  )}
+                </div>
+                <Input value={articleUrl} onChange={(e) => setArticleUrl(e.target.value)} placeholder="…or external article URL" />
+                {pickerOpen && (
+                  <ArticlePickerModal articles={articles} onSelect={(a) => { setArticleId(a.id); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader><CardTitle className="text-sm">Reference Images <span className="font-normal text-muted-foreground">(optional)</span></CardTitle></CardHeader>
@@ -783,7 +907,7 @@ function CreateCampaign({
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={submitting} className="shadow-md">
-              {submitting ? "Generating…" : "Generate Campaign"}
+              {submitting ? "Generating…" : articleMode ? "Generate Content" : "Generate Campaign"}
             </Button>
           </div>
         </div>
