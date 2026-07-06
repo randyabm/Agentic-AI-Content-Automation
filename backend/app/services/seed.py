@@ -108,8 +108,10 @@ DEFAULT_SETTINGS = [
 ]
 
 DEFAULT_IMAGE_MODELS = [
-    ("Gemini 2.5 Flash Image (Nano Banana)", "google/gemini-2.5-flash-image", True),
-    ("Gemini 3 Pro Image (Preview)", "google/gemini-3-pro-image-preview", False),
+    # (display_name, provider, model_name, is_default)
+    ("Gemini 2.5 Flash Image (Nano Banana)", "openrouter", "google/gemini-2.5-flash-image", True),
+    ("Gemini 3 Pro Image (Preview)", "openrouter", "google/gemini-3-pro-image-preview", False),
+    ("GPT-5.5 (OpenAI Responses)", "openai_responses", "gpt-5.5", False),
 ]
 
 
@@ -159,13 +161,15 @@ def seed(db: Session) -> None:
 
     if db.scalar(select(ImageModel).limit(1)) is None:
         openrouter_key = encrypt_secret(settings.openrouter_api_key)
-        for display_name, model_name, is_default in DEFAULT_IMAGE_MODELS:
+        for display_name, provider, model_name, is_default in DEFAULT_IMAGE_MODELS:
+            # OpenAI-backed rows resolve the central "openai" credential at runtime,
+            # so they don't need a per-row key here.
             db.add(
                 ImageModel(
                     display_name=display_name,
-                    provider="openrouter",
+                    provider=provider,
                     model_name=model_name,
-                    api_key_encrypted=openrouter_key,
+                    api_key_encrypted=openrouter_key if provider == "openrouter" else encrypt_secret(""),
                     is_default=is_default,
                 )
             )

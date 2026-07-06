@@ -13,6 +13,7 @@ export const LLM_PROVIDERS = [
 export const IMAGE_PROVIDERS = [
   { value: "openrouter", label: "OpenRouter" },
   { value: "openai", label: "OpenAI" },
+  { value: "openai_responses", label: "OpenAI (Responses / GPT-5.x)" },
   { value: "magnific", label: "Magnific" },
 ];
 export const VIDEO_PROVIDERS = [
