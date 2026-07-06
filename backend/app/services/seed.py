@@ -29,8 +29,9 @@ DEFAULT_SYSTEM_PROMPTS = {
     ),
     LLMFunction.visual_agent: (
         "You are the Visual Creative Director for a social-media marketing platform. "
-        "For each campaign element you return a structured style direction + a "
-        "single image prompt that is the FINAL rendered asset — headline, subtitle, "
+        "For each campaign element you return a structured style direction + an "
+        "image prompt that is the FINAL rendered asset (carousels return one prompt "
+        "per slide in a `slides` array, as specified in the user prompt) — headline, subtitle, "
         "CTA and brand logo are rendered INSIDE the image itself, not added afterwards "
         "by a separate layout step. Feature chips are OPTIONAL and belong only to "
         "styles whose visual_cues call for a chip/pill row — do not default to a "

@@ -457,6 +457,30 @@ copy the user-facing editor will show next to the image so they can
 copy-paste it for captions. Everything else is for the QA critic and
 the user-facing 'why this looks like this' explanation.
 
+## Carousels (multi-slide elements)
+
+An element flagged above as needing more than one prompt is a CAROUSEL.
+For those, the element object must wrap one direction PER SLIDE in a
+`slides` array — do NOT return a single top-level `image_prompt`, or the
+extra slides will be blank. Every slide object has the SAME fields as a
+single element (style_family, image_prompt, negative_prompt,
+headline_text, etc.), and the slides must be visually coherent as a
+sequence while each carrying its own distinct content:
+
+[
+  {{
+    "style_family": "...",
+    "slides": [
+      {{ "image_prompt": "slide 1 …", "negative_prompt": "…", "headline_text": "…", ... }},
+      {{ "image_prompt": "slide 2 …", "negative_prompt": "…", "headline_text": "…", ... }},
+      {{ "image_prompt": "slide 3 …", "negative_prompt": "…", "headline_text": "…", ... }}
+    ]
+  }}
+]
+
+Single image and video elements keep the flat one-object shape above (no
+`slides` array).
+
 ELEMENTS:
 {element_lines}
 
@@ -785,10 +809,16 @@ def _prepare_visual(db: Session, campaign: Campaign, elements: list[CampaignElem
     if not visual:
         return None
     cfg = _snapshot_cfg(get_llm_config(db, LLMFunction.visual_agent))
-    lines = "\n".join(
-        f"ELEMENT {i + 1}: {_element_descriptor(el)} — produce {_slots_for(el)} prompt(s)"
-        for i, el in enumerate(visual)
-    )
+    def _element_line(i: int, el: CampaignElement) -> str:
+        n = _slots_for(el)
+        if n > 1:
+            return (
+                f"ELEMENT {i + 1}: {_element_descriptor(el)} — return a `slides` array with "
+                f"{n} DISTINCT slide directions (one object per slide, visually coherent as a sequence)"
+            )
+        return f"ELEMENT {i + 1}: {_element_descriptor(el)} — produce {n} prompt(s)"
+
+    lines = "\n".join(_element_line(i, el) for i, el in enumerate(visual))
     # Repetition-penalty hint: the last 5 style_families used for this
     # client (or the org, as a fallback). Empty when there's no history yet.
     # The current VISUAL_INSTRUCTIONS prompt does not yet use this block,
@@ -866,17 +896,30 @@ def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> li
         item = results[idx] if idx < len(results) else {}
         if not isinstance(item, dict):
             item = {}
-        # New schema: each item IS a single style direction (not wrapped
-        # in `prompts`). If the agent emitted the old shape, unwrap it.
-        if "image_prompt" in item or "image_prompt_without_text" in item:
+        # Resolve the per-slide directions. Carousels (n_slots > 1) return a
+        # `slides` array — one direction per slide; single image/video elements
+        # return the direction fields at the top level. Fall back to the older
+        # `prompts`/`images` array shapes for an un-updated system prompt.
+        if n_slots > 1:
+            directions = item.get("slides") or item.get("prompts") or item.get("images") or []
+            if not directions and ("image_prompt" in item or "image_prompt_without_text" in item):
+                directions = [item]
+        elif "image_prompt" in item or "image_prompt_without_text" in item:
             directions = [item]
         else:
             directions = item.get("prompts", item.get("images", [])) or []
         slots: list[dict] = []
+        last_direction: dict = {}
         for slot in range(n_slots):
             d = directions[slot] if slot < len(directions) else {}
             if not isinstance(d, dict):
                 d = {}
+            # Safety net: if the agent under-delivered slide directions (e.g. one
+            # prompt for a 3-slide carousel), reuse the previous slide's direction
+            # rather than leaving an empty prompt that hard-fails generation
+            # ("The image prompt is empty").
+            if not (d.get("image_prompt") or d.get("image_prompt_without_text") or d.get("prompt")) and last_direction:
+                d = last_direction
             # Image prompt: prefer the new `image_prompt`, fall back to
             # the Stage-1.3 `image_prompt_without_text` (admin hasn't
             # updated system_prompt), then to the old `prompt` shape.
@@ -886,6 +929,8 @@ def _parse_visual(raw: str, plan: list[tuple[str, int]], order: list[str]) -> li
                 or d.get("prompt")
                 or ""
             )
+            if img_prompt:
+                last_direction = d
             # text_overlay_plan is deprecated by the new direct-in-prompt
             # approach but kept for backwards-compat.
             overlay = d.get("text_overlay_plan") or {}
