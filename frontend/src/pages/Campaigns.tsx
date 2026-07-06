@@ -488,18 +488,20 @@ function CreateCampaign({
     api<PlatformSpec[]>("/campaigns/platforms").then(setSpecs);
   }, []);
 
-  // Load articles (newest first, per backend ordering). In article mode, filter by the
-  // selected client so the library only shows that client's articles.
+  // Load the client's 10 most recent active articles (newest first, per backend
+  // ordering) for both the reference-article picker and the article-source dropdown.
   useEffect(() => {
-    const params = new URLSearchParams({ article_status: "active" });
-    if (articleMode && clientId) params.set("client_id", clientId);
+    const params = new URLSearchParams({ article_status: "active", limit: "10" });
+    if (clientId) params.set("client_id", clientId);
     api<ArticleListItem[]>(`/articles?${params.toString()}`)
       .then((list) => {
         setArticles(list);
-        if (articleMode) setArticleId((prev) => (prev && !list.some((a) => a.id === prev) ? "" : prev));
+        // Drop a stale selection when it's no longer in the list — but keep an
+        // article that was deep-linked in ("From article"), even if it's older.
+        setArticleId((prev) => (prev && prev !== initialArticleId && !list.some((a) => a.id === prev) ? "" : prev));
       })
       .catch(() => {});
-  }, [articleMode, clientId]);
+  }, [clientId, initialArticleId]);
 
   // Pre-select the article passed from the library ("From article" deep link).
   useEffect(() => {
