@@ -89,9 +89,11 @@ function Media({ campaignId, images, videoPath, ratio }: { campaignId: string; i
   const loadingExisting = !generating && !!current?.base_object_key;
   return (
     <div className="relative w-full overflow-hidden bg-black" style={{ aspectRatio: aspect }}>
-      {imgUrl ? <img src={imgUrl} alt="" loading="lazy" className="block h-full w-full object-cover" />
-        : <MediaSkeleton loading={generating || loadingExisting}
-            label={generating ? "Generating image…" : loadingExisting ? "Loading…" : "Image not generated yet"} />}
+      {generating
+        ? <MediaSkeleton loading label="Generating image…" />
+        : imgUrl ? <img src={imgUrl} alt="" loading="lazy" className="block h-full w-full object-cover" />
+        : <MediaSkeleton loading={loadingExisting}
+            label={loadingExisting ? "Loading…" : "Image not generated yet"} />}
       {images.length > 1 && (
         <>
           {slide > 0 && (
