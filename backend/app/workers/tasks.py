@@ -1452,8 +1452,10 @@ def run_video_generation(video_id: str) -> None:
         video.video_model_id = model.id
         db.commit()
 
+        from app.services import app_settings
+        negative = video.negative_prompt if app_settings.negative_prompt_enabled(db) else ""
         data, content_type = generate_video(
-            model, video.prompt, video.negative_prompt, video.aspect_ratio, video.duration_seconds
+            model, video.prompt, negative, video.aspect_ratio, video.duration_seconds
         )
 
         element = db.get(CampaignElement, video.element_id)

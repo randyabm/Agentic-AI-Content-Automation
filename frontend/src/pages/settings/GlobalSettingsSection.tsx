@@ -34,7 +34,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   ],
 };
 
-const BOOLEAN_SETTINGS = new Set(["onboarding_auto_run", "show_onboarding_panel", "dev_mode", "show_article_library"]);
+const BOOLEAN_SETTINGS = new Set(["onboarding_auto_run", "show_onboarding_panel", "dev_mode", "show_article_library", "negative_prompt_enabled"]);
 
 const NUMBER_SETTINGS = new Set([
   "default_competitor_count",
@@ -71,6 +71,10 @@ const SETTING_META: Record<string, { label: string; help: string }> = {
   show_article_library: {
     label: "Show Article Library",
     help: "When ON, the Article Library link appears in the left sidebar. Turn OFF to hide the global library and direct article access through individual client pages.",
+  },
+  negative_prompt_enabled: {
+    label: "Negative prompt",
+    help: "When ON, the Negative prompt field is shown in image/video generation and used by the models. Turn OFF to hide it everywhere and ignore any stored negative prompts during generation. Data and endpoints are kept intact.",
   },
   default_article_count: {
     label: "Articles to import",
@@ -137,7 +141,7 @@ const SETTING_GROUPS: { title: string; description: string; accent: string; keys
     title: "Interface & developer tools",
     description: "Controls which sections of the UI are visible and which developer tools are exposed.",
     accent: "#7C3AED",
-    keys: ["show_article_library", "dev_mode", "show_onboarding_panel"],
+    keys: ["show_article_library", "dev_mode", "show_onboarding_panel", "negative_prompt_enabled"],
   },
   {
     title: "Client onboarding",

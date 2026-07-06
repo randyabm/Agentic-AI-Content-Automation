@@ -167,7 +167,11 @@ def generate_image(
     """
     if not prompt.strip():
         raise ExtractionError("The image prompt is empty.")
-    from app.services import providers
+    from app.services import app_settings, providers
+
+    # When the negative-prompt feature is disabled, ignore any stored negative prompt.
+    if not app_settings.negative_prompt_enabled(db):
+        negative_prompt = ""
 
     api_key = providers.resolve_api_key(db, model.provider, model.api_key_encrypted)
     if not api_key:
@@ -276,7 +280,10 @@ def generate_image_from(
     """Reframe an existing image to a new aspect ratio via the provider's
     image-to-image capability. Raises on failure so the caller can fall back to
     reframe_local()."""
-    from app.services import providers
+    from app.services import app_settings, providers
+
+    if not app_settings.negative_prompt_enabled(db):
+        negative_prompt = ""
 
     api_key = providers.resolve_api_key(db, model.provider, model.api_key_encrypted)
     if not api_key:
