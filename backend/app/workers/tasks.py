@@ -1433,6 +1433,49 @@ def derive_element_ratios(source_image_id: str, image_model_id: str | None = Non
         db.close()
 
 
+def _effective_video_prompt(db, video, element) -> str:
+    """Augment the (possibly user-edited) video prompt with campaign context.
+
+    When a user overwrites the generated prompt with something context-free (e.g.
+    "Create an 8-second reel"), the video model has nothing to keep it on-brand and
+    produces a generic clip. We append the brand + the post's message/copy as SCENE
+    context so the visuals stay relevant to what the campaign is actually about.
+    """
+    from app.models.campaign import Campaign, Post
+    from app.models.client import Client
+
+    base = (video.prompt or "").strip()
+    if element is None:
+        return base
+
+    campaign = db.get(Campaign, element.campaign_id)
+    client = db.get(Client, campaign.client_id) if campaign and campaign.client_id else None
+    post = db.scalar(
+        select(Post).where(Post.element_id == element.id).order_by(Post.position)
+    )
+
+    bits: list[str] = []
+    if client is not None and client.company_name:
+        industry = f" ({client.industry})" if getattr(client, "industry", "") else ""
+        bits.append(f"Brand: {client.company_name}{industry}.")
+    if campaign is not None and campaign.central_theme:
+        bits.append(f"Campaign theme: {campaign.central_theme}.")
+    if post is not None:
+        if post.headline:
+            bits.append(f"Message: {post.headline.strip()}")
+        if post.copy:
+            bits.append(post.copy.strip()[:400])
+
+    if not bits:
+        return base
+
+    guidance = (
+        "Scene context — use this to keep the video on-brand and on-topic; do NOT "
+        "render any of this text on screen: " + " ".join(bits)
+    )
+    return f"{base}\n\n{guidance}" if base else guidance
+
+
 @celery_app.task(name="video.generate")
 def run_video_generation(video_id: str) -> None:
     """Generate a post video with the configured provider (long-running)."""
@@ -1454,12 +1497,12 @@ def run_video_generation(video_id: str) -> None:
 
         from app.services import app_settings
         negative = video.negative_prompt if app_settings.negative_prompt_enabled(db) else ""
-        data, content_type = generate_video(
-            model, video.prompt, negative, video.aspect_ratio, video.duration_seconds
-        )
-
         element = db.get(CampaignElement, video.element_id)
         campaign_id = element.campaign_id if element else "unknown"
+        effective_prompt = _effective_video_prompt(db, video, element)
+        data, content_type = generate_video(
+            model, effective_prompt, negative, video.aspect_ratio, video.duration_seconds
+        )
         # Overlay the client logo (vision-placed on the first frame) unless disabled.
         if element is not None and video.logo_enabled:
             data = _overlay_video_logo(db, campaign_id, data)
