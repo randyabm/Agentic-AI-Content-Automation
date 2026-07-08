@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { CalendarDays, ChevronRight, FileImage, Film, Layers, Rocket, Sparkles, Type } from "lucide-react";
+import { CalendarDays, ChevronRight, FileImage, Film, Layers, Rocket, ShieldCheck, Sparkles, Type } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
@@ -189,6 +189,7 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
   const [hashtags, setHashtags] = useState(post.hashtags.join(" "));
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
+  const [brandCheck, setBrandCheck] = useState<{ risk: string; issues: { type: string; severity: string; detail: string }[] } | null>(null);
   const { user } = useAuth();
   const promptDialog = usePrompt();
   const confirmDialog = useConfirm();
@@ -224,6 +225,32 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
       await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, { method: "POST", body: action === "reject" ? { note } : {} });
       toast.success(action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected");
       await onChange();
+    } finally { setBusy(""); }
+  }
+
+  async function runBrandCheck() {
+    setBusy("Checking brand…");
+    try {
+      const r = await api<{ risk: string; issues: { type: string; severity: string; detail: string }[] }>(
+        `/campaigns/${campaignId}/posts/${post.id}/brand-check`, { method: "POST" },
+      );
+      setBrandCheck(r);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Brand check failed");
+    } finally { setBusy(""); }
+  }
+
+  async function rewriteFromFeedback() {
+    setBusy("Rewriting…");
+    try {
+      const r = await api<{ copy: string }>(
+        `/campaigns/${campaignId}/posts/${post.id}/rewrite-from-feedback`, { method: "POST" },
+      );
+      setCopy(r.copy);
+      setDirty(true);
+      toast.success("Applied AI rewrite — review and save.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rewrite failed");
     } finally { setBusy(""); }
   }
 
@@ -384,15 +411,48 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
       </div>
 
       {canEdit && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>
             {busy === "Saving…" ? busy : "Save changes"}
           </Button>
           <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>
             <Sparkles size={14} className="text-primary" /> Regenerate copy
           </Button>
+          {(post.content_status === "changes_requested" || post.approval_status === "rejected")
+            && (post.rejection_comment || post.review_note) && (
+            <Button variant="ghost" size="sm" onClick={rewriteFromFeedback} disabled={!!busy}>
+              <Sparkles size={14} className="text-amber-500" /> Rewrite from feedback
+            </Button>
+          )}
           {busy && busy !== "Saving…" && (
             <span className="text-xs text-muted-foreground">{busy}</span>
+          )}
+        </div>
+      )}
+
+      {(canReview || canEdit) && (
+        <div className="space-y-2">
+          <Button variant="outline" size="sm" onClick={runBrandCheck} disabled={!!busy}>
+            <ShieldCheck size={14} /> Brand check
+          </Button>
+          {brandCheck && (
+            <div className={cn(
+              "rounded-lg border p-3 text-sm",
+              brandCheck.risk === "high" ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+                : brandCheck.risk === "medium" ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
+                : "border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
+            )}>
+              <p className="font-medium capitalize">Risk: {brandCheck.risk}</p>
+              {brandCheck.issues.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No issues found.</p>
+              ) : (
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+                  {brandCheck.issues.map((it, i) => (
+                    <li key={i}><strong className="capitalize">{it.type}</strong> ({it.severity}): {it.detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       )}

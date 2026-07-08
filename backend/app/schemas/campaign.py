@@ -224,6 +224,21 @@ class ApprovalLinkOut(BaseModel):
     expires_in_days: int
 
 
+class BrandCheckIssue(BaseModel):
+    type: str = ""
+    severity: str = ""
+    detail: str = ""
+
+
+class BrandCheckResult(BaseModel):
+    risk: str = "unknown"
+    issues: list[BrandCheckIssue] = []
+
+
+class RewriteResult(BaseModel):
+    copy: str
+
+
 class PublishCandidate(BaseModel):
     """One post's publish eligibility, for the 'publish all' confirmation dialog."""
 

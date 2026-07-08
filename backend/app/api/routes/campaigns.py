@@ -64,10 +64,12 @@ from app.schemas.campaign import (
     PromptUpdate,
     RegenerateRequest,
     ApprovalLinkOut,
+    BrandCheckResult,
     BulkItemResult,
     BulkReviewRequest,
     BulkReviewResponse,
     ReviewReject,
+    RewriteResult,
     SubmitForApprovalRequest,
 )
 from app.schemas.style_alternative import (
@@ -969,6 +971,48 @@ def reject_post(
     audit.record(db, actor, "post.reject", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
     return post
+
+
+@router.post("/{campaign_id}/posts/{post_id}/brand-check", response_model=BrandCheckResult)
+def brand_check_post(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    """AI brand-safety + risky-claim check for a post (Phase 3). Read-only."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    client = db.get(Client, campaign.client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Client not found")
+    from app.services import brand_check as brand_check_service
+    try:
+        result = brand_check_service.brand_check(db, client, post)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Brand check failed: {exc}")
+    return BrandCheckResult(**result)
+
+
+@router.post("/{campaign_id}/posts/{post_id}/rewrite-from-feedback", response_model=RewriteResult)
+def rewrite_from_feedback_post(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.edit_copy)),
+):
+    """Suggest a rewritten copy that addresses the reviewer's feedback (Phase 3).
+    Not persisted — the editor applies and saves it normally."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    client = db.get(Client, campaign.client_id)
+    feedback = (post.rejection_comment or post.review_note or "").strip()
+    if not feedback:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No reviewer feedback to rewrite from.")
+    if client is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Client not found")
+    from app.services import brand_check as brand_check_service
+    try:
+        copy = brand_check_service.rewrite_from_feedback(db, client, campaign, post, feedback)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Rewrite failed: {exc}")
+    return RewriteResult(copy=copy)
 
 
 def _load_reviewable_post(db: Session, post_id: str, actor: User) -> tuple[Post, Campaign] | tuple[None, str]:
