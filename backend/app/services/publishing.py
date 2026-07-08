@@ -32,6 +32,28 @@ def _platform_enum(platform: str | None) -> Platform | None:
         return None
 
 
+# PRD 3-field status model: publish_status is a coarse READ-MODEL derived from
+# ScheduledPost.status (the internal 6-value state machine). We do NOT store it
+# on Post — that would need syncing at every publish write site. "unscheduled"
+# means the post has no ScheduledPost row yet.
+_PUBLISH_STATUS_MAP = {
+    PublishStatus.scheduled: "scheduled",
+    PublishStatus.retrying: "scheduled",
+    PublishStatus.throttled: "scheduled",
+    PublishStatus.publishing: "publishing",
+    PublishStatus.published: "published",
+    PublishStatus.failed: "failed",
+}
+
+
+def publish_status_of(sp: ScheduledPost | None) -> str:
+    """Map a post's latest ScheduledPost to the PRD publish_status value:
+    unscheduled | scheduled | publishing | published | failed."""
+    if sp is None:
+        return "unscheduled"
+    return _PUBLISH_STATUS_MAP.get(sp.status, "scheduled")
+
+
 def compose_text(post: Post, platform: str | None = None) -> str:
     """Join headline/copy/CTA/hashtags into the outgoing text.
 

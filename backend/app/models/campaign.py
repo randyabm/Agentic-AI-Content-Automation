@@ -55,9 +55,26 @@ class ElementType(str, enum.Enum):
     text = "text"
 
 
+class ContentStatus(str, enum.Enum):
+    """Authoring stage of a post, independent of the approval gate (PRD 3-field
+    status model). Tracks how far the *content* has progressed:
+      draft             — still being written / generated
+      ready_for_review  — submitted, awaiting a reviewer
+      changes_requested — a reviewer asked for edits (or approval was voided)
+    """
+
+    draft = "draft"
+    ready_for_review = "ready_for_review"
+    changes_requested = "changes_requested"
+
+
 class ApprovalStatus(str, enum.Enum):
     """Content review gate (SOCIAL_PUBLISHING_PLAN.md): only `approved` posts may
-    be scheduled or published. Creatives submit for review; reviewers decide."""
+    be scheduled or published. Creatives submit for review; reviewers decide.
+
+    NOTE (PRD 3-field refactor, staged): the target value set is
+    `not_required | pending | approved | rejected`. This enum still holds the
+    legacy values during PR-A (additive) and is re-scoped in PR-B."""
 
     draft = "draft"
     pending_review = "pending_review"
@@ -211,12 +228,21 @@ class Post(Base):
     rationale: Mapped[str] = mapped_column(Text, default="")          # strategic rationale
 
     # Review/approval gate before publishing (SOCIAL_PUBLISHING_PLAN.md Phase 4).
+    # PRD 3-field status model: `content_status` (authoring stage) is separate
+    # from `approval_status` (the publish gate). `publish_status` is derived
+    # from ScheduledPost.status (see services.publishing.publish_status_of).
+    content_status: Mapped[ContentStatus] = mapped_column(
+        Enum(ContentStatus), default=ContentStatus.draft, nullable=False
+    )
     approval_status: Mapped[ApprovalStatus] = mapped_column(
         Enum(ApprovalStatus), default=ApprovalStatus.draft, nullable=False
     )
     reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_note: Mapped[str] = mapped_column(Text, default="")
+    # Dedicated rejection reason (was overloaded onto review_note before the
+    # 3-field refactor). Populated when a reviewer requests changes / rejects.
+    rejection_comment: Mapped[str] = mapped_column(Text, default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

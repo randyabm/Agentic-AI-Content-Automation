@@ -7,6 +7,7 @@ from app.models.campaign import (
     CampaignApprovalStatus,
     CampaignObjective,
     CampaignStatus,
+    ContentStatus,
     ElementType,
     Platform,
     VideoStatus,
@@ -168,6 +169,9 @@ class PublishStateOut(BaseModel):
     updated_at: datetime | None = None
     # waiting_approval | needs_channel | overdue | "" (on track)
     blocked_reason: str = ""
+    # PRD coarse publish_status read-model: unscheduled | scheduled |
+    # publishing | published | failed (derived from `status`).
+    publish_status: str = "unscheduled"
 
 
 class PostOut(BaseModel):
@@ -184,10 +188,12 @@ class PostOut(BaseModel):
     hashtags: list
     best_time: str
     rationale: str
+    content_status: ContentStatus = ContentStatus.draft
     approval_status: ApprovalStatus = ApprovalStatus.draft
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_note: str = ""
+    rejection_comment: str = ""
     publish_state: PublishStateOut | None = None
 
 

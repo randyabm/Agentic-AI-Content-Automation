@@ -218,6 +218,9 @@ export interface Client {
   brand_visual_style: string;
   brand_copy_examples: string[];
   brand_legal_disclaimer: string;
+  /** Per-brand approval gate (FR-01). When false, this brand's posts publish
+   *  without review. Optional during PR-A rollout. */
+  approval_required?: boolean;
   last_extraction_at: string | null;
   created_at: string;
   updated_at: string;
@@ -646,14 +649,21 @@ export interface Post {
   hashtags: string[];
   best_time: string;
   rationale: string;
+  /** PRD 3-field model: authoring stage, separate from the approval gate.
+   *  Optional during the additive PR-A rollout. */
+  content_status?: ContentStatus;
   approval_status: ApprovalStatus;
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_note: string;
+  /** Dedicated rejection reason (separate from review_note). */
+  rejection_comment?: string;
   publish_state: PublishState | null;
 }
 
 export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
+
+export type ContentStatus = "draft" | "ready_for_review" | "changes_requested";
 
 export interface PublishState {
   id: string;
@@ -668,6 +678,8 @@ export interface PublishState {
   updated_at: string | null;
   /** waiting_approval | needs_channel | overdue | "" — why it won't publish on its own. */
   blocked_reason?: string;
+  /** Coarse PRD publish_status: unscheduled | scheduled | publishing | published | failed. */
+  publish_status?: string;
 }
 
 export interface PostAsset {

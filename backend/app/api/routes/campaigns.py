@@ -418,6 +418,7 @@ def _latest_publish_states(db: Session, post_ids: list[str]) -> dict[str, Publis
             channel_id=sp.social_account_id or "",
             updated_at=sp.updated_at,
             blocked_reason=sp.blocked_reason,
+            publish_status=publishing.publish_status_of(sp),
         )
         for pid, sp in latest.items()
     }
