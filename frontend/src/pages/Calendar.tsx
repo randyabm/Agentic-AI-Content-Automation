@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { CalendarDays, RefreshCw, CalendarRange, List, Kanban } from "lucide-react";
+import { CalendarDays, RefreshCw, CalendarRange, List, Kanban, Clock } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   DndContext,
@@ -24,6 +24,7 @@ import { CalendarListView } from "../components/CalendarListView";
 import { PipelineBoard } from "../components/PipelineBoard";
 import { PostDrawer } from "../components/PostDrawer";
 import { ScheduleablePostsSidebar, SchedulePostOverlayCard } from "../components/ScheduleablePostsSidebar";
+import { SlotsDialog } from "../components/SlotsDialog";
 import { useConfirm } from "@/components/ui/dialogs";
 
 type View = "month" | "week" | "list" | "board";
@@ -41,6 +42,7 @@ export default function Calendar() {
   const [selectedItem, setSelectedItem] = useState<CalendarItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [slotsOpen, setSlotsOpen] = useState(false);
 
   const activePost = activeId
     ? scheduleable.find((p) => `sched-${p.post_id}` === activeId) ?? null
@@ -219,11 +221,33 @@ export default function Calendar() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
+          {canEdit && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (filters.client === "all") { toast.info("Pick a client in the filter to manage its slots."); return; }
+                setSlotsOpen(true);
+              }}
+              title="Manage posting slots"
+            >
+              <Clock size={14} /> Slots
+            </Button>
+          )}
           <Button variant="outline" size="icon" onClick={load} disabled={loading} title="Refresh" aria-label="Refresh calendar">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </Button>
         </div>
       </div>
+      {slotsOpen && filters.client !== "all" && (
+        <SlotsDialog
+          clientId={filters.client}
+          clientName={clients.find((c) => c.id === filters.client)?.company_name ?? "Client"}
+          open={slotsOpen}
+          onOpenChange={setSlotsOpen}
+          onFilled={load}
+        />
+      )}
 
       {/* Filter bar */}
       <div className="px-6 py-3 border-b border-border bg-muted/30">

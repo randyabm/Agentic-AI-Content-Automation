@@ -15,6 +15,7 @@ from app.models.competitor import Competitor, CompetitorSearchJob
 from app.models.llm import ImageModel, LLMConfig, ProviderCredential, VideoModel
 from app.models.notification import Notification
 from app.models.onboarding import OnboardingJob
+from app.models.posting_slot import PostingSlot
 from app.models.org import Organization
 from app.models.permission import Capability, RolePermission
 from app.models.setting import Setting
@@ -40,6 +41,7 @@ __all__ = [
     "Capability",
     "Notification",
     "OnboardingJob",
+    "PostingSlot",
     "Organization",
     "Post",
     "PermissionCell",

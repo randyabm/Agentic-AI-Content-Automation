@@ -21,10 +21,21 @@ from app.models.permission import Capability
 from app.db.session import get_db
 from app.models.campaign import ApprovalStatus, Campaign, CampaignApprovalStatus, ContentStatus, Post
 from app.models.client import Client
+from app.models.posting_slot import PostingSlot
 from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
 from app.models.user import User
-from app.schemas.social import CalendarItemOut, RescheduleRequest, ReviewQueueItem, ScheduleablePostOut, ScheduledPostOut
-from app.services import audit, publishing
+from app.schemas.social import (
+    CalendarItemOut,
+    FillSlotsRequest,
+    FillSlotsResponse,
+    PostingSlotIn,
+    PostingSlotOut,
+    RescheduleRequest,
+    ReviewQueueItem,
+    ScheduleablePostOut,
+    ScheduledPostOut,
+)
+from app.services import audit, publishing, slots as slots_service
 
 router = APIRouter(tags=["scheduling"])
 
@@ -478,3 +489,66 @@ Scheduled time: {sp.scheduled_at.strftime('%Y-%m-%d %H:%M %Z') if sp.scheduled_a
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="post-{sp.id[:8]}-export.zip"'},
     )
+
+
+# --- Smart scheduling slots (Phase 2) ---
+
+
+@router.get("/clients/{client_id}/posting-slots", response_model=list[PostingSlotOut])
+def list_posting_slots(
+    client: Client = Depends(require_client),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return db.scalars(
+        select(PostingSlot).where(PostingSlot.client_id == client.id)
+        .order_by(PostingSlot.weekday, PostingSlot.hour, PostingSlot.minute)
+    ).all()
+
+
+@router.post("/clients/{client_id}/posting-slots", response_model=PostingSlotOut)
+def create_posting_slot(
+    body: PostingSlotIn,
+    client: Client = Depends(require_client),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.schedule)),
+):
+    if not (0 <= body.weekday <= 6 and 0 <= body.hour <= 23 and 0 <= body.minute <= 59):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid weekday/time.")
+    slot = PostingSlot(
+        client_id=client.id, weekday=body.weekday, hour=body.hour,
+        minute=body.minute, platform=body.platform or "",
+    )
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+    return slot
+
+
+@router.delete("/posting-slots/{slot_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_posting_slot(
+    slot_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.schedule)),
+):
+    slot = db.get(PostingSlot, slot_id)
+    if slot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Slot not found")
+    client = db.get(Client, slot.client_id)
+    if client is not None:
+        assert_client_access(actor, client)
+    db.delete(slot)
+    db.commit()
+
+
+@router.post("/clients/{client_id}/fill-slots", response_model=FillSlotsResponse)
+def fill_slots(
+    body: FillSlotsRequest,
+    client: Client = Depends(require_client),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.schedule)),
+):
+    """Drop approved, unscheduled posts into the client's upcoming open slots."""
+    result = slots_service.fill_slots(db, client, actor.id, tz_name=body.timezone)
+    audit.record(db, actor, "slots.fill", "client", client.id, result)
+    return FillSlotsResponse(**result)

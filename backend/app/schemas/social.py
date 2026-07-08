@@ -5,6 +5,35 @@ from pydantic import BaseModel, ConfigDict
 from app.models.social import ChannelStatus, PublishStatus
 
 
+class PostingSlotIn(BaseModel):
+    weekday: int  # 0=Mon … 6=Sun
+    hour: int
+    minute: int = 0
+    platform: str = ""
+
+
+class PostingSlotOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    client_id: str
+    weekday: int
+    hour: int
+    minute: int
+    platform: str
+    active: bool
+
+
+class FillSlotsRequest(BaseModel):
+    timezone: str = "UTC"
+
+
+class FillSlotsResponse(BaseModel):
+    scheduled: int
+    skipped: int
+    reason: str = ""
+
+
 class SocialAccountOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

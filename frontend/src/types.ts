@@ -134,6 +134,16 @@ export interface AutopilotPreview {
   skipped: AutopilotSkipped[];
 }
 
+export interface PostingSlot {
+  id: string;
+  client_id: string;
+  weekday: number; // 0=Mon … 6=Sun
+  hour: number;
+  minute: number;
+  platform: string;
+  active: boolean;
+}
+
 export interface Notification {
   id: string;
   type: string;
