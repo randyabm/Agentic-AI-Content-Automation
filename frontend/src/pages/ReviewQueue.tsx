@@ -29,6 +29,11 @@ export default function ReviewQueue() {
 
   useEffect(() => {
     load();
+    // Live updates (FR-11): keep the queue current as others submit/act.
+    const id = setInterval(() => {
+      if (!document.hidden) load();
+    }, 25000);
+    return () => clearInterval(id);
   }, []);
 
   const filtered = items.filter((i) => tab === "all" || i.review_type === tab);

@@ -108,6 +108,9 @@ class ScheduledPost(Base):
     content_hash: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
     # Append-only log of every publish attempt: [{at, status, error_code, error}].
     attempt_history: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # Set once the missed-approval sweep has notified about this row being
+    # past-due without approval (FR edge case) — prevents repeat notifications.
+    missed_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_by: Mapped[str] = mapped_column(String(36), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

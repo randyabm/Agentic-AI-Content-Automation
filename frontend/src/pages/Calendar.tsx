@@ -75,6 +75,16 @@ export default function Calendar() {
     load();
   }, [load]);
 
+  // Live publish-status updates (FR-11): refresh the calendar every 25s so a
+  // post moving scheduled -> publishing -> published shows without a manual
+  // reload. Paused while the tab is hidden.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!document.hidden) load();
+    }, 25000);
+    return () => clearInterval(id);
+  }, [load]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (filters.client !== "all" && item.client_id !== filters.client) return false;

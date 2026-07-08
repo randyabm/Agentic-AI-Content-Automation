@@ -167,7 +167,43 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="max-w-[1140px] flex-1 px-5 pb-8 pt-20 md:px-9 md:pt-8">{children}</main>
+      <main className="max-w-[1140px] flex-1 px-5 pb-8 pt-20 md:px-9 md:pt-8">
+        <RoleWelcome user={user} />
+        {children}
+      </main>
+    </div>
+  );
+}
+
+const ROLE_INFO: Record<string, { label: string; hint: string }> = {
+  org_admin: { label: "Org Admin", hint: "You can manage members, approve content, schedule and publish." },
+  analyst: { label: "Analyst", hint: "You can set up clients and campaigns, schedule and publish." },
+  creative: { label: "Creative", hint: "You can generate and edit content, then submit it for review." },
+  reviewer: { label: "Reviewer", hint: "You can approve, reject and request changes on content." },
+  viewer: { label: "Viewer", hint: "You have read-only access to campaigns and the calendar." },
+};
+
+/** Small dismissible role card shown once per session (PRD login role
+ *  visibility) so users understand why some actions are hidden. */
+function RoleWelcome({ user }: { user: { org_role?: string | null; role?: string; is_platform_admin?: boolean; full_name?: string; email?: string } | null }) {
+  const roleKey = user?.is_platform_admin ? "" : (user?.org_role ?? "");
+  const [dismissed, setDismissed] = useState(() =>
+    typeof window === "undefined" ? true : sessionStorage.getItem("roleWelcomeDismissed") === "1",
+  );
+  if (!user || dismissed || !roleKey) return null;
+  const info = ROLE_INFO[roleKey];
+  if (!info) return null;
+  return (
+    <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm">
+      <span>
+        You're signed in as <strong>{info.label}</strong>. {info.hint}
+      </span>
+      <button
+        onClick={() => { sessionStorage.setItem("roleWelcomeDismissed", "1"); setDismissed(true); }}
+        className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

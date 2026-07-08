@@ -955,6 +955,66 @@ def publish_due_posts() -> None:
         db.close()
 
 
+@celery_app.task(name="social.missed_approval_sweep")
+def missed_approval_sweep() -> None:
+    """Flag scheduled posts that passed their time without approval.
+
+    These will never auto-publish (the due sweep skips unapproved posts), so we
+    notify the campaign creator + reviewers once — tracked by
+    `missed_notified_at` — with a grace period after the scheduled time.
+    """
+    from datetime import timedelta
+
+    from app.models.campaign import ApprovalStatus, Campaign, Post
+    from app.models.social import PublishStatus, ScheduledPost
+    from app.services import notifications
+
+    grace = timedelta(minutes=15)
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        due = db.scalars(
+            select(ScheduledPost).where(
+                ScheduledPost.status == PublishStatus.scheduled,
+                ScheduledPost.scheduled_at.is_not(None),
+                ScheduledPost.scheduled_at < now - grace,
+                ScheduledPost.missed_notified_at.is_(None),
+            )
+        ).all()
+        for sp in due:
+            post = db.get(Post, sp.post_id)
+            if post is None:
+                continue
+            # Only "missed approval" — not channel/other blocks — is our concern.
+            if post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required):
+                continue
+            campaign = db.get(Campaign, post.campaign_id)
+            if campaign is None:
+                sp.missed_notified_at = now
+                continue
+            client = db.get(Client, campaign.client_id)
+            recipients = set(notifications.reviewer_ids(db, client.org_id if client else None))
+            if campaign.created_by:
+                recipients.add(campaign.created_by)
+            if campaign.assigned_approver_id:
+                recipients.add(campaign.assigned_approver_id)
+            notifications.notify_many(
+                db, user_ids=recipients, type="missed_approval",
+                title=f"Missed approval: {post.headline or campaign.name}",
+                body="This post's scheduled time passed without approval, so it was not published. "
+                     "Approve it and reschedule to publish.",
+                entity_type="campaign", entity_id=campaign.id,
+                link=f"/campaigns/{campaign.id}", send_email=True,
+            )
+            sp.missed_notified_at = now
+            db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("missed-approval sweep crashed")
+        db.rollback()
+    finally:
+        db.close()
+
+
 # --- Campaign generation (PRD §5 — Module 3) ---
 
 
