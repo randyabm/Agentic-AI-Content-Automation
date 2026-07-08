@@ -18,7 +18,7 @@ export interface User {
 
 export type Capability =
   | "view_content" | "edit_campaign" | "edit_copy" | "edit_media"
-  | "submit_review" | "approve_copy" | "approve_media"
+  | "submit_review" | "request_changes" | "approve_copy" | "approve_media"
   | "schedule" | "publish" | "manage_channels"
   | "manage_members" | "configure_permissions" | "approve_campaign";
 

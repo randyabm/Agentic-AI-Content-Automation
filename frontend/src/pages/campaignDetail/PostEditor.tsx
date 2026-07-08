@@ -194,7 +194,13 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
   const confirmDialog = useConfirm();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
 
-  const canReview = !!user?.is_platform_admin || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+  // Reviewer-vs-approver split: only final approvers (approve_copy) see Approve;
+  // anyone with request_changes (or approve_copy) can Reject / request changes.
+  const isAdmin = !!user?.is_platform_admin || user?.org_role === "org_admin";
+  const caps = user?.capabilities ?? [];
+  const canApprove = isAdmin || caps.includes("approve_copy");
+  const canRequestChanges = canApprove || caps.includes("request_changes");
+  const canReview = canApprove || canRequestChanges;
   const canSubmit = canReview || user?.org_role === "analyst" || user?.org_role === "creative";
   const canPublish = !!user?.is_platform_admin || user?.org_role === "org_admin" || user?.org_role === "analyst";
   const ps = post.publish_state;
@@ -359,12 +365,12 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
               Submit for review
             </Button>
           )}
-          {canReview && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
+          {canApprove && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
             <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
               Approve
             </Button>
           )}
-          {canReview && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
+          {canRequestChanges && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
             <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
               Reject
             </Button>

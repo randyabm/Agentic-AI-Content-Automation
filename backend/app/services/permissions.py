@@ -16,7 +16,7 @@ C = Capability
 DEFAULT_MATRIX: dict[OrgRole, set[Capability]] = {
     OrgRole.viewer: {C.view_content},
     OrgRole.creative: {C.view_content, C.edit_copy, C.edit_media, C.submit_review},
-    OrgRole.reviewer: {C.view_content, C.approve_copy, C.approve_media},
+    OrgRole.reviewer: {C.view_content, C.request_changes, C.approve_copy, C.approve_media},
     OrgRole.analyst: {
         C.view_content, C.edit_campaign, C.edit_copy, C.submit_review,
         C.schedule, C.publish, C.manage_channels,
@@ -36,6 +36,7 @@ CAPABILITY_CATALOG: list[tuple[Capability, str, str]] = [
     (C.edit_copy, "Generate/edit copy", "Content"),
     (C.edit_media, "Generate/edit images & videos", "Content"),
     (C.submit_review, "Submit for review", "Review"),
+    (C.request_changes, "Comment / request changes (no final approve)", "Review"),
     (C.approve_copy, "Approve/reject copy", "Review"),
     (C.approve_media, "Approve/reject images & videos", "Review"),
     (C.schedule, "Schedule", "Publishing"),

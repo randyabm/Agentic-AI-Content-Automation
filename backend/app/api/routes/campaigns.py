@@ -595,7 +595,7 @@ def request_campaign_changes(
     campaign_id: str,
     body: CampaignReviewAction,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_campaign)),
+    actor: User = Depends(require_capability(Capability.approve_campaign, Capability.request_changes)),
 ):
     """Request changes: pending posts return to draft (with the reviewer's note)
     so the editor can revise and resubmit — they must not linger in the review
@@ -632,7 +632,7 @@ def reject_campaign(
     campaign_id: str,
     body: CampaignReviewAction,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_campaign)),
+    actor: User = Depends(require_capability(Capability.approve_campaign, Capability.request_changes)),
 ):
     """Reject a campaign entirely: every pending post is rejected too (with the
     note), and the campaign shows `rejected` (explicit rollup override)."""
@@ -914,7 +914,7 @@ def reject_post(
     post_id: str,
     body: ReviewReject,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_copy)),
+    actor: User = Depends(require_capability(Capability.approve_copy, Capability.request_changes)),
 ):
     """Reviewer rejects a post with a required note for the contributor (FR-06)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
@@ -990,7 +990,7 @@ def bulk_approve_posts(
 def bulk_reject_posts(
     body: BulkReviewRequest,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_copy)),
+    actor: User = Depends(require_capability(Capability.approve_copy, Capability.request_changes)),
 ):
     """Reject many pending posts at once with a shared required comment (FR-13)."""
     if not body.note.strip():
