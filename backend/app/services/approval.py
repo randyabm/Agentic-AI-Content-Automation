@@ -59,6 +59,22 @@ def derive_campaign_status(posts: list[Post]) -> CampaignApprovalStatus:
     return CampaignApprovalStatus.draft
 
 
+def void_approval_on_edit(post: Post) -> bool:
+    """FR-08/09: a material edit to an APPROVED post voids its approval and
+    sends it back for re-review (content ready_for_review, gate pending). Does
+    not touch not_required posts (their brand opted out of review) or posts
+    still in draft/pending/rejected. Returns True if approval was voided.
+
+    Caller must sync_campaign_approval + commit."""
+    if post.approval_status == ApprovalStatus.approved:
+        post.approval_status = ApprovalStatus.pending
+        post.content_status = ContentStatus.ready_for_review
+        post.reviewed_by = None
+        post.reviewed_at = None
+        return True
+    return False
+
+
 def sync_campaign_approval(db: Session, campaign: Campaign, posts: list[Post] | None = None) -> None:
     """Recompute campaign.approval_status from its posts. Does NOT commit —
     the caller owns the transaction."""

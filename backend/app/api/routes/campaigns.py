@@ -684,13 +684,22 @@ def update_post(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
+    campaign = _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
     post = db.get(Post, post_id)
     if post is None or post.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(post, field, value)
+    # FR-08/09: editing an approved post voids approval and re-queues review.
+    voided = approval.void_approval_on_edit(post)
+    if voided:
+        approval.sync_campaign_approval(db, campaign)
     db.commit()
+    audit.record(
+        db, actor, "post.edit", "post", post.id,
+        {"campaign_id": campaign_id, "fields": list(changes.keys()), "reapproval_triggered": voided},
+    )
     db.refresh(post)
     return post
 
@@ -729,7 +738,15 @@ def regenerate_post(
     post.hashtags = data["hashtags"]
     post.best_time = data["best_time"]
     post.rationale = data["rationale"]
+    # Regenerating copy is a material edit — re-review an approved post.
+    voided = approval.void_approval_on_edit(post)
+    if voided:
+        approval.sync_campaign_approval(db, campaign)
     db.commit()
+    audit.record(
+        db, actor, "post.regenerate", "post", post.id,
+        {"campaign_id": campaign_id, "reapproval_triggered": voided},
+    )
     db.refresh(post)
     return post
 
