@@ -842,6 +842,28 @@ def sync_source(source_id: str) -> None:
 # --- Social scheduling sweep (SOCIAL_PUBLISHING_PLAN.md Phase 3) ---
 
 
+def _notify_publish_failed(db, post, sp) -> None:
+    """Tell the campaign creator a scheduled post failed to publish (FR-07/12).
+    Best-effort and self-committing so it never disturbs the sweep."""
+    try:
+        from app.models.campaign import Campaign
+        from app.services import notifications
+        campaign = db.get(Campaign, post.campaign_id)
+        if campaign is None or not campaign.created_by:
+            return
+        notifications.notify(
+            db, user_id=campaign.created_by, type="publish_failed",
+            title=f"Publishing failed: {post.headline or campaign.name}",
+            body=sp.error or "The post could not be published.",
+            entity_type="campaign", entity_id=campaign.id,
+            link=f"/campaigns/{campaign.id}", send_email=True,
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("publish-failed notification error for scheduled post %s", getattr(sp, "id", "?"))
+        db.rollback()
+
+
 @celery_app.task(name="social.publish_due")
 def publish_due_posts() -> None:
     """Celery Beat sweep: send every scheduled post whose time has arrived.
@@ -907,12 +929,15 @@ def publish_due_posts() -> None:
                     sp.error_code = "permanent"
                     sp.last_attempt_at = now
                     db.commit()
+                    _notify_publish_failed(db, post, sp)
                     continue
                 publishing.send_scheduled_post(db, sp, post, channel)
                 logger.info(
                     "Scheduled post %s processed (status=%s error_code=%s retry=%s)",
                     sp.id, sp.status.value, sp.error_code, sp.retry_count,
                 )
+                if sp.status == PublishStatus.failed:
+                    _notify_publish_failed(db, post, sp)
             except Exception as exc:  # noqa: BLE001 — one post must not abort the sweep
                 logger.exception("Scheduled post %s failed to publish", sp.id)
                 db.rollback()
@@ -923,6 +948,9 @@ def publish_due_posts() -> None:
                     fresh.error_code = "permanent"
                     fresh.last_attempt_at = datetime.now(timezone.utc)
                     db.commit()
+                    fresh_post = db.get(Post, fresh.post_id)
+                    if fresh_post is not None:
+                        _notify_publish_failed(db, fresh_post, fresh)
     finally:
         db.close()
 

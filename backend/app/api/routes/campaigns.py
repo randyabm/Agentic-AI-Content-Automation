@@ -79,7 +79,7 @@ from app.schemas.social import (
     ScheduledPostOut,
     ScheduleRequest,
 )
-from app.services import approval, audit, autopilot, publishing, storage
+from app.services import approval, audit, autopilot, notifications, publishing, storage
 from app.services.campaign_gen import generate_platform_copy
 from app.services.compositing import composite_post_image
 from app.services.export import EXPORTERS
@@ -445,6 +445,49 @@ def update_campaign(
 # --- Campaign-level approval workflow (SocialFlow concept UI) ---
 
 
+def _campaign_link(campaign: Campaign) -> str:
+    return f"/campaigns/{campaign.id}"
+
+
+def _notify_creator(db: Session, campaign: Campaign, actor: User, type: str, title: str, body: str = "") -> None:
+    """Tell the campaign's creator about a review outcome (skips self-notify)."""
+    if not campaign.created_by or campaign.created_by == actor.id:
+        return
+    notifications.notify(
+        db, user_id=campaign.created_by, type=type, title=title, body=body,
+        entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
+        send_email=True,
+    )
+
+
+def _notify_approvers(db: Session, campaign: Campaign, actor: User, type: str, title: str, body: str = "") -> None:
+    """Tell whoever can approve that something needs review (assigned approver
+    first, else the org's reviewers/admins)."""
+    if campaign.assigned_approver_id:
+        targets = [campaign.assigned_approver_id]
+    else:
+        client = db.get(Client, campaign.client_id)
+        targets = notifications.reviewer_ids(db, client.org_id if client else None, exclude=actor.id)
+    notifications.notify_many(
+        db, user_ids=targets, type=type, title=title, body=body,
+        entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
+        send_email=True,
+    )
+
+
+def _notify_editor_voided_approval(db: Session, campaign: Campaign, post: Post, actor: User, prior_approver: str | None) -> None:
+    """An approved post was edited → tell the prior approver it needs re-review."""
+    if not prior_approver or prior_approver == actor.id:
+        return
+    notifications.notify(
+        db, user_id=prior_approver, type="reapproval_required",
+        title=f"Re-review needed: {post.headline or campaign.name}",
+        body=f"{actor.full_name or actor.email} edited a post you approved — it's back in the review queue.",
+        entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
+        send_email=True,
+    )
+
+
 @router.post("/{campaign_id}/submit-for-approval", response_model=CampaignOut)
 def submit_campaign_for_approval(
     campaign_id: str,
@@ -494,6 +537,11 @@ def submit_campaign_for_approval(
         p.rejection_comment = ""
 
     approval.sync_campaign_approval(db, campaign, all_posts)
+    _notify_approvers(
+        db, campaign, actor, "submitted",
+        f"Review requested: {campaign.name}",
+        f"{actor.full_name or actor.email} submitted this campaign for approval.",
+    )
     db.commit()
     audit.record(db, actor, "campaign.submit_for_approval", "campaign", campaign.id, {
         "approver": body.assigned_approver_id,
@@ -531,6 +579,8 @@ def approve_campaign(
             p.reviewed_at = datetime.now(timezone.utc)
             p.review_note = body.note
     approval.sync_campaign_approval(db, campaign, posts)
+    _notify_creator(db, campaign, actor, "approved", f"Approved: {campaign.name}",
+                    "Your campaign was approved and is ready to publish.")
     db.commit()
     audit.record(db, actor, "campaign.approve", "campaign", campaign.id)
     db.refresh(campaign)
@@ -567,6 +617,7 @@ def request_campaign_changes(
             p.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign, posts)
     campaign.approval_status = CampaignApprovalStatus.changes_requested
+    _notify_creator(db, campaign, actor, "changes_requested", f"Changes requested: {campaign.name}", body.note)
     db.commit()
     audit.record(db, actor, "campaign.request_changes", "campaign", campaign.id)
     db.refresh(campaign)
@@ -601,6 +652,7 @@ def reject_campaign(
             p.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign, posts)
     campaign.approval_status = CampaignApprovalStatus.rejected
+    _notify_creator(db, campaign, actor, "rejected", f"Rejected: {campaign.name}", body.note)
     db.commit()
     audit.record(db, actor, "campaign.reject", "campaign", campaign.id)
     db.refresh(campaign)
@@ -689,12 +741,14 @@ def update_post(
     if post is None or post.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
     changes = body.model_dump(exclude_unset=True)
+    prior_approver = post.reviewed_by
     for field, value in changes.items():
         setattr(post, field, value)
     # FR-08/09: editing an approved post voids approval and re-queues review.
     voided = approval.void_approval_on_edit(post)
     if voided:
         approval.sync_campaign_approval(db, campaign)
+        _notify_editor_voided_approval(db, campaign, post, actor, prior_approver)
     db.commit()
     audit.record(
         db, actor, "post.edit", "post", post.id,
@@ -739,9 +793,11 @@ def regenerate_post(
     post.best_time = data["best_time"]
     post.rationale = data["rationale"]
     # Regenerating copy is a material edit — re-review an approved post.
+    prior_approver = post.reviewed_by
     voided = approval.void_approval_on_edit(post)
     if voided:
         approval.sync_campaign_approval(db, campaign)
+        _notify_editor_voided_approval(db, campaign, post, actor, prior_approver)
     db.commit()
     audit.record(
         db, actor, "post.regenerate", "post", post.id,
@@ -813,6 +869,11 @@ def submit_post(
     post.review_note = ""
     post.rejection_comment = ""
     approval.sync_campaign_approval(db, campaign)
+    _notify_approvers(
+        db, campaign, actor, "submitted",
+        f"Review requested: {post.headline or campaign.name}",
+        f"{actor.full_name or actor.email} submitted a {post.platform.value} post for approval.",
+    )
     db.commit()
     audit.record(db, actor, "post.submit", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
@@ -836,6 +897,8 @@ def approve_post(
     post.reviewed_by = actor.id
     post.reviewed_at = datetime.now(timezone.utc)
     approval.sync_campaign_approval(db, campaign)
+    _notify_creator(db, campaign, actor, "approved", f"Approved: {post.headline or campaign.name}",
+                    "Your post was approved and is ready to publish.")
     db.commit()
     audit.record(db, actor, "post.approve", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
@@ -867,6 +930,7 @@ def reject_post(
     post.review_note = body.note
     post.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign)
+    _notify_creator(db, campaign, actor, "rejected", f"Changes needed: {post.headline or campaign.name}", body.note)
     db.commit()
     audit.record(db, actor, "post.reject", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)

@@ -7,6 +7,7 @@ import {
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ThemeToggle } from "./ThemeToggle";
+import { NotificationBell } from "./NotificationBell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -146,6 +147,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="flex flex-col gap-2">
+          {!user?.is_platform_admin && <NotificationBell collapsed={isCollapsed} />}
           <ThemeToggle collapsed={isCollapsed} />
           {!isCollapsed && (
             <div className="flex flex-col gap-1 text-[0.85rem]">

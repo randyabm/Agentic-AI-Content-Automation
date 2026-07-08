@@ -13,6 +13,7 @@ from app.models.campaign import (
 from app.models.client import BrandMemoryVersion, Client, ExtractionJob
 from app.models.competitor import Competitor, CompetitorSearchJob
 from app.models.llm import ImageModel, LLMConfig, ProviderCredential, VideoModel
+from app.models.notification import Notification
 from app.models.onboarding import OnboardingJob
 from app.models.org import Organization
 from app.models.permission import Capability, RolePermission
@@ -37,6 +38,7 @@ __all__ = [
     "ImageModel",
     "LLMConfig",
     "Capability",
+    "Notification",
     "OnboardingJob",
     "Organization",
     "Post",

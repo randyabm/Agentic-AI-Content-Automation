@@ -134,6 +134,18 @@ export interface AutopilotPreview {
   skipped: AutopilotSkipped[];
 }
 
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  entity_type: string;
+  entity_id: string;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
 export interface ReviewQueueItem {
   review_type: "post" | "campaign";
   post_id: string;
