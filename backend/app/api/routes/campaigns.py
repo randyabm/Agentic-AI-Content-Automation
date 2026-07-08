@@ -63,6 +63,9 @@ from app.schemas.campaign import (
     PostVideoOut,
     PromptUpdate,
     RegenerateRequest,
+    BulkItemResult,
+    BulkReviewRequest,
+    BulkReviewResponse,
     ReviewReject,
     SubmitForApprovalRequest,
 )
@@ -935,6 +938,89 @@ def reject_post(
     audit.record(db, actor, "post.reject", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
     return post
+
+
+def _load_reviewable_post(db: Session, post_id: str, actor: User) -> tuple[Post, Campaign] | tuple[None, str]:
+    """Load a post + campaign, enforcing org access. Returns (post, campaign) or
+    (None, error_message) for the bulk endpoints' per-item error reporting."""
+    post = db.get(Post, post_id)
+    if post is None:
+        return None, "Post not found"
+    campaign = db.get(Campaign, post.campaign_id)
+    client = db.get(Client, campaign.client_id) if campaign else None
+    if campaign is None or client is None or client.org_id != actor.org_id:
+        return None, "Not accessible"
+    return post, campaign
+
+
+@router.post("/posts/bulk-approve", response_model=BulkReviewResponse)
+def bulk_approve_posts(
+    body: BulkReviewRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_copy)),
+):
+    """Approve many pending posts at once (FR-13). Valid posts are approved;
+    invalid ones (missing, no access, not pending) are reported per-item."""
+    results: list[BulkItemResult] = []
+    touched: dict[str, Campaign] = {}
+    for pid in body.post_ids:
+        post, campaign = _load_reviewable_post(db, pid, actor)
+        if post is None:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=campaign))  # campaign holds the message
+            continue
+        if post.approval_status != ApprovalStatus.pending:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=f"Not pending ({post.approval_status.value})"))
+            continue
+        post.approval_status = ApprovalStatus.approved
+        post.reviewed_by = actor.id
+        post.reviewed_at = datetime.now(timezone.utc)
+        touched[campaign.id] = campaign
+        results.append(BulkItemResult(post_id=pid, ok=True))
+    for c in touched.values():
+        approval.sync_campaign_approval(db, c)
+        _notify_creator(db, c, actor, "approved", f"Approved: {c.name}", "Posts in your campaign were approved.")
+    db.commit()
+    for c in touched.values():
+        audit.record(db, actor, "post.bulk_approve", "campaign", c.id, {"count": len(body.post_ids)})
+    acted = sum(1 for r in results if r.ok)
+    return BulkReviewResponse(acted=acted, failed=len(results) - acted, results=results)
+
+
+@router.post("/posts/bulk-reject", response_model=BulkReviewResponse)
+def bulk_reject_posts(
+    body: BulkReviewRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_copy)),
+):
+    """Reject many pending posts at once with a shared required comment (FR-13)."""
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required to reject.")
+    results: list[BulkItemResult] = []
+    touched: dict[str, Campaign] = {}
+    for pid in body.post_ids:
+        post, campaign = _load_reviewable_post(db, pid, actor)
+        if post is None:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=campaign))
+            continue
+        if post.approval_status != ApprovalStatus.pending:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=f"Not pending ({post.approval_status.value})"))
+            continue
+        post.approval_status = ApprovalStatus.rejected
+        post.content_status = ContentStatus.changes_requested
+        post.reviewed_by = actor.id
+        post.reviewed_at = datetime.now(timezone.utc)
+        post.review_note = body.note
+        post.rejection_comment = body.note
+        touched[campaign.id] = campaign
+        results.append(BulkItemResult(post_id=pid, ok=True))
+    for c in touched.values():
+        approval.sync_campaign_approval(db, c)
+        _notify_creator(db, c, actor, "rejected", f"Changes needed: {c.name}", body.note)
+    db.commit()
+    for c in touched.values():
+        audit.record(db, actor, "post.bulk_reject", "campaign", c.id, {"count": len(body.post_ids)})
+    acted = sum(1 for r in results if r.ok)
+    return BulkReviewResponse(acted=acted, failed=len(results) - acted, results=results)
 
 
 def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:

@@ -15,7 +15,16 @@ export default function ReviewQueue() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"all" | "post" | "campaign">("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const promptDialog = usePrompt();
+
+  function toggleSelected(postId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) next.delete(postId); else next.add(postId);
+      return next;
+    });
+  }
 
   async function load() {
     try {
@@ -100,6 +109,40 @@ export default function ReviewQueue() {
     }
   }
 
+  async function bulkDecide(action: "approve" | "reject") {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    let note = "";
+    if (action === "reject") {
+      const reason = await promptDialog({
+        title: `Reject ${ids.length} post${ids.length === 1 ? "" : "s"}`,
+        description: "This comment is sent to every selected post's author.",
+        placeholder: "Reason for rejection (required)",
+        confirmLabel: "Reject selected",
+        destructive: true,
+        allowEmpty: false,
+      });
+      if (reason === null || !reason.trim()) return;
+      note = reason;
+    }
+    setBusy("bulk");
+    setError("");
+    try {
+      const res = await api<{ acted: number; failed: number }>(
+        `/campaigns/posts/bulk-${action}`,
+        { method: "POST", body: { post_ids: ids, note } },
+      );
+      toast.success(`${res.acted} ${action === "approve" ? "approved" : "rejected"}${res.failed ? `, ${res.failed} skipped` : ""}`);
+      setItems((prev) => prev.filter((i) => !(i.review_type === "post" && selected.has(i.post_id))));
+      setSelected(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bulk action failed");
+      toast.error(e instanceof Error ? e.message : "Bulk action failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -129,6 +172,42 @@ export default function ReviewQueue() {
         ))}
       </div>
 
+      {(() => {
+        const postItems = filtered.filter((i) => i.review_type === "post");
+        if (postItems.length === 0) return null;
+        const allSelected = postItems.every((i) => selected.has(i.post_id));
+        return (
+          <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() =>
+                  setSelected(allSelected ? new Set() : new Set(postItems.map((i) => i.post_id)))
+                }
+              />
+              Select all posts
+            </label>
+            {selected.size > 0 && (
+              <>
+                <span className="text-muted-foreground">{selected.size} selected</span>
+                <div className="ml-auto flex gap-2">
+                  <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    disabled={busy === "bulk"} onClick={() => bulkDecide("approve")}>
+                    Approve selected
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-destructive"
+                    disabled={busy === "bulk"} onClick={() => bulkDecide("reject")}>
+                    Reject selected
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {loading ? (
         <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
           <p className="text-sm text-muted-foreground">Loading…</p>
@@ -145,6 +224,14 @@ export default function ReviewQueue() {
               className="rounded-xl border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex items-start justify-between gap-4">
+                {item.review_type === "post" && (
+                  <input
+                    type="checkbox"
+                    className="mt-1.5"
+                    checked={selected.has(item.post_id)}
+                    onChange={() => toggleSelected(item.post_id)}
+                  />
+                )}
                 <div className="flex-1">
                   <div className="mb-1 flex items-center gap-2">
                     {item.review_type === "campaign" ? (

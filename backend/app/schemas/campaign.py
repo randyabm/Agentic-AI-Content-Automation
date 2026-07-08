@@ -201,6 +201,23 @@ class ReviewReject(BaseModel):
     note: str = ""
 
 
+class BulkReviewRequest(BaseModel):
+    post_ids: list[str]
+    note: str = ""
+
+
+class BulkItemResult(BaseModel):
+    post_id: str
+    ok: bool
+    error: str = ""
+
+
+class BulkReviewResponse(BaseModel):
+    acted: int = 0
+    failed: int = 0
+    results: list[BulkItemResult] = []
+
+
 class PublishCandidate(BaseModel):
     """One post's publish eligibility, for the 'publish all' confirmation dialog."""
 
