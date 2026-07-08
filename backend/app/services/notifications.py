@@ -6,16 +6,38 @@ Callers own the transaction — notify() adds rows but does not commit.
 """
 from __future__ import annotations
 
+import json
 import logging
+import urllib.request
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.notification import Notification
+from app.models.org import Organization
 from app.models.user import OrgRole, User
 from app.services import email as email_service
 
 logger = logging.getLogger(__name__)
+
+
+def post_org_webhook(db: Session, org_id: str | None, text: str) -> None:
+    """Best-effort Slack/Teams incoming-webhook post (Phase 3). No-op unless the
+    org configured a webhook URL. Both platforms accept a simple {"text": ...}."""
+    if not org_id:
+        return
+    org = db.get(Organization, org_id)
+    url = (org.notify_webhook_url or "").strip() if org else ""
+    if not url:
+        return
+    try:
+        req = urllib.request.Request(
+            url, data=json.dumps({"text": text}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        urllib.request.urlopen(req, timeout=6)  # noqa: S310 — admin-provided URL
+    except Exception:  # best-effort — never fail the request on webhook issues
+        logger.exception("org webhook post failed for org %s", org_id)
 
 
 def notify(

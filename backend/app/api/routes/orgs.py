@@ -21,6 +21,7 @@ from app.schemas.org import (
     OrganizationOut,
     OrgMemberCreate,
     OrgMemberUpdate,
+    OrgSettingsUpdate,
 )
 from app.schemas.permission import CapabilityInfo, PermissionMatrixOut, PermissionUpdate
 from app.schemas.user import UserOut
@@ -114,6 +115,21 @@ def my_org(db: Session = Depends(get_db), user: User = Depends(get_current_user)
     org = db.get(Organization, user.org_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
+    return _out(db, org)
+
+
+@router.patch("/{org_id}/settings", response_model=OrganizationOut)
+def update_org_settings(
+    org_id: str,
+    body: OrgSettingsUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_org_admin),
+):
+    """Update org-level settings (Slack/Teams webhook URL, Phase 3)."""
+    org = _require_org(db, org_id, user)
+    org.notify_webhook_url = (body.notify_webhook_url or "").strip()
+    db.commit()
+    db.refresh(org)
     return _out(db, org)
 
 

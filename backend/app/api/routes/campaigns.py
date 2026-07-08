@@ -453,8 +453,14 @@ def _campaign_link(campaign: Campaign) -> str:
     return f"/campaigns/{campaign.id}"
 
 
+def _campaign_org_id(db: Session, campaign: Campaign) -> str | None:
+    client = db.get(Client, campaign.client_id)
+    return client.org_id if client else None
+
+
 def _notify_creator(db: Session, campaign: Campaign, actor: User, type: str, title: str, body: str = "") -> None:
     """Tell the campaign's creator about a review outcome (skips self-notify)."""
+    notifications.post_org_webhook(db, _campaign_org_id(db, campaign), f"{title}\n{body}".strip())
     if not campaign.created_by or campaign.created_by == actor.id:
         return
     notifications.notify(
@@ -467,6 +473,7 @@ def _notify_creator(db: Session, campaign: Campaign, actor: User, type: str, tit
 def _notify_approvers(db: Session, campaign: Campaign, actor: User, type: str, title: str, body: str = "") -> None:
     """Tell whoever can approve that something needs review (assigned approver
     first, else the org's reviewers/admins)."""
+    notifications.post_org_webhook(db, _campaign_org_id(db, campaign), f"{title}\n{body}".strip())
     if campaign.assigned_approver_id:
         targets = [campaign.assigned_approver_id]
     else:

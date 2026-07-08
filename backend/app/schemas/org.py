@@ -24,6 +24,11 @@ class OrganizationOut(BaseModel):
     status: OrgStatus
     created_at: datetime
     member_count: int = 0
+    notify_webhook_url: str = ""
+
+
+class OrgSettingsUpdate(BaseModel):
+    notify_webhook_url: str = ""
 
 
 class OrgMemberCreate(BaseModel):

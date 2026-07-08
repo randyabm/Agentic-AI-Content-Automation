@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import type { Capability, OrgRole, PermissionMatrix, User } from "../types";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
@@ -30,12 +31,27 @@ export default function Team() {
   const [busy, setBusy] = useState(false);
   const [matrix, setMatrix] = useState<PermissionMatrix | null>(null);
   const [permError, setPermError] = useState("");
+  const [webhook, setWebhook] = useState("");
+  const [webhookBusy, setWebhookBusy] = useState(false);
 
   useEffect(() => {
     if (!orgId) return;
     api<User[]>(`/orgs/${orgId}/members`).then(setMembers).catch((e) => setError(e.message));
     api<PermissionMatrix>(`/orgs/${orgId}/permissions`).then(setMatrix).catch(() => setMatrix(null));
+    api<{ notify_webhook_url: string }>(`/orgs/me`).then((o) => setWebhook(o.notify_webhook_url || "")).catch(() => {});
   }, [orgId]);
+
+  async function saveWebhook() {
+    setWebhookBusy(true);
+    try {
+      await api(`/orgs/${orgId}/settings`, { method: "PATCH", body: { notify_webhook_url: webhook } });
+      toast.success("Webhook saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save webhook");
+    } finally {
+      setWebhookBusy(false);
+    }
+  }
 
   async function toggleCap(role: OrgRole, capability: Capability, allowed: boolean) {
     if (role === "org_admin" || !matrix) return;
@@ -96,6 +112,22 @@ export default function Team() {
           {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> New member</>}
         </Button>}
       />
+
+      <div className="mb-4 rounded-lg border border-border bg-card p-4">
+        <p className="text-sm font-semibold">Slack / Teams alerts</p>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Paste an incoming-webhook URL to also post approval events (submitted, approved, rejected, changes) to your channel.
+        </p>
+        <div className="flex gap-2">
+          <input
+            value={webhook}
+            onChange={(e) => setWebhook(e.target.value)}
+            placeholder="https://hooks.slack.com/services/…"
+            className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+          />
+          <Button variant="outline" onClick={saveWebhook} disabled={webhookBusy}>Save</Button>
+        </div>
+      </div>
 
       {showForm && (
         <Card className="mb-4">
