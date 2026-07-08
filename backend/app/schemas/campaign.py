@@ -218,6 +218,12 @@ class BulkReviewResponse(BaseModel):
     results: list[BulkItemResult] = []
 
 
+class ApprovalLinkOut(BaseModel):
+    token: str
+    path: str  # relative link; the UI prepends its own origin
+    expires_in_days: int
+
+
 class PublishCandidate(BaseModel):
     """One post's publish eligibility, for the 'publish all' confirmation dialog."""
 

@@ -63,6 +63,7 @@ from app.schemas.campaign import (
     PostVideoOut,
     PromptUpdate,
     RegenerateRequest,
+    ApprovalLinkOut,
     BulkItemResult,
     BulkReviewRequest,
     BulkReviewResponse,
@@ -82,7 +83,7 @@ from app.schemas.social import (
     ScheduledPostOut,
     ScheduleRequest,
 )
-from app.services import approval, audit, autopilot, notifications, publishing, storage
+from app.services import approval, approval_links, audit, autopilot, notifications, publishing, storage
 from app.services.campaign_gen import generate_platform_copy
 from app.services.compositing import composite_post_image
 from app.services.export import EXPORTERS
@@ -489,6 +490,21 @@ def _notify_editor_voided_approval(db: Session, campaign: Campaign, post: Post, 
         entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
         send_email=True,
     )
+
+
+@router.post("/{campaign_id}/approval-link", response_model=ApprovalLinkOut)
+def create_approval_link(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.submit_review)),
+):
+    """Mint a shareable external approval link (Phase 2). Anyone with the link
+    can preview and Approve / Request Changes until it expires."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    days = 14
+    token = approval_links.sign_approval_token(campaign.id, expires_in_days=days)
+    audit.record(db, actor, "campaign.approval_link", "campaign", campaign.id, {"expires_in_days": days})
+    return ApprovalLinkOut(token=token, path=f"/approve/{token}", expires_in_days=days)
 
 
 @router.post("/{campaign_id}/submit-for-approval", response_model=CampaignOut)

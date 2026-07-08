@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Sparkles } from "lucide-react";
+import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Share2, Sparkles } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { AutopilotModal } from "../components/AutopilotModal";
 import { PublishAllDialog } from "../components/PublishAllDialog";
@@ -172,6 +172,24 @@ export default function CampaignDetail() {
     finally { setBusyApproval(""); }
   }
 
+  async function handleShareApprovalLink() {
+    setBusyApproval("link");
+    try {
+      const { path } = await api<{ path: string }>(`/campaigns/${campaign!.id}/approval-link`, { method: "POST" });
+      const url = `${window.location.origin}${path}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success("Approval link copied — share it with your client (valid 14 days).");
+      } catch {
+        toast.info(url, { duration: 12000 });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not create link");
+    } finally {
+      setBusyApproval("");
+    }
+  }
+
   async function handleReject() {
     if (!reviewNote.trim()) { toast.error("Add a comment explaining the rejection."); return; }
     setBusyApproval("Rejecting…");
@@ -254,6 +272,11 @@ export default function CampaignDetail() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {approvalStatus === "pending_review" && (
+              <Button variant="outline" onClick={handleShareApprovalLink} disabled={busyApproval === "link"}>
+                <Share2 className="mr-1 size-3.5" /> Share approval link
+              </Button>
+            )}
             {canSubmit && approvalStatus === "pending_review" && (
               <Button variant="outline" className="text-destructive" onClick={handleCancelRequest}>Cancel Request</Button>
             )}
