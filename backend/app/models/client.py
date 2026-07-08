@@ -49,6 +49,12 @@ class Client(Base):
     # created as `not_required` and may publish without a review. Default True
     # preserves the platform-wide "everything needs approval" behavior.
     approval_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    # Approval routing template (Phase 3): defaults applied when a campaign is
+    # submitted without an explicit approver / deadline.
+    default_approver_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    default_approval_deadline_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     last_extraction_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

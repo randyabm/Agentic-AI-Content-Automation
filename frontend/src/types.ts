@@ -246,6 +246,9 @@ export interface Client {
   /** Per-brand approval gate (FR-01). When false, this brand's posts publish
    *  without review. Optional during PR-A rollout. */
   approval_required?: boolean;
+  /** Approval routing template (Phase 3): defaults applied on submit. */
+  default_approver_id?: string | null;
+  default_approval_deadline_days?: number | null;
   last_extraction_at: string | null;
   created_at: string;
   updated_at: string;

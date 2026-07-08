@@ -526,9 +526,17 @@ def submit_campaign_for_approval(
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not in a submittable state")
 
     # Shared assignment metadata (who reviews, by when, with what note).
-    campaign.assigned_approver_id = body.assigned_approver_id
+    # Fall back to the brand's approval-routing template (Phase 3) when the
+    # submitter didn't pick an approver / deadline.
+    client = db.get(Client, campaign.client_id)
+    approver = body.assigned_approver_id or (client.default_approver_id if client else None)
+    due = body.approval_due_date
+    if due is None and client and client.default_approval_deadline_days:
+        from datetime import date, timedelta
+        due = date.today() + timedelta(days=client.default_approval_deadline_days)
+    campaign.assigned_approver_id = approver
     campaign.approval_scope = body.approval_scope
-    campaign.approval_due_date = body.approval_due_date
+    campaign.approval_due_date = due
     campaign.approval_message = body.message
     campaign.review_note = ""
 

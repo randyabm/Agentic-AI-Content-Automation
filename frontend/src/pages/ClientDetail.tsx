@@ -153,6 +153,19 @@ export default function ClientDetail() {
     }
   }
 
+  async function updateApprovalDeadline(days: number | null) {
+    if (!client) return;
+    try {
+      const updated = await api<Client>(`/clients/${clientId}`, {
+        method: "PATCH",
+        body: { default_approval_deadline_days: days },
+      });
+      setClient(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update deadline");
+    }
+  }
+
   async function saveProfile() {
     if (!profileForm) return;
     setError("");
@@ -240,6 +253,20 @@ export default function ClientDetail() {
             canManage={canManageApproval}
             onToggle={toggleApproval}
           />
+          {(client.approval_required ?? true) && canManageApproval && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Default approval deadline applied when submitting for review">
+              Due in
+              <input
+                type="number"
+                min={0}
+                defaultValue={client.default_approval_deadline_days ?? ""}
+                onBlur={(e) => updateApprovalDeadline(e.target.value === "" ? null : Number(e.target.value))}
+                placeholder="—"
+                className="w-12 rounded-md border border-border bg-background px-1.5 py-1 text-center text-xs"
+              />
+              days
+            </label>
+          )}
           <Button variant="ghost" asChild>
             <Link to={`/campaigns?client_id=${client.id}`}>Campaigns →</Link>
           </Button>
