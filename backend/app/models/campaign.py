@@ -143,6 +143,9 @@ class Campaign(Base):
     )
     approval_scope: Mapped[str] = mapped_column(String(20), default="full_campaign")
     approval_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Set once the deadline sweep has sent an "approval overdue" reminder, so it
+    # nags once rather than every tick.
+    approval_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approval_message: Mapped[str] = mapped_column(Text, default="")
     reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1015,6 +1015,49 @@ def missed_approval_sweep() -> None:
         db.close()
 
 
+@celery_app.task(name="social.approval_deadline_sweep")
+def approval_deadline_sweep() -> None:
+    """Remind approvers about campaigns whose approval due date has passed while
+    still pending review (Phase 2 approval deadlines). Reminds once, tracked by
+    campaigns.approval_reminded_at."""
+    from datetime import date
+
+    from app.models.campaign import Campaign, CampaignApprovalStatus
+    from app.services import notifications
+
+    db = SessionLocal()
+    try:
+        today = date.today()
+        overdue = db.scalars(
+            select(Campaign).where(
+                Campaign.approval_status == CampaignApprovalStatus.pending_review,
+                Campaign.approval_due_date.is_not(None),
+                Campaign.approval_due_date < today,
+                Campaign.approval_reminded_at.is_(None),
+            )
+        ).all()
+        now = datetime.now(timezone.utc)
+        for campaign in overdue:
+            client = db.get(Client, campaign.client_id)
+            recipients = set(notifications.reviewer_ids(db, client.org_id if client else None))
+            if campaign.assigned_approver_id:
+                recipients.add(campaign.assigned_approver_id)
+            notifications.notify_many(
+                db, user_ids=recipients, type="approval_overdue",
+                title=f"Approval overdue: {campaign.name}",
+                body=f"This campaign was due for approval on {campaign.approval_due_date:%b %d} and is still pending.",
+                entity_type="campaign", entity_id=campaign.id,
+                link=f"/campaigns/{campaign.id}", send_email=True,
+            )
+            campaign.approval_reminded_at = now
+            db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("approval-deadline sweep crashed")
+        db.rollback()
+    finally:
+        db.close()
+
+
 # --- Campaign generation (PRD §5 — Module 3) ---
 
 

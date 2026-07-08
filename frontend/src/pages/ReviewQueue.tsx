@@ -243,6 +243,7 @@ export default function ReviewQueue() {
                       {item.campaign_name}
                     </Link>
                     <span className="text-xs text-muted-foreground">· {item.client_name}</span>
+                    <DueBadge due={item.approval_due_date} />
                   </div>
                   {item.review_type === "post" && (
                     <>
@@ -282,5 +283,28 @@ export default function ReviewQueue() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Approval due-date chip; turns red once the deadline has passed (Phase 2). */
+function DueBadge({ due }: { due: string | null }) {
+  if (!due) return null;
+  const d = new Date(due);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const overdue = d < today;
+  const label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (
+    <span
+      className={
+        overdue
+          ? "rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950/50 dark:text-red-300"
+          : "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+      }
+      title={overdue ? "Approval overdue" : "Approval due"}
+    >
+      {overdue ? `Overdue · ${label}` : `Due ${label}`}
+    </span>
   );
 }
