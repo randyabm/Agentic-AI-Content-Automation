@@ -9,6 +9,7 @@ import {
 } from "@dnd-kit/core";
 import { toast } from "sonner";
 import { api } from "../api";
+import { usePrompt } from "@/components/ui/dialogs";
 import { PlatformIcon } from "./PlatformIcon";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -44,6 +45,7 @@ function columnFor(item: CalendarItem): string {
 }
 
 export function PipelineBoard({ items, onSelectItem, canEdit, canReview, onRefresh }: PipelineBoardProps) {
+  const prompt = usePrompt();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
@@ -70,9 +72,22 @@ export function PipelineBoard({ items, onSelectItem, canEdit, canReview, onRefre
         await api(`/campaigns/${item.campaign_id}/posts/${item.post_id}/approve`, { method: "POST" });
         toast.success("Post approved");
       } else if (targetCol === "draft" && currentCol === "pending_review" && canReview) {
+        // FR-06: rejection requires a comment for the author.
+        const note = await prompt({
+          title: "Reject post",
+          description: "Explain what needs to change — the author will see this note.",
+          placeholder: "Reason for rejection (required)",
+          confirmLabel: "Reject",
+          destructive: true,
+          allowEmpty: false,
+        });
+        if (note === null || !note.trim()) {
+          onRefresh();
+          return;
+        }
         await api(`/campaigns/${item.campaign_id}/posts/${item.post_id}/reject`, {
           method: "POST",
-          body: { note: "" },
+          body: { note },
         });
         toast.success("Post rejected");
       } else {

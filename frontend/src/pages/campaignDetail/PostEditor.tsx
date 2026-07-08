@@ -206,10 +206,11 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
     let note = "";
     if (action === "reject") {
       const reason = await promptDialog({
-        title: "Reject post", description: "Add an optional note explaining why (the author will see it).",
-        placeholder: "Reason for rejection (optional)", confirmLabel: "Reject", destructive: true,
+        title: "Reject post", description: "Explain what needs to change (the author will see it).",
+        placeholder: "Reason for rejection (required)", confirmLabel: "Reject", destructive: true,
+        allowEmpty: false,
       });
-      if (reason === null) return;
+      if (reason === null || !reason.trim()) return;
       note = reason;
     }
     setBusy(action === "submit" ? "Submitting…" : action === "approve" ? "Approving…" : "Rejecting…");

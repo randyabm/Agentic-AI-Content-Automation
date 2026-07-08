@@ -38,12 +38,13 @@ export default function ReviewQueue() {
     if (action === "reject") {
       const reason = await promptDialog({
         title: "Reject campaign",
-        description: "Add an optional note explaining why.",
-        placeholder: "Reason for rejection (optional)",
+        description: "Explain what needs to change (the team will see it).",
+        placeholder: "Reason for rejection (required)",
         confirmLabel: "Reject",
         destructive: true,
+        allowEmpty: false,
       });
-      if (reason === null) return;
+      if (reason === null || !reason.trim()) return;
       note = reason;
     }
     setBusy(item.campaign_id);
@@ -68,12 +69,13 @@ export default function ReviewQueue() {
     if (action === "reject") {
       const reason = await promptDialog({
         title: "Reject post",
-        description: "Add an optional note explaining why (the author will see it).",
-        placeholder: "Reason for rejection (optional)",
+        description: "Explain what needs to change (the author will see it).",
+        placeholder: "Reason for rejection (required)",
         confirmLabel: "Reject",
         destructive: true,
+        allowEmpty: false,
       });
-      if (reason === null) return;
+      if (reason === null || !reason.trim()) return;
       note = reason;
     }
     setBusy(item.post_id);

@@ -19,7 +19,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { useConfirm } from "@/components/ui/dialogs";
+import { useConfirm, usePrompt } from "@/components/ui/dialogs";
 import { cn } from "@/lib/utils";
 import { friendlyPublishError, nextAttemptNote, statusLabel, statusVariant } from "@/lib/publishStatus";
 import BlockedReasonBadge, { BLOCKED_REASON_HINTS } from "./BlockedReasonBadge";
@@ -56,6 +56,7 @@ interface PostDrawerProps {
 
 export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRefresh }: PostDrawerProps) {
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState<Date | null>(null);
@@ -135,17 +136,20 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
 
   async function rejectPost() {
     if (!item) return;
-    const ok = await confirm({
+    // FR-06: a rejection must carry a comment for the author.
+    const note = await prompt({
       title: "Reject post",
-      description: "Are you sure you want to reject this post?",
+      description: "Explain what needs to change — the author will see this note.",
+      placeholder: "Reason for rejection (required)",
       confirmLabel: "Reject",
       destructive: true,
+      allowEmpty: false,
     });
-    if (!ok) return;
+    if (note === null || !note.trim()) return;
     try {
       await api(`/campaigns/${item.campaign_id}/posts/${item.post_id}/reject`, {
         method: "POST",
-        body: { note: "" },
+        body: { note },
       });
       toast.success("Post rejected");
       onRefresh();

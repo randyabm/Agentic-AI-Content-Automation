@@ -1043,6 +1043,11 @@ def generate_campaign(campaign_id: str) -> None:
                             style_family=slot.get("style_family"),
                         ))
 
+        # Per-brand approval gate (FR-01): brands that opted out get posts that
+        # are immediately publishable (not_required); everyone else needs review.
+        default_approval = (
+            ApprovalStatus.pending if client.approval_required else ApprovalStatus.not_required
+        )
         # Editorial copy → posts (one per element targeting each platform).
         for platform, posts_data in posts_by_platform.items():
             for position, (el, pdata) in enumerate(zip(els_by_platform[platform], posts_data)):
@@ -1057,6 +1062,7 @@ def generate_campaign(campaign_id: str) -> None:
                     hashtags=pdata["hashtags"],
                     best_time=pdata["best_time"],
                     rationale=pdata["rationale"],
+                    approval_status=default_approval,
                 ))
         db.commit()
 
@@ -1143,12 +1149,15 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
             article = _resolve_article(db, campaign)
             context = build_context(db, client, campaign, article["text"])
             posts_data = generate_platform_copy(db, client, campaign, cp, els, context, article)
+            default_approval = (
+                ApprovalStatus.pending if client.approval_required else ApprovalStatus.not_required
+            )
             for position, (el, pdata) in enumerate(zip(els, posts_data)):
                 db.add(Post(
                     campaign_id=campaign.id, element_id=el.id, platform=cp.platform, position=position,
                     headline=pdata["headline"], copy=pdata["copy"], cta=pdata["cta"],
                     hashtags=pdata["hashtags"], best_time=pdata["best_time"],
-                    rationale=pdata["rationale"],
+                    rationale=pdata["rationale"], approval_status=default_approval,
                 ))
         campaign.status = CampaignStatus.ready
         db.commit()

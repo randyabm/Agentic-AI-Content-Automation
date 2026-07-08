@@ -550,6 +550,8 @@ def request_campaign_changes(
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status != CampaignApprovalStatus.pending_review:
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required when requesting changes.")
     campaign.reviewed_by = actor.id
     campaign.reviewed_at = datetime.now(timezone.utc)
     campaign.review_note = body.note
@@ -583,6 +585,8 @@ def reject_campaign(
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status != CampaignApprovalStatus.pending_review:
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required to reject.")
     campaign.reviewed_by = actor.id
     campaign.reviewed_at = datetime.now(timezone.utc)
     campaign.review_note = body.note
@@ -829,7 +833,7 @@ def reject_post(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.approve_copy)),
 ):
-    """Reviewer rejects a post with a note for the contributor."""
+    """Reviewer rejects a post with a required note for the contributor (FR-06)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
     if post.approval_status != ApprovalStatus.pending:
@@ -837,6 +841,8 @@ def reject_post(
             status.HTTP_409_CONFLICT,
             f"Post is not pending review (current state: {post.approval_status.value})",
         )
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required to reject.")
     post.approval_status = ApprovalStatus.rejected
     post.content_status = ContentStatus.changes_requested
     post.reviewed_by = actor.id

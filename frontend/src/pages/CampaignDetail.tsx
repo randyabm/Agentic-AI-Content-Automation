@@ -166,6 +166,7 @@ export default function CampaignDetail() {
   }
 
   async function handleReject() {
+    if (!reviewNote.trim()) { toast.error("Add a comment explaining the rejection."); return; }
     setBusyApproval("Rejecting…");
     try {
       await api(`/campaigns/${campaign!.id}/reject`, { method: "POST", body: { note: reviewNote } });
