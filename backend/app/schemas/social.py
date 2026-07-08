@@ -175,6 +175,7 @@ class CalendarItemOut(BaseModel):
 
     client_id: str = ""
     client_name: str = ""
+    content_status: str = ""
     approval_status: str = ""
     # waiting_approval | needs_channel | overdue | "" (on track)
     blocked_reason: str = ""

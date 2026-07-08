@@ -18,6 +18,7 @@ from app.models.campaign import (
     Campaign,
     ApprovalStatus,
     CampaignApprovalStatus,
+    ContentStatus,
     CampaignElement,
     CampaignPlatform,
     CampaignStatus,
@@ -477,15 +478,20 @@ def submit_campaign_for_approval(
         if not to_submit:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "None of the selected posts belong to this campaign")
     else:
-        # Full campaign: submit every post that isn't already approved.
-        to_submit = [p for p in all_posts if p.approval_status != ApprovalStatus.approved]
+        # Full campaign: submit every post that isn't already cleared.
+        to_submit = [
+            p for p in all_posts
+            if p.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required)
+        ]
         if not to_submit:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "All posts are already approved — nothing to submit")
 
     for p in to_submit:
-        p.approval_status = ApprovalStatus.pending_review
+        p.content_status = ContentStatus.ready_for_review
+        p.approval_status = ApprovalStatus.pending
         p.reviewed_by = None
         p.review_note = ""
+        p.rejection_comment = ""
 
     approval.sync_campaign_approval(db, campaign, all_posts)
     db.commit()
@@ -507,9 +513,9 @@ def approve_campaign(
 ):
     """Approve the campaign's pending posts.
 
-    Approves every post that is awaiting review (draft/pending_review) but
-    NEVER overrides a post a reviewer explicitly rejected — the campaign rolls
-    up to `changes_requested` in that case so the rejection stays visible.
+    Approves every post whose gate is pending, but NEVER overrides a post a
+    reviewer explicitly rejected — the campaign rolls up to `changes_requested`
+    in that case so the rejection stays visible.
     """
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status != CampaignApprovalStatus.pending_review:
@@ -519,7 +525,7 @@ def approve_campaign(
     campaign.review_note = body.note
     posts = approval.campaign_posts(db, campaign)
     for p in posts:
-        if p.approval_status in (ApprovalStatus.draft, ApprovalStatus.pending_review):
+        if p.approval_status == ApprovalStatus.pending:
             p.approval_status = ApprovalStatus.approved
             p.reviewed_by = actor.id
             p.reviewed_at = datetime.now(timezone.utc)
@@ -549,11 +555,14 @@ def request_campaign_changes(
     campaign.review_note = body.note
     posts = approval.campaign_posts(db, campaign)
     for p in posts:
-        if p.approval_status == ApprovalStatus.pending_review:
-            p.approval_status = ApprovalStatus.draft
+        if p.approval_status == ApprovalStatus.pending and p.content_status == ContentStatus.ready_for_review:
+            # Return to the editor: mark changes requested (out of the review
+            # queue) but keep it un-publishable (approval stays pending).
+            p.content_status = ContentStatus.changes_requested
             p.reviewed_by = actor.id
             p.reviewed_at = datetime.now(timezone.utc)
             p.review_note = body.note
+            p.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign, posts)
     campaign.approval_status = CampaignApprovalStatus.changes_requested
     db.commit()
@@ -579,11 +588,13 @@ def reject_campaign(
     campaign.review_note = body.note
     posts = approval.campaign_posts(db, campaign)
     for p in posts:
-        if p.approval_status == ApprovalStatus.pending_review:
+        if p.approval_status == ApprovalStatus.pending and p.content_status == ContentStatus.ready_for_review:
             p.approval_status = ApprovalStatus.rejected
+            p.content_status = ContentStatus.changes_requested
             p.reviewed_by = actor.id
             p.reviewed_at = datetime.now(timezone.utc)
             p.review_note = body.note
+            p.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign, posts)
     campaign.approval_status = CampaignApprovalStatus.rejected
     db.commit()
@@ -763,16 +774,23 @@ def submit_post(
     campaign_id: str, post_id: str, db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.submit_review)),
 ):
-    """Contributor submits a post for review (draft/rejected → pending_review)."""
+    """Contributor submits a post for review (content → ready_for_review, gate →
+    pending)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status in (ApprovalStatus.pending_review, ApprovalStatus.approved):
+    already_in_review = (
+        post.content_status == ContentStatus.ready_for_review
+        and post.approval_status == ApprovalStatus.pending
+    )
+    if already_in_review or post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"Post is already in {post.approval_status.value} — nothing to submit",
+            f"Post is already {post.approval_status.value} — nothing to submit",
         )
-    post.approval_status = ApprovalStatus.pending_review
+    post.content_status = ContentStatus.ready_for_review
+    post.approval_status = ApprovalStatus.pending
     post.review_note = ""
+    post.rejection_comment = ""
     approval.sync_campaign_approval(db, campaign)
     db.commit()
     audit.record(db, actor, "post.submit", "post", post.id, {"campaign_id": campaign_id})
@@ -788,7 +806,7 @@ def approve_post(
     """Reviewer approves a post — only approved posts may be scheduled/published."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status != ApprovalStatus.pending_review:
+    if post.approval_status != ApprovalStatus.pending:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"Post is not pending review (current state: {post.approval_status.value})",
@@ -811,18 +829,20 @@ def reject_post(
     db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.approve_copy)),
 ):
-    """Reviewer rejects a post with an optional note for the contributor."""
+    """Reviewer rejects a post with a note for the contributor."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status != ApprovalStatus.pending_review:
+    if post.approval_status != ApprovalStatus.pending:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"Post is not pending review (current state: {post.approval_status.value})",
         )
     post.approval_status = ApprovalStatus.rejected
+    post.content_status = ContentStatus.changes_requested
     post.reviewed_by = actor.id
     post.reviewed_at = datetime.now(timezone.utc)
     post.review_note = body.note
+    post.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign)
     db.commit()
     audit.record(db, actor, "post.reject", "post", post.id, {"campaign_id": campaign_id})
@@ -833,7 +853,7 @@ def reject_post(
 def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:
     """Shared guards for publish (immediate): the post must be approved and its
     platform must have a connected channel. Returns the channel to publish to."""
-    if post.approval_status != ApprovalStatus.approved:
+    if post.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required):
         raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
     channel = _connected_channel(db, campaign.client_id, post.platform.value)
     if channel is None:
@@ -881,7 +901,7 @@ def _build_publish_candidates(
         channel = _connected_channel(db, campaign.client_id, post.platform.value)
         ps = states.get(post.id)
         already = bool(ps and ps.status in _PUBLISH_DONE_STATES)
-        approved = post.approval_status == ApprovalStatus.approved
+        approved = post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required)
         connected = channel is not None
         if already:
             publishable, reason = False, f"Already {ps.status}"

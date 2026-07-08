@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import assert_client_access, get_current_user, require_capability, require_client
 from app.models.permission import Capability
 from app.db.session import get_db
-from app.models.campaign import ApprovalStatus, Campaign, CampaignApprovalStatus, Post
+from app.models.campaign import ApprovalStatus, Campaign, CampaignApprovalStatus, ContentStatus, Post
 from app.models.client import Client
 from app.models.social import ChannelStatus, PublishStatus, ScheduledPost, SocialAccount
 from app.models.user import User
@@ -43,7 +43,13 @@ def review_queue(db: Session = Depends(get_db), actor: User = Depends(require_ca
         select(Post, Campaign, Client)
         .join(Campaign, Campaign.id == Post.campaign_id)
         .join(Client, Client.id == Campaign.client_id)
-        .where(Client.org_id == actor.org_id, Post.approval_status == ApprovalStatus.pending_review)
+        .where(
+            Client.org_id == actor.org_id,
+            # A post is "in the review queue" when it's been submitted
+            # (content ready_for_review) and the gate is still pending.
+            Post.content_status == ContentStatus.ready_for_review,
+            Post.approval_status == ApprovalStatus.pending,
+        )
         .order_by(Post.updated_at.desc())
     ).all()
     rows = [
@@ -137,6 +143,7 @@ def _to_item(
         channel_avatar=channel.avatar_url if channel else "",
         client_id=client.id if client else "",
         client_name=client.company_name if client else "",
+        content_status=post.content_status.value if post.content_status else "",
         approval_status=post.approval_status.value if post.approval_status else "",
         blocked_reason=sp.blocked_reason,
     )
@@ -214,8 +221,9 @@ def scheduleable_posts(
         ~Post.id.in_(scheduled_post_ids),
     ]
     if not include_blocked:
-        # The global calendar only schedules fully-approved posts.
-        where.append(Post.approval_status == ApprovalStatus.approved)
+        # The global calendar only schedules cleared posts (approved, or
+        # not_required for brands that opted out of approval).
+        where.append(Post.approval_status.in_((ApprovalStatus.approved, ApprovalStatus.not_required)))
     rows = db.execute(
         select(Post, Campaign, Client)
         .join(Campaign, Campaign.id == Post.campaign_id)
@@ -238,7 +246,7 @@ def scheduleable_posts(
     out: list[ScheduleablePostOut] = []
     for post, campaign, client in rows:
         ch = channels.get(f"{client.id}|{post.platform.value}")
-        approved = post.approval_status == ApprovalStatus.approved
+        approved = post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required)
         # Why isn't this post ready to publish? (Empty = ready.)
         if not approved:
             blocked_reason = "Not approved yet"

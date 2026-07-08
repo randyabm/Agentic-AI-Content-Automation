@@ -91,7 +91,7 @@ def propose_schedule(
         # Collision/dedup key: by channel when present, else by platform so
         # plan-only posts of the same platform still spread out.
         collide_key = channel.id if channel else f"plan:{platform}"
-        if post.approval_status != ApprovalStatus.approved:
+        if post.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required):
             blocked_reason = "Not approved yet"
         elif channel is None:
             blocked_reason = f"No connected {platform} channel"

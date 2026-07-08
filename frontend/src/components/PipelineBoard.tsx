@@ -35,8 +35,11 @@ function columnFor(item: CalendarItem): string {
   if (item.status === "published") return "published";
   if (item.status === "scheduled" || item.status === "retrying" || item.status === "throttled")
     return "scheduled";
-  if (item.approval_status === "approved") return "approved";
-  if (item.approval_status === "pending_review") return "pending_review";
+  if (item.approval_status === "approved" || item.approval_status === "not_required") return "approved";
+  // "Needs Approval" only once actually submitted (content ready_for_review);
+  // an unsubmitted or sent-back post lives in Draft.
+  if (item.approval_status === "pending" && item.content_status === "ready_for_review")
+    return "pending_review";
   return "draft";
 }
 

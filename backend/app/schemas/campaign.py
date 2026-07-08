@@ -189,7 +189,7 @@ class PostOut(BaseModel):
     best_time: str
     rationale: str
     content_status: ContentStatus = ContentStatus.draft
-    approval_status: ApprovalStatus = ApprovalStatus.draft
+    approval_status: ApprovalStatus = ApprovalStatus.pending
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_note: str = ""

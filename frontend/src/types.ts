@@ -144,7 +144,9 @@ export interface ReviewQueueItem {
   platform: string;
   headline: string;
   preview: string;
-  approval_status: ApprovalStatus;
+  // Post items carry a post ApprovalStatus; campaign items carry a
+  // CampaignApprovalStatus — string covers both.
+  approval_status: string;
   updated_at: string;
   assigned_approver_id: string | null;
   approval_due_date: string | null;
@@ -175,6 +177,7 @@ export interface CalendarItem {
   channel_avatar: string;
   client_id: string;
   client_name: string;
+  content_status?: string;
   approval_status: string;
   /** waiting_approval | needs_channel | overdue | "" — why it won't publish on its own. */
   blocked_reason?: string;
@@ -661,7 +664,7 @@ export interface Post {
   publish_state: PublishState | null;
 }
 
-export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
+export type ApprovalStatus = "not_required" | "pending" | "approved" | "rejected";
 
 export type ContentStatus = "draft" | "ready_for_review" | "changes_requested";
 

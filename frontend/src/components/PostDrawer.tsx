@@ -25,11 +25,25 @@ import { friendlyPublishError, nextAttemptNote, statusLabel, statusVariant } fro
 import BlockedReasonBadge, { BLOCKED_REASON_HINTS } from "./BlockedReasonBadge";
 
 const APPROVAL_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  draft: "secondary",
-  pending_review: "outline",
+  not_required: "secondary",
+  pending: "outline",
   approved: "default",
   rejected: "destructive",
 };
+
+// Human label for the post's approval gate, distinguishing an unsubmitted draft
+// (pending gate but content not yet ready_for_review) from one in review.
+function approvalLabel(item: { approval_status: string; content_status?: string }): string {
+  switch (item.approval_status) {
+    case "approved": return "Approved";
+    case "not_required": return "No approval needed";
+    case "rejected": return "Rejected";
+    case "pending":
+      return item.content_status === "ready_for_review" ? "Pending review"
+        : item.content_status === "changes_requested" ? "Changes requested" : "Draft";
+    default: return item.approval_status;
+  }
+}
 
 interface PostDrawerProps {
   item: CalendarItem | null;
@@ -217,8 +231,8 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
               {statusLabel(item.status)}
             </Badge>
             {item.approval_status && (
-              <Badge variant={APPROVAL_VARIANT[item.approval_status] ?? "default"} className="capitalize">
-                {item.approval_status.replace("_", " ")}
+              <Badge variant={APPROVAL_VARIANT[item.approval_status] ?? "default"}>
+                {approvalLabel(item)}
               </Badge>
             )}
             <BlockedReasonBadge reason={item.blocked_reason} />
@@ -341,12 +355,16 @@ export function PostDrawer({ item, open, onOpenChange, canEdit, canReview, onRef
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Approval</p>
                   <div className="flex flex-wrap gap-2">
-                    {item.approval_status === "draft" && canEdit && (
+                    {item.approval_status === "pending"
+                      && item.content_status !== "ready_for_review"
+                      && canEdit && (
                       <Button size="sm" onClick={submitForReview}>
                         <Send size={14} /> Submit for review
                       </Button>
                     )}
-                    {item.approval_status === "pending_review" && canReview && (
+                    {item.approval_status === "pending"
+                      && item.content_status === "ready_for_review"
+                      && canReview && (
                       <>
                         <Button size="sm" onClick={approvePost}>
                           <CheckCircle2 size={14} /> Approve

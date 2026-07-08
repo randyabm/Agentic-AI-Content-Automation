@@ -140,7 +140,10 @@ class ScheduledPost(Base):
             return ""
         from app.models.campaign import ApprovalStatus  # local import: avoid cycle at module load
 
-        if self.post is not None and self.post.approval_status != ApprovalStatus.approved:
+        if self.post is not None and self.post.approval_status not in (
+            ApprovalStatus.approved,
+            ApprovalStatus.not_required,
+        ):
             return "waiting_approval"
         if not self.social_account_id or self.channel is None or self.channel.status != ChannelStatus.connected:
             return "needs_channel"

@@ -892,7 +892,7 @@ def publish_due_posts() -> None:
                     sp.last_attempt_at = now
                     db.commit()
                     continue
-                if post.approval_status != ApprovalStatus.approved:
+                if post.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required):
                     # Planned schedule that isn't approved yet — leave it pending
                     # (don't fail, don't publish) until it's approved.
                     continue

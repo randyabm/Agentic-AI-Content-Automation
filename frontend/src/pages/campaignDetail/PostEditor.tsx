@@ -23,14 +23,19 @@ const PLATFORM_LIMITS: Record<string, number> = {
   facebook: 63206, instagram: 2200, linkedin: 3000, tiktok: 2200, x: 280, youtube: 5000,
 };
 
-const APPROVAL_LABELS: Record<string, string> = {
-  draft: "Draft", pending_review: "Pending review", approved: "Approved", rejected: "Rejected",
-};
-
-const APPROVAL_STATUS_VARIANT: Record<string, "secondary" | "warning" | "success" | "destructive"> = {
-  draft: "secondary", pending_review: "warning", changes_requested: "warning",
-  approved: "success", rejected: "destructive",
-};
+// Post-level 3-field model: the badge reflects the approval gate, falling back
+// to the content stage when the gate is idle (pending on an unsubmitted draft
+// or a post sent back for changes).
+type BadgeVariant = "secondary" | "warning" | "success" | "destructive";
+function postStatusBadge(post: Post): { label: string; variant: BadgeVariant } {
+  if (post.approval_status === "approved") return { label: "Approved", variant: "success" };
+  if (post.approval_status === "not_required") return { label: "No approval needed", variant: "secondary" };
+  if (post.approval_status === "rejected") return { label: "Rejected", variant: "destructive" };
+  // pending gate: distinguish submitted-and-waiting from still-being-edited
+  if (post.content_status === "ready_for_review") return { label: "Pending review", variant: "warning" };
+  if (post.content_status === "changes_requested") return { label: "Changes requested", variant: "warning" };
+  return { label: "Draft", variant: "secondary" };
+}
 
 function makeDraft(p: Post): PreviewDraft {
   return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
@@ -193,7 +198,8 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
   const canSubmit = canReview || user?.org_role === "analyst" || user?.org_role === "creative";
   const canPublish = !!user?.is_platform_admin || user?.org_role === "org_admin" || user?.org_role === "analyst";
   const ps = post.publish_state;
-  const canPublishNow = post.approval_status === "approved"
+  const isCleared = post.approval_status === "approved" || post.approval_status === "not_required";
+  const canPublishNow = isCleared
     && (!ps || (ps.status !== "published" && ps.status !== "publishing" && ps.status !== "scheduled"));
 
   async function review(action: "submit" | "approve" | "reject") {
@@ -327,9 +333,10 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
 
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-alt p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={APPROVAL_STATUS_VARIANT[post.approval_status] ?? "secondary"}>
-            {APPROVAL_LABELS[post.approval_status] ?? post.approval_status}
-          </Badge>
+          {(() => {
+            const b = postStatusBadge(post);
+            return <Badge variant={b.variant}>{b.label}</Badge>;
+          })()}
           {ps && <PublishBadge ps={ps} busy={!!busy} />}
           {post.best_time && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -337,23 +344,26 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
             </span>
           )}
         </div>
-        {post.approval_status === "rejected" && post.review_note && (
+        {(post.approval_status === "rejected" || post.content_status === "changes_requested")
+          && (post.rejection_comment || post.review_note) && (
           <p className="m-0 rounded-md border-l-[3px] border-red-500 bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
-            {post.review_note}
+            {post.rejection_comment || post.review_note}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
+          {canSubmit
+            && (post.content_status === "draft" || post.content_status === "changes_requested")
+            && post.approval_status !== "approved" && post.approval_status !== "not_required" && (
             <Button variant="outline" size="sm" onClick={() => review("submit")} disabled={!!busy}>
               Submit for review
             </Button>
           )}
-          {canReview && post.approval_status === "pending_review" && (
+          {canReview && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
             <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
               Approve
             </Button>
           )}
-          {canReview && post.approval_status === "pending_review" && (
+          {canReview && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
             <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
               Reject
             </Button>
