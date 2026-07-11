@@ -35,5 +35,16 @@ celery_app.conf.update(
             "task": "social.publish_due",
             "schedule": 60.0,  # every minute — minute-level scheduling granularity
         },
+        # Approval safety: flag scheduled posts that passed their time without
+        # being approved (they will never publish on their own).
+        "missed-approval-sweep": {
+            "task": "social.missed_approval_sweep",
+            "schedule": 15 * 60.0,  # every 15 minutes
+        },
+        # Nag approvers when a campaign's approval due date has passed.
+        "approval-deadline-sweep": {
+            "task": "social.approval_deadline_sweep",
+            "schedule": 60 * 60.0,  # hourly
+        },
     },
 )

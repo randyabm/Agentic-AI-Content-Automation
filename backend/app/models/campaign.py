@@ -55,14 +55,41 @@ class ElementType(str, enum.Enum):
     text = "text"
 
 
-class ApprovalStatus(str, enum.Enum):
-    """Content review gate (SOCIAL_PUBLISHING_PLAN.md): only `approved` posts may
-    be scheduled or published. Creatives submit for review; reviewers decide."""
+class ContentStatus(str, enum.Enum):
+    """Authoring stage of a post, independent of the approval gate (PRD 3-field
+    status model). Tracks how far the *content* has progressed:
+      draft             — still being written / generated
+      ready_for_review  — submitted, awaiting a reviewer
+      changes_requested — a reviewer asked for edits (or approval was voided)
+    """
 
     draft = "draft"
-    pending_review = "pending_review"
+    ready_for_review = "ready_for_review"
+    changes_requested = "changes_requested"
+
+
+class ApprovalStatus(str, enum.Enum):
+    """Publish gate (PRD 3-field model). Only `approved` or `not_required` posts
+    may be scheduled/published. The authoring stage lives in ContentStatus.
+
+      not_required — this brand opted out of approval; publish freely
+      pending      — awaiting a reviewer's decision (the review gate is closed)
+      approved     — cleared to publish
+      rejected     — reviewer declined; creator must edit and resubmit
+    """
+
+    not_required = "not_required"
+    pending = "pending"
     approved = "approved"
     rejected = "rejected"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Transitional shim for the PR-B rolling-restart window: any legacy
+        # value that briefly survives (or arrives from an old container) resolves
+        # instead of raising LookupError. Safe to remove once one clean deploy
+        # confirms no legacy rows remain (see PR-C).
+        return {"draft": cls.pending, "pending_review": cls.pending}.get(value)
 
 
 class CampaignApprovalStatus(str, enum.Enum):
@@ -116,6 +143,9 @@ class Campaign(Base):
     )
     approval_scope: Mapped[str] = mapped_column(String(20), default="full_campaign")
     approval_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Set once the deadline sweep has sent an "approval overdue" reminder, so it
+    # nags once rather than every tick.
+    approval_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approval_message: Mapped[str] = mapped_column(Text, default="")
     reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -211,12 +241,21 @@ class Post(Base):
     rationale: Mapped[str] = mapped_column(Text, default="")          # strategic rationale
 
     # Review/approval gate before publishing (SOCIAL_PUBLISHING_PLAN.md Phase 4).
+    # PRD 3-field status model: `content_status` (authoring stage) is separate
+    # from `approval_status` (the publish gate). `publish_status` is derived
+    # from ScheduledPost.status (see services.publishing.publish_status_of).
+    content_status: Mapped[ContentStatus] = mapped_column(
+        Enum(ContentStatus), default=ContentStatus.draft, nullable=False
+    )
     approval_status: Mapped[ApprovalStatus] = mapped_column(
-        Enum(ApprovalStatus), default=ApprovalStatus.draft, nullable=False
+        Enum(ApprovalStatus), default=ApprovalStatus.pending, nullable=False
     )
     reviewed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_note: Mapped[str] = mapped_column(Text, default="")
+    # Dedicated rejection reason (was overloaded onto review_note before the
+    # 3-field refactor). Populated when a reviewer requests changes / rejects.
+    rejection_comment: Mapped[str] = mapped_column(Text, default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

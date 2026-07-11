@@ -16,6 +16,7 @@ const ClientSetup = lazy(() => import("./pages/ClientSetup"));
 const Login = lazy(() => import("./pages/Login"));
 const NewClient = lazy(() => import("./pages/NewClient"));
 const OAuthCallback = lazy(() => import("./pages/OAuthCallback"));
+const PublicApproval = lazy(() => import("./pages/PublicApproval"));
 const Organizations = lazy(() => import("./pages/Organizations"));
 const ReviewQueue = lazy(() => import("./pages/ReviewQueue"));
 const SystemSettings = lazy(() => import("./pages/SystemSettings"));
@@ -56,6 +57,7 @@ export default function App() {
     <Suspense fallback={<div className="py-12 text-center text-muted-foreground">Loading…</div>}>
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/approve/:token" element={<PublicApproval />} />
       <Route path="/" element={<Home />} />
       <Route path="/clients" element={<Protected orgOnly><Clients /></Protected>} />
       <Route path="/clients/new" element={<Protected orgOnly><NewClient /></Protected>} />

@@ -7,6 +7,7 @@ from app.models.campaign import (
     CampaignApprovalStatus,
     CampaignObjective,
     CampaignStatus,
+    ContentStatus,
     ElementType,
     Platform,
     VideoStatus,
@@ -168,6 +169,9 @@ class PublishStateOut(BaseModel):
     updated_at: datetime | None = None
     # waiting_approval | needs_channel | overdue | "" (on track)
     blocked_reason: str = ""
+    # PRD coarse publish_status read-model: unscheduled | scheduled |
+    # publishing | published | failed (derived from `status`).
+    publish_status: str = "unscheduled"
 
 
 class PostOut(BaseModel):
@@ -184,15 +188,55 @@ class PostOut(BaseModel):
     hashtags: list
     best_time: str
     rationale: str
-    approval_status: ApprovalStatus = ApprovalStatus.draft
+    content_status: ContentStatus = ContentStatus.draft
+    approval_status: ApprovalStatus = ApprovalStatus.pending
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
     review_note: str = ""
+    rejection_comment: str = ""
     publish_state: PublishStateOut | None = None
 
 
 class ReviewReject(BaseModel):
     note: str = ""
+
+
+class BulkReviewRequest(BaseModel):
+    post_ids: list[str]
+    note: str = ""
+
+
+class BulkItemResult(BaseModel):
+    post_id: str
+    ok: bool
+    error: str = ""
+
+
+class BulkReviewResponse(BaseModel):
+    acted: int = 0
+    failed: int = 0
+    results: list[BulkItemResult] = []
+
+
+class ApprovalLinkOut(BaseModel):
+    token: str
+    path: str  # relative link; the UI prepends its own origin
+    expires_in_days: int
+
+
+class BrandCheckIssue(BaseModel):
+    type: str = ""
+    severity: str = ""
+    detail: str = ""
+
+
+class BrandCheckResult(BaseModel):
+    risk: str = "unknown"
+    issues: list[BrandCheckIssue] = []
+
+
+class RewriteResult(BaseModel):
+    copy: str
 
 
 class PublishCandidate(BaseModel):

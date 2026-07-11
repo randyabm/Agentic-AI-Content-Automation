@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -44,6 +44,17 @@ class Client(Base):
     brand_visual_style: Mapped[str] = mapped_column(Text, default="")       # e.g. minimalist, vibrant, corporate
     brand_copy_examples: Mapped[list] = mapped_column(JSON, default=list)   # approved copy few-shot examples
     brand_legal_disclaimer: Mapped[str] = mapped_column(Text, default="")   # recurring legal/disclaimer text
+
+    # Per-brand approval gate (PRD FR-01). When False, this brand's posts are
+    # created as `not_required` and may publish without a review. Default True
+    # preserves the platform-wide "everything needs approval" behavior.
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+    # Approval routing template (Phase 3): defaults applied when a campaign is
+    # submitted without an explicit approver / deadline.
+    default_approver_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    default_approval_deadline_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     last_extraction_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

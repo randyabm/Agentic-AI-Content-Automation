@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Sparkles } from "lucide-react";
+import { CalendarDays, ChevronRight, Eye, Pencil, Rocket, Share2, Sparkles } from "lucide-react";
 import { api, downloadFile } from "../api";
 import { AutopilotModal } from "../components/AutopilotModal";
 import { PublishAllDialog } from "../components/PublishAllDialog";
@@ -65,6 +65,7 @@ export default function CampaignDetail() {
   const [showPublishAll, setShowPublishAll] = useState(false);
   const [postTypeTab, setPostTypeTab] = useState<string>("all");
   const [showEditWarning, setShowEditWarning] = useState(false);
+  const [editUnlocked, setEditUnlocked] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
   const [busyApproval, setBusyApproval] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -93,6 +94,12 @@ export default function CampaignDetail() {
   const mediaGenerating = campaign?.elements.some(
     (el) => el.videos.some((v) => v.status === "generating") || el.images.some((i) => i.status === "generating"),
   ) ?? false;
+
+  // Re-lock editing once the campaign is no longer approved (e.g. after a save
+  // voided approval and it went back to review).
+  useEffect(() => {
+    if (approvalStatus !== "approved") setEditUnlocked(false);
+  }, [approvalStatus]);
 
   useEffect(() => {
     if (campaign?.status !== "generating" && !mediaGenerating) return;
@@ -165,7 +172,26 @@ export default function CampaignDetail() {
     finally { setBusyApproval(""); }
   }
 
+  async function handleShareApprovalLink() {
+    setBusyApproval("link");
+    try {
+      const { path } = await api<{ path: string }>(`/campaigns/${campaign!.id}/approval-link`, { method: "POST" });
+      const url = `${window.location.origin}${path}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success("Approval link copied — share it with your client (valid 14 days).");
+      } catch {
+        toast.info(url, { duration: 12000 });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not create link");
+    } finally {
+      setBusyApproval("");
+    }
+  }
+
   async function handleReject() {
+    if (!reviewNote.trim()) { toast.error("Add a comment explaining the rejection."); return; }
     setBusyApproval("Rejecting…");
     try {
       await api(`/campaigns/${campaign!.id}/reject`, { method: "POST", body: { note: reviewNote } });
@@ -198,7 +224,11 @@ export default function CampaignDetail() {
     return m ? m.full_name : id;
   }
 
-  const isEditorMode = approvalStatus === "draft" || approvalStatus === "changes_requested";
+  // An approved campaign is read-only until the user confirms the edit warning
+  // (editUnlocked); saving then voids approval server-side (FR-08/09).
+  const isEditorMode =
+    approvalStatus === "draft" || approvalStatus === "changes_requested"
+    || (approvalStatus === "approved" && editUnlocked);
   const isLocked = approvalStatus === "pending_review";
   const activePlatforms = campaign.platforms.filter((p) => p.is_active);
   const workflowStep: "draft" | "preview" | "approval" | "live" =
@@ -242,6 +272,11 @@ export default function CampaignDetail() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {approvalStatus === "pending_review" && (
+              <Button variant="outline" onClick={handleShareApprovalLink} disabled={busyApproval === "link"}>
+                <Share2 className="mr-1 size-3.5" /> Share approval link
+              </Button>
+            )}
             {canSubmit && approvalStatus === "pending_review" && (
               <Button variant="outline" className="text-destructive" onClick={handleCancelRequest}>Cancel Request</Button>
             )}
@@ -284,7 +319,7 @@ export default function CampaignDetail() {
       )}
       {approvalStatus === "approved" && (
         <EditWarningDialog visible={showEditWarning} onCancel={() => setShowEditWarning(false)}
-          onConfirm={() => { setShowEditWarning(false); toast.info("Editing mode enabled — approval will be voided on save"); }} />
+          onConfirm={() => { setShowEditWarning(false); setEditUnlocked(true); toast.info("Editing enabled — saving will send this back for re-approval"); }} />
       )}
       {approvalStatus === "changes_requested" && campaign.review_note && (
         <div className="mb-6 flex items-start gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">

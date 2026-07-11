@@ -10,8 +10,10 @@ from app.api.routes import (
     integrations,
     llm_configs,
     media,
+    notifications,
     oauth_callback,
     orgs,
+    public_approval,
     scheduling,
     settings,
     style_cards,
@@ -28,6 +30,8 @@ api_router.include_router(orgs.router)
 api_router.include_router(integrations.router)
 api_router.include_router(channels.router)
 api_router.include_router(scheduling.router)
+api_router.include_router(notifications.router)
+api_router.include_router(public_approval.router)
 api_router.include_router(media.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(llm_configs.router)

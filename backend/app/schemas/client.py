@@ -31,6 +31,9 @@ class ClientUpdate(BaseModel):
     communication_tone: str | None = None
     social_media_urls: list[str] | None = None
     notes: str | None = None
+    approval_required: bool | None = None
+    default_approver_id: str | None = None
+    default_approval_deadline_days: int | None = None
 
 
 class ClientOut(BaseModel):
@@ -57,6 +60,9 @@ class ClientOut(BaseModel):
     brand_visual_style: str
     brand_copy_examples: list
     brand_legal_disclaimer: str
+    approval_required: bool = True
+    default_approver_id: str | None = None
+    default_approval_deadline_days: int | None = None
     last_extraction_at: datetime | None
     created_at: datetime
     updated_at: datetime

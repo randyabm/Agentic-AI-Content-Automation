@@ -18,6 +18,7 @@ from app.models.campaign import (
     Campaign,
     ApprovalStatus,
     CampaignApprovalStatus,
+    ContentStatus,
     CampaignElement,
     CampaignPlatform,
     CampaignStatus,
@@ -62,7 +63,13 @@ from app.schemas.campaign import (
     PostVideoOut,
     PromptUpdate,
     RegenerateRequest,
+    ApprovalLinkOut,
+    BrandCheckResult,
+    BulkItemResult,
+    BulkReviewRequest,
+    BulkReviewResponse,
     ReviewReject,
+    RewriteResult,
     SubmitForApprovalRequest,
 )
 from app.schemas.style_alternative import (
@@ -78,7 +85,7 @@ from app.schemas.social import (
     ScheduledPostOut,
     ScheduleRequest,
 )
-from app.services import approval, audit, autopilot, publishing, storage
+from app.services import approval, approval_links, audit, autopilot, notifications, publishing, storage
 from app.services.campaign_gen import generate_platform_copy
 from app.services.compositing import composite_post_image
 from app.services.export import EXPORTERS
@@ -418,6 +425,7 @@ def _latest_publish_states(db: Session, post_ids: list[str]) -> dict[str, Publis
             channel_id=sp.social_account_id or "",
             updated_at=sp.updated_at,
             blocked_reason=sp.blocked_reason,
+            publish_status=publishing.publish_status_of(sp),
         )
         for pid, sp in latest.items()
     }
@@ -443,6 +451,71 @@ def update_campaign(
 # --- Campaign-level approval workflow (SocialFlow concept UI) ---
 
 
+def _campaign_link(campaign: Campaign) -> str:
+    return f"/campaigns/{campaign.id}"
+
+
+def _campaign_org_id(db: Session, campaign: Campaign) -> str | None:
+    client = db.get(Client, campaign.client_id)
+    return client.org_id if client else None
+
+
+def _notify_creator(db: Session, campaign: Campaign, actor: User, type: str, title: str, body: str = "") -> None:
+    """Tell the campaign's creator about a review outcome (skips self-notify)."""
+    notifications.post_org_webhook(db, _campaign_org_id(db, campaign), f"{title}\n{body}".strip())
+    if not campaign.created_by or campaign.created_by == actor.id:
+        return
+    notifications.notify(
+        db, user_id=campaign.created_by, type=type, title=title, body=body,
+        entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
+        send_email=True,
+    )
+
+
+def _notify_approvers(db: Session, campaign: Campaign, actor: User, type: str, title: str, body: str = "") -> None:
+    """Tell whoever can approve that something needs review (assigned approver
+    first, else the org's reviewers/admins)."""
+    notifications.post_org_webhook(db, _campaign_org_id(db, campaign), f"{title}\n{body}".strip())
+    if campaign.assigned_approver_id:
+        targets = [campaign.assigned_approver_id]
+    else:
+        client = db.get(Client, campaign.client_id)
+        targets = notifications.reviewer_ids(db, client.org_id if client else None, exclude=actor.id)
+    notifications.notify_many(
+        db, user_ids=targets, type=type, title=title, body=body,
+        entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
+        send_email=True,
+    )
+
+
+def _notify_editor_voided_approval(db: Session, campaign: Campaign, post: Post, actor: User, prior_approver: str | None) -> None:
+    """An approved post was edited → tell the prior approver it needs re-review."""
+    if not prior_approver or prior_approver == actor.id:
+        return
+    notifications.notify(
+        db, user_id=prior_approver, type="reapproval_required",
+        title=f"Re-review needed: {post.headline or campaign.name}",
+        body=f"{actor.full_name or actor.email} edited a post you approved — it's back in the review queue.",
+        entity_type="campaign", entity_id=campaign.id, link=_campaign_link(campaign),
+        send_email=True,
+    )
+
+
+@router.post("/{campaign_id}/approval-link", response_model=ApprovalLinkOut)
+def create_approval_link(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.submit_review)),
+):
+    """Mint a shareable external approval link (Phase 2). Anyone with the link
+    can preview and Approve / Request Changes until it expires."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    days = 14
+    token = approval_links.sign_approval_token(campaign.id, expires_in_days=days)
+    audit.record(db, actor, "campaign.approval_link", "campaign", campaign.id, {"expires_in_days": days})
+    return ApprovalLinkOut(token=token, path=f"/approve/{token}", expires_in_days=days)
+
+
 @router.post("/{campaign_id}/submit-for-approval", response_model=CampaignOut)
 def submit_campaign_for_approval(
     campaign_id: str,
@@ -462,9 +535,17 @@ def submit_campaign_for_approval(
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not in a submittable state")
 
     # Shared assignment metadata (who reviews, by when, with what note).
-    campaign.assigned_approver_id = body.assigned_approver_id
+    # Fall back to the brand's approval-routing template (Phase 3) when the
+    # submitter didn't pick an approver / deadline.
+    client = db.get(Client, campaign.client_id)
+    approver = body.assigned_approver_id or (client.default_approver_id if client else None)
+    due = body.approval_due_date
+    if due is None and client and client.default_approval_deadline_days:
+        from datetime import date, timedelta
+        due = date.today() + timedelta(days=client.default_approval_deadline_days)
+    campaign.assigned_approver_id = approver
     campaign.approval_scope = body.approval_scope
-    campaign.approval_due_date = body.approval_due_date
+    campaign.approval_due_date = due
     campaign.approval_message = body.message
     campaign.review_note = ""
 
@@ -476,17 +557,27 @@ def submit_campaign_for_approval(
         if not to_submit:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "None of the selected posts belong to this campaign")
     else:
-        # Full campaign: submit every post that isn't already approved.
-        to_submit = [p for p in all_posts if p.approval_status != ApprovalStatus.approved]
+        # Full campaign: submit every post that isn't already cleared.
+        to_submit = [
+            p for p in all_posts
+            if p.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required)
+        ]
         if not to_submit:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "All posts are already approved — nothing to submit")
 
     for p in to_submit:
-        p.approval_status = ApprovalStatus.pending_review
+        p.content_status = ContentStatus.ready_for_review
+        p.approval_status = ApprovalStatus.pending
         p.reviewed_by = None
         p.review_note = ""
+        p.rejection_comment = ""
 
     approval.sync_campaign_approval(db, campaign, all_posts)
+    _notify_approvers(
+        db, campaign, actor, "submitted",
+        f"Review requested: {campaign.name}",
+        f"{actor.full_name or actor.email} submitted this campaign for approval.",
+    )
     db.commit()
     audit.record(db, actor, "campaign.submit_for_approval", "campaign", campaign.id, {
         "approver": body.assigned_approver_id,
@@ -506,9 +597,9 @@ def approve_campaign(
 ):
     """Approve the campaign's pending posts.
 
-    Approves every post that is awaiting review (draft/pending_review) but
-    NEVER overrides a post a reviewer explicitly rejected — the campaign rolls
-    up to `changes_requested` in that case so the rejection stays visible.
+    Approves every post whose gate is pending, but NEVER overrides a post a
+    reviewer explicitly rejected — the campaign rolls up to `changes_requested`
+    in that case so the rejection stays visible.
     """
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status != CampaignApprovalStatus.pending_review:
@@ -518,12 +609,14 @@ def approve_campaign(
     campaign.review_note = body.note
     posts = approval.campaign_posts(db, campaign)
     for p in posts:
-        if p.approval_status in (ApprovalStatus.draft, ApprovalStatus.pending_review):
+        if p.approval_status == ApprovalStatus.pending:
             p.approval_status = ApprovalStatus.approved
             p.reviewed_by = actor.id
             p.reviewed_at = datetime.now(timezone.utc)
             p.review_note = body.note
     approval.sync_campaign_approval(db, campaign, posts)
+    _notify_creator(db, campaign, actor, "approved", f"Approved: {campaign.name}",
+                    "Your campaign was approved and is ready to publish.")
     db.commit()
     audit.record(db, actor, "campaign.approve", "campaign", campaign.id)
     db.refresh(campaign)
@@ -535,7 +628,7 @@ def request_campaign_changes(
     campaign_id: str,
     body: CampaignReviewAction,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_campaign)),
+    actor: User = Depends(require_capability(Capability.approve_campaign, Capability.request_changes)),
 ):
     """Request changes: pending posts return to draft (with the reviewer's note)
     so the editor can revise and resubmit — they must not linger in the review
@@ -543,18 +636,24 @@ def request_campaign_changes(
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status != CampaignApprovalStatus.pending_review:
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required when requesting changes.")
     campaign.reviewed_by = actor.id
     campaign.reviewed_at = datetime.now(timezone.utc)
     campaign.review_note = body.note
     posts = approval.campaign_posts(db, campaign)
     for p in posts:
-        if p.approval_status == ApprovalStatus.pending_review:
-            p.approval_status = ApprovalStatus.draft
+        if p.approval_status == ApprovalStatus.pending and p.content_status == ContentStatus.ready_for_review:
+            # Return to the editor: mark changes requested (out of the review
+            # queue) but keep it un-publishable (approval stays pending).
+            p.content_status = ContentStatus.changes_requested
             p.reviewed_by = actor.id
             p.reviewed_at = datetime.now(timezone.utc)
             p.review_note = body.note
+            p.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign, posts)
     campaign.approval_status = CampaignApprovalStatus.changes_requested
+    _notify_creator(db, campaign, actor, "changes_requested", f"Changes requested: {campaign.name}", body.note)
     db.commit()
     audit.record(db, actor, "campaign.request_changes", "campaign", campaign.id)
     db.refresh(campaign)
@@ -566,25 +665,30 @@ def reject_campaign(
     campaign_id: str,
     body: CampaignReviewAction,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_campaign)),
+    actor: User = Depends(require_capability(Capability.approve_campaign, Capability.request_changes)),
 ):
     """Reject a campaign entirely: every pending post is rejected too (with the
     note), and the campaign shows `rejected` (explicit rollup override)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     if campaign.approval_status != CampaignApprovalStatus.pending_review:
         raise HTTPException(status.HTTP_409_CONFLICT, "Campaign is not pending review")
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required to reject.")
     campaign.reviewed_by = actor.id
     campaign.reviewed_at = datetime.now(timezone.utc)
     campaign.review_note = body.note
     posts = approval.campaign_posts(db, campaign)
     for p in posts:
-        if p.approval_status == ApprovalStatus.pending_review:
+        if p.approval_status == ApprovalStatus.pending and p.content_status == ContentStatus.ready_for_review:
             p.approval_status = ApprovalStatus.rejected
+            p.content_status = ContentStatus.changes_requested
             p.reviewed_by = actor.id
             p.reviewed_at = datetime.now(timezone.utc)
             p.review_note = body.note
+            p.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign, posts)
     campaign.approval_status = CampaignApprovalStatus.rejected
+    _notify_creator(db, campaign, actor, "rejected", f"Rejected: {campaign.name}", body.note)
     db.commit()
     audit.record(db, actor, "campaign.reject", "campaign", campaign.id)
     db.refresh(campaign)
@@ -668,13 +772,24 @@ def update_post(
     db: Session = Depends(get_db),
     actor: User = Depends(require_editor),
 ):
-    _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
+    campaign = _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
     post = db.get(Post, post_id)
     if post is None or post.campaign_id != campaign_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    prior_approver = post.reviewed_by
+    for field, value in changes.items():
         setattr(post, field, value)
+    # FR-08/09: editing an approved post voids approval and re-queues review.
+    voided = approval.void_approval_on_edit(post)
+    if voided:
+        approval.sync_campaign_approval(db, campaign)
+        _notify_editor_voided_approval(db, campaign, post, actor, prior_approver)
     db.commit()
+    audit.record(
+        db, actor, "post.edit", "post", post.id,
+        {"campaign_id": campaign_id, "fields": list(changes.keys()), "reapproval_triggered": voided},
+    )
     db.refresh(post)
     return post
 
@@ -713,7 +828,17 @@ def regenerate_post(
     post.hashtags = data["hashtags"]
     post.best_time = data["best_time"]
     post.rationale = data["rationale"]
+    # Regenerating copy is a material edit — re-review an approved post.
+    prior_approver = post.reviewed_by
+    voided = approval.void_approval_on_edit(post)
+    if voided:
+        approval.sync_campaign_approval(db, campaign)
+        _notify_editor_voided_approval(db, campaign, post, actor, prior_approver)
     db.commit()
+    audit.record(
+        db, actor, "post.regenerate", "post", post.id,
+        {"campaign_id": campaign_id, "reapproval_triggered": voided},
+    )
     db.refresh(post)
     return post
 
@@ -762,17 +887,29 @@ def submit_post(
     campaign_id: str, post_id: str, db: Session = Depends(get_db),
     actor: User = Depends(require_capability(Capability.submit_review)),
 ):
-    """Contributor submits a post for review (draft/rejected → pending_review)."""
+    """Contributor submits a post for review (content → ready_for_review, gate →
+    pending)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status in (ApprovalStatus.pending_review, ApprovalStatus.approved):
+    already_in_review = (
+        post.content_status == ContentStatus.ready_for_review
+        and post.approval_status == ApprovalStatus.pending
+    )
+    if already_in_review or post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"Post is already in {post.approval_status.value} — nothing to submit",
+            f"Post is already {post.approval_status.value} — nothing to submit",
         )
-    post.approval_status = ApprovalStatus.pending_review
+    post.content_status = ContentStatus.ready_for_review
+    post.approval_status = ApprovalStatus.pending
     post.review_note = ""
+    post.rejection_comment = ""
     approval.sync_campaign_approval(db, campaign)
+    _notify_approvers(
+        db, campaign, actor, "submitted",
+        f"Review requested: {post.headline or campaign.name}",
+        f"{actor.full_name or actor.email} submitted a {post.platform.value} post for approval.",
+    )
     db.commit()
     audit.record(db, actor, "post.submit", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
@@ -787,7 +924,7 @@ def approve_post(
     """Reviewer approves a post — only approved posts may be scheduled/published."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status != ApprovalStatus.pending_review:
+    if post.approval_status != ApprovalStatus.pending:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"Post is not pending review (current state: {post.approval_status.value})",
@@ -796,6 +933,8 @@ def approve_post(
     post.reviewed_by = actor.id
     post.reviewed_at = datetime.now(timezone.utc)
     approval.sync_campaign_approval(db, campaign)
+    _notify_creator(db, campaign, actor, "approved", f"Approved: {post.headline or campaign.name}",
+                    "Your post was approved and is ready to publish.")
     db.commit()
     audit.record(db, actor, "post.approve", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
@@ -808,31 +947,161 @@ def reject_post(
     post_id: str,
     body: ReviewReject,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_capability(Capability.approve_copy)),
+    actor: User = Depends(require_capability(Capability.approve_copy, Capability.request_changes)),
 ):
-    """Reviewer rejects a post with an optional note for the contributor."""
+    """Reviewer rejects a post with a required note for the contributor (FR-06)."""
     campaign = _get_campaign_or_404(db, campaign_id, actor)
     post = _get_post_or_404(db, campaign_id, post_id)
-    if post.approval_status != ApprovalStatus.pending_review:
+    if post.approval_status != ApprovalStatus.pending:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"Post is not pending review (current state: {post.approval_status.value})",
         )
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required to reject.")
     post.approval_status = ApprovalStatus.rejected
+    post.content_status = ContentStatus.changes_requested
     post.reviewed_by = actor.id
     post.reviewed_at = datetime.now(timezone.utc)
     post.review_note = body.note
+    post.rejection_comment = body.note
     approval.sync_campaign_approval(db, campaign)
+    _notify_creator(db, campaign, actor, "rejected", f"Changes needed: {post.headline or campaign.name}", body.note)
     db.commit()
     audit.record(db, actor, "post.reject", "post", post.id, {"campaign_id": campaign_id})
     db.refresh(post)
     return post
 
 
+@router.post("/{campaign_id}/posts/{post_id}/brand-check", response_model=BrandCheckResult)
+def brand_check_post(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    """AI brand-safety + risky-claim check for a post (Phase 3). Read-only."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    client = db.get(Client, campaign.client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Client not found")
+    from app.services import brand_check as brand_check_service
+    try:
+        result = brand_check_service.brand_check(db, client, post)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Brand check failed: {exc}")
+    return BrandCheckResult(**result)
+
+
+@router.post("/{campaign_id}/posts/{post_id}/rewrite-from-feedback", response_model=RewriteResult)
+def rewrite_from_feedback_post(
+    campaign_id: str, post_id: str, db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.edit_copy)),
+):
+    """Suggest a rewritten copy that addresses the reviewer's feedback (Phase 3).
+    Not persisted — the editor applies and saves it normally."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    client = db.get(Client, campaign.client_id)
+    feedback = (post.rejection_comment or post.review_note or "").strip()
+    if not feedback:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No reviewer feedback to rewrite from.")
+    if client is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Client not found")
+    from app.services import brand_check as brand_check_service
+    try:
+        copy = brand_check_service.rewrite_from_feedback(db, client, campaign, post, feedback)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Rewrite failed: {exc}")
+    return RewriteResult(copy=copy)
+
+
+def _load_reviewable_post(db: Session, post_id: str, actor: User) -> tuple[Post, Campaign] | tuple[None, str]:
+    """Load a post + campaign, enforcing org access. Returns (post, campaign) or
+    (None, error_message) for the bulk endpoints' per-item error reporting."""
+    post = db.get(Post, post_id)
+    if post is None:
+        return None, "Post not found"
+    campaign = db.get(Campaign, post.campaign_id)
+    client = db.get(Client, campaign.client_id) if campaign else None
+    if campaign is None or client is None or client.org_id != actor.org_id:
+        return None, "Not accessible"
+    return post, campaign
+
+
+@router.post("/posts/bulk-approve", response_model=BulkReviewResponse)
+def bulk_approve_posts(
+    body: BulkReviewRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_copy)),
+):
+    """Approve many pending posts at once (FR-13). Valid posts are approved;
+    invalid ones (missing, no access, not pending) are reported per-item."""
+    results: list[BulkItemResult] = []
+    touched: dict[str, Campaign] = {}
+    for pid in body.post_ids:
+        post, campaign = _load_reviewable_post(db, pid, actor)
+        if post is None:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=campaign))  # campaign holds the message
+            continue
+        if post.approval_status != ApprovalStatus.pending:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=f"Not pending ({post.approval_status.value})"))
+            continue
+        post.approval_status = ApprovalStatus.approved
+        post.reviewed_by = actor.id
+        post.reviewed_at = datetime.now(timezone.utc)
+        touched[campaign.id] = campaign
+        results.append(BulkItemResult(post_id=pid, ok=True))
+    for c in touched.values():
+        approval.sync_campaign_approval(db, c)
+        _notify_creator(db, c, actor, "approved", f"Approved: {c.name}", "Posts in your campaign were approved.")
+    db.commit()
+    for c in touched.values():
+        audit.record(db, actor, "post.bulk_approve", "campaign", c.id, {"count": len(body.post_ids)})
+    acted = sum(1 for r in results if r.ok)
+    return BulkReviewResponse(acted=acted, failed=len(results) - acted, results=results)
+
+
+@router.post("/posts/bulk-reject", response_model=BulkReviewResponse)
+def bulk_reject_posts(
+    body: BulkReviewRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_copy, Capability.request_changes)),
+):
+    """Reject many pending posts at once with a shared required comment (FR-13)."""
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required to reject.")
+    results: list[BulkItemResult] = []
+    touched: dict[str, Campaign] = {}
+    for pid in body.post_ids:
+        post, campaign = _load_reviewable_post(db, pid, actor)
+        if post is None:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=campaign))
+            continue
+        if post.approval_status != ApprovalStatus.pending:
+            results.append(BulkItemResult(post_id=pid, ok=False, error=f"Not pending ({post.approval_status.value})"))
+            continue
+        post.approval_status = ApprovalStatus.rejected
+        post.content_status = ContentStatus.changes_requested
+        post.reviewed_by = actor.id
+        post.reviewed_at = datetime.now(timezone.utc)
+        post.review_note = body.note
+        post.rejection_comment = body.note
+        touched[campaign.id] = campaign
+        results.append(BulkItemResult(post_id=pid, ok=True))
+    for c in touched.values():
+        approval.sync_campaign_approval(db, c)
+        _notify_creator(db, c, actor, "rejected", f"Changes needed: {c.name}", body.note)
+    db.commit()
+    for c in touched.values():
+        audit.record(db, actor, "post.bulk_reject", "campaign", c.id, {"count": len(body.post_ids)})
+    acted = sum(1 for r in results if r.ok)
+    return BulkReviewResponse(acted=acted, failed=len(results) - acted, results=results)
+
+
 def _require_publishable(db: Session, campaign: Campaign, post: Post) -> SocialAccount:
     """Shared guards for publish (immediate): the post must be approved and its
     platform must have a connected channel. Returns the channel to publish to."""
-    if post.approval_status != ApprovalStatus.approved:
+    if post.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required):
         raise HTTPException(status.HTTP_409_CONFLICT, "The post must be approved before publishing.")
     channel = _connected_channel(db, campaign.client_id, post.platform.value)
     if channel is None:
@@ -880,7 +1149,7 @@ def _build_publish_candidates(
         channel = _connected_channel(db, campaign.client_id, post.platform.value)
         ps = states.get(post.id)
         already = bool(ps and ps.status in _PUBLISH_DONE_STATES)
-        approved = post.approval_status == ApprovalStatus.approved
+        approved = post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required)
         connected = channel is not None
         if already:
             publishable, reason = False, f"Already {ps.status}"

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { CalendarDays, ChevronRight, FileImage, Film, Layers, Rocket, Sparkles, Type } from "lucide-react";
+import { CalendarDays, ChevronRight, FileImage, Film, Layers, Rocket, ShieldCheck, Sparkles, Type } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
@@ -23,14 +23,19 @@ const PLATFORM_LIMITS: Record<string, number> = {
   facebook: 63206, instagram: 2200, linkedin: 3000, tiktok: 2200, x: 280, youtube: 5000,
 };
 
-const APPROVAL_LABELS: Record<string, string> = {
-  draft: "Draft", pending_review: "Pending review", approved: "Approved", rejected: "Rejected",
-};
-
-const APPROVAL_STATUS_VARIANT: Record<string, "secondary" | "warning" | "success" | "destructive"> = {
-  draft: "secondary", pending_review: "warning", changes_requested: "warning",
-  approved: "success", rejected: "destructive",
-};
+// Post-level 3-field model: the badge reflects the approval gate, falling back
+// to the content stage when the gate is idle (pending on an unsubmitted draft
+// or a post sent back for changes).
+type BadgeVariant = "secondary" | "warning" | "success" | "destructive";
+function postStatusBadge(post: Post): { label: string; variant: BadgeVariant } {
+  if (post.approval_status === "approved") return { label: "Approved", variant: "success" };
+  if (post.approval_status === "not_required") return { label: "No approval needed", variant: "secondary" };
+  if (post.approval_status === "rejected") return { label: "Rejected", variant: "destructive" };
+  // pending gate: distinguish submitted-and-waiting from still-being-edited
+  if (post.content_status === "ready_for_review") return { label: "Pending review", variant: "warning" };
+  if (post.content_status === "changes_requested") return { label: "Changes requested", variant: "warning" };
+  return { label: "Draft", variant: "secondary" };
+}
 
 function makeDraft(p: Post): PreviewDraft {
   return { headline: p.headline, copy: p.copy, hashtags: p.hashtags.join(" ") };
@@ -184,26 +189,35 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
   const [hashtags, setHashtags] = useState(post.hashtags.join(" "));
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
+  const [brandCheck, setBrandCheck] = useState<{ risk: string; issues: { type: string; severity: string; detail: string }[] } | null>(null);
   const { user } = useAuth();
   const promptDialog = usePrompt();
   const confirmDialog = useConfirm();
   const limit = PLATFORM_LIMITS[post.platform] ?? 2200;
 
-  const canReview = !!user?.is_platform_admin || user?.org_role === "reviewer" || user?.org_role === "org_admin";
+  // Reviewer-vs-approver split: only final approvers (approve_copy) see Approve;
+  // anyone with request_changes (or approve_copy) can Reject / request changes.
+  const isAdmin = !!user?.is_platform_admin || user?.org_role === "org_admin";
+  const caps = user?.capabilities ?? [];
+  const canApprove = isAdmin || caps.includes("approve_copy");
+  const canRequestChanges = canApprove || caps.includes("request_changes");
+  const canReview = canApprove || canRequestChanges;
   const canSubmit = canReview || user?.org_role === "analyst" || user?.org_role === "creative";
   const canPublish = !!user?.is_platform_admin || user?.org_role === "org_admin" || user?.org_role === "analyst";
   const ps = post.publish_state;
-  const canPublishNow = post.approval_status === "approved"
+  const isCleared = post.approval_status === "approved" || post.approval_status === "not_required";
+  const canPublishNow = isCleared
     && (!ps || (ps.status !== "published" && ps.status !== "publishing" && ps.status !== "scheduled"));
 
   async function review(action: "submit" | "approve" | "reject") {
     let note = "";
     if (action === "reject") {
       const reason = await promptDialog({
-        title: "Reject post", description: "Add an optional note explaining why (the author will see it).",
-        placeholder: "Reason for rejection (optional)", confirmLabel: "Reject", destructive: true,
+        title: "Reject post", description: "Explain what needs to change (the author will see it).",
+        placeholder: "Reason for rejection (required)", confirmLabel: "Reject", destructive: true,
+        allowEmpty: false,
       });
-      if (reason === null) return;
+      if (reason === null || !reason.trim()) return;
       note = reason;
     }
     setBusy(action === "submit" ? "Submitting…" : action === "approve" ? "Approving…" : "Rejecting…");
@@ -211,6 +225,32 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
       await api(`/campaigns/${campaignId}/posts/${post.id}/${action}`, { method: "POST", body: action === "reject" ? { note } : {} });
       toast.success(action === "submit" ? "Submitted for review" : action === "approve" ? "Post approved" : "Post rejected");
       await onChange();
+    } finally { setBusy(""); }
+  }
+
+  async function runBrandCheck() {
+    setBusy("Checking brand…");
+    try {
+      const r = await api<{ risk: string; issues: { type: string; severity: string; detail: string }[] }>(
+        `/campaigns/${campaignId}/posts/${post.id}/brand-check`, { method: "POST" },
+      );
+      setBrandCheck(r);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Brand check failed");
+    } finally { setBusy(""); }
+  }
+
+  async function rewriteFromFeedback() {
+    setBusy("Rewriting…");
+    try {
+      const r = await api<{ copy: string }>(
+        `/campaigns/${campaignId}/posts/${post.id}/rewrite-from-feedback`, { method: "POST" },
+      );
+      setCopy(r.copy);
+      setDirty(true);
+      toast.success("Applied AI rewrite — review and save.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rewrite failed");
     } finally { setBusy(""); }
   }
 
@@ -327,9 +367,10 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
 
       <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-alt p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={APPROVAL_STATUS_VARIANT[post.approval_status] ?? "secondary"}>
-            {APPROVAL_LABELS[post.approval_status] ?? post.approval_status}
-          </Badge>
+          {(() => {
+            const b = postStatusBadge(post);
+            return <Badge variant={b.variant}>{b.label}</Badge>;
+          })()}
           {ps && <PublishBadge ps={ps} busy={!!busy} />}
           {post.best_time && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -337,23 +378,26 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
             </span>
           )}
         </div>
-        {post.approval_status === "rejected" && post.review_note && (
+        {(post.approval_status === "rejected" || post.content_status === "changes_requested")
+          && (post.rejection_comment || post.review_note) && (
           <p className="m-0 rounded-md border-l-[3px] border-red-500 bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
-            {post.review_note}
+            {post.rejection_comment || post.review_note}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {canSubmit && (post.approval_status === "draft" || post.approval_status === "rejected") && (
+          {canSubmit
+            && (post.content_status === "draft" || post.content_status === "changes_requested")
+            && post.approval_status !== "approved" && post.approval_status !== "not_required" && (
             <Button variant="outline" size="sm" onClick={() => review("submit")} disabled={!!busy}>
               Submit for review
             </Button>
           )}
-          {canReview && post.approval_status === "pending_review" && (
+          {canApprove && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
             <Button size="sm" onClick={() => review("approve")} disabled={!!busy}>
               Approve
             </Button>
           )}
-          {canReview && post.approval_status === "pending_review" && (
+          {canRequestChanges && post.approval_status === "pending" && post.content_status === "ready_for_review" && (
             <Button variant="ghost" size="sm" onClick={() => review("reject")} disabled={!!busy}>
               Reject
             </Button>
@@ -367,15 +411,48 @@ function CopyForm({ campaignId, post, canEdit, onChange, setDrafts }: { campaign
       </div>
 
       {canEdit && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={saveCopy} disabled={!dirty || !!busy}>
             {busy === "Saving…" ? busy : "Save changes"}
           </Button>
           <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy}>
             <Sparkles size={14} className="text-primary" /> Regenerate copy
           </Button>
+          {(post.content_status === "changes_requested" || post.approval_status === "rejected")
+            && (post.rejection_comment || post.review_note) && (
+            <Button variant="ghost" size="sm" onClick={rewriteFromFeedback} disabled={!!busy}>
+              <Sparkles size={14} className="text-amber-500" /> Rewrite from feedback
+            </Button>
+          )}
           {busy && busy !== "Saving…" && (
             <span className="text-xs text-muted-foreground">{busy}</span>
+          )}
+        </div>
+      )}
+
+      {(canReview || canEdit) && (
+        <div className="space-y-2">
+          <Button variant="outline" size="sm" onClick={runBrandCheck} disabled={!!busy}>
+            <ShieldCheck size={14} /> Brand check
+          </Button>
+          {brandCheck && (
+            <div className={cn(
+              "rounded-lg border p-3 text-sm",
+              brandCheck.risk === "high" ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+                : brandCheck.risk === "medium" ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
+                : "border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40",
+            )}>
+              <p className="font-medium capitalize">Risk: {brandCheck.risk}</p>
+              {brandCheck.issues.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No issues found.</p>
+              ) : (
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+                  {brandCheck.issues.map((it, i) => (
+                    <li key={i}><strong className="capitalize">{it.type}</strong> ({it.severity}): {it.detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       )}

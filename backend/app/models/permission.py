@@ -26,7 +26,8 @@ class Capability(str, enum.Enum):
     edit_copy = "edit_copy"                  # generate/edit post copy
     edit_media = "edit_media"                # generate/edit images & videos
     submit_review = "submit_review"          # send content to review
-    approve_copy = "approve_copy"            # approve/reject copy
+    request_changes = "request_changes"      # comment / reject / request changes (reviewer, no final approve)
+    approve_copy = "approve_copy"            # approve/reject copy (final approver)
     approve_media = "approve_media"          # approve/reject images & videos
     schedule = "schedule"                    # place approved content on the calendar
     publish = "publish"                      # publish now / send to channels

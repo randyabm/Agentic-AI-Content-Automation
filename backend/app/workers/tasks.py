@@ -842,6 +842,28 @@ def sync_source(source_id: str) -> None:
 # --- Social scheduling sweep (SOCIAL_PUBLISHING_PLAN.md Phase 3) ---
 
 
+def _notify_publish_failed(db, post, sp) -> None:
+    """Tell the campaign creator a scheduled post failed to publish (FR-07/12).
+    Best-effort and self-committing so it never disturbs the sweep."""
+    try:
+        from app.models.campaign import Campaign
+        from app.services import notifications
+        campaign = db.get(Campaign, post.campaign_id)
+        if campaign is None or not campaign.created_by:
+            return
+        notifications.notify(
+            db, user_id=campaign.created_by, type="publish_failed",
+            title=f"Publishing failed: {post.headline or campaign.name}",
+            body=sp.error or "The post could not be published.",
+            entity_type="campaign", entity_id=campaign.id,
+            link=f"/campaigns/{campaign.id}", send_email=True,
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("publish-failed notification error for scheduled post %s", getattr(sp, "id", "?"))
+        db.rollback()
+
+
 @celery_app.task(name="social.publish_due")
 def publish_due_posts() -> None:
     """Celery Beat sweep: send every scheduled post whose time has arrived.
@@ -892,7 +914,7 @@ def publish_due_posts() -> None:
                     sp.last_attempt_at = now
                     db.commit()
                     continue
-                if post.approval_status != ApprovalStatus.approved:
+                if post.approval_status not in (ApprovalStatus.approved, ApprovalStatus.not_required):
                     # Planned schedule that isn't approved yet — leave it pending
                     # (don't fail, don't publish) until it's approved.
                     continue
@@ -907,12 +929,15 @@ def publish_due_posts() -> None:
                     sp.error_code = "permanent"
                     sp.last_attempt_at = now
                     db.commit()
+                    _notify_publish_failed(db, post, sp)
                     continue
                 publishing.send_scheduled_post(db, sp, post, channel)
                 logger.info(
                     "Scheduled post %s processed (status=%s error_code=%s retry=%s)",
                     sp.id, sp.status.value, sp.error_code, sp.retry_count,
                 )
+                if sp.status == PublishStatus.failed:
+                    _notify_publish_failed(db, post, sp)
             except Exception as exc:  # noqa: BLE001 — one post must not abort the sweep
                 logger.exception("Scheduled post %s failed to publish", sp.id)
                 db.rollback()
@@ -923,6 +948,112 @@ def publish_due_posts() -> None:
                     fresh.error_code = "permanent"
                     fresh.last_attempt_at = datetime.now(timezone.utc)
                     db.commit()
+                    fresh_post = db.get(Post, fresh.post_id)
+                    if fresh_post is not None:
+                        _notify_publish_failed(db, fresh_post, fresh)
+    finally:
+        db.close()
+
+
+@celery_app.task(name="social.missed_approval_sweep")
+def missed_approval_sweep() -> None:
+    """Flag scheduled posts that passed their time without approval.
+
+    These will never auto-publish (the due sweep skips unapproved posts), so we
+    notify the campaign creator + reviewers once — tracked by
+    `missed_notified_at` — with a grace period after the scheduled time.
+    """
+    from datetime import timedelta
+
+    from app.models.campaign import ApprovalStatus, Campaign, Post
+    from app.models.social import PublishStatus, ScheduledPost
+    from app.services import notifications
+
+    grace = timedelta(minutes=15)
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        due = db.scalars(
+            select(ScheduledPost).where(
+                ScheduledPost.status == PublishStatus.scheduled,
+                ScheduledPost.scheduled_at.is_not(None),
+                ScheduledPost.scheduled_at < now - grace,
+                ScheduledPost.missed_notified_at.is_(None),
+            )
+        ).all()
+        for sp in due:
+            post = db.get(Post, sp.post_id)
+            if post is None:
+                continue
+            # Only "missed approval" — not channel/other blocks — is our concern.
+            if post.approval_status in (ApprovalStatus.approved, ApprovalStatus.not_required):
+                continue
+            campaign = db.get(Campaign, post.campaign_id)
+            if campaign is None:
+                sp.missed_notified_at = now
+                continue
+            client = db.get(Client, campaign.client_id)
+            recipients = set(notifications.reviewer_ids(db, client.org_id if client else None))
+            if campaign.created_by:
+                recipients.add(campaign.created_by)
+            if campaign.assigned_approver_id:
+                recipients.add(campaign.assigned_approver_id)
+            notifications.notify_many(
+                db, user_ids=recipients, type="missed_approval",
+                title=f"Missed approval: {post.headline or campaign.name}",
+                body="This post's scheduled time passed without approval, so it was not published. "
+                     "Approve it and reschedule to publish.",
+                entity_type="campaign", entity_id=campaign.id,
+                link=f"/campaigns/{campaign.id}", send_email=True,
+            )
+            sp.missed_notified_at = now
+            db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("missed-approval sweep crashed")
+        db.rollback()
+    finally:
+        db.close()
+
+
+@celery_app.task(name="social.approval_deadline_sweep")
+def approval_deadline_sweep() -> None:
+    """Remind approvers about campaigns whose approval due date has passed while
+    still pending review (Phase 2 approval deadlines). Reminds once, tracked by
+    campaigns.approval_reminded_at."""
+    from datetime import date
+
+    from app.models.campaign import Campaign, CampaignApprovalStatus
+    from app.services import notifications
+
+    db = SessionLocal()
+    try:
+        today = date.today()
+        overdue = db.scalars(
+            select(Campaign).where(
+                Campaign.approval_status == CampaignApprovalStatus.pending_review,
+                Campaign.approval_due_date.is_not(None),
+                Campaign.approval_due_date < today,
+                Campaign.approval_reminded_at.is_(None),
+            )
+        ).all()
+        now = datetime.now(timezone.utc)
+        for campaign in overdue:
+            client = db.get(Client, campaign.client_id)
+            recipients = set(notifications.reviewer_ids(db, client.org_id if client else None))
+            if campaign.assigned_approver_id:
+                recipients.add(campaign.assigned_approver_id)
+            notifications.notify_many(
+                db, user_ids=recipients, type="approval_overdue",
+                title=f"Approval overdue: {campaign.name}",
+                body=f"This campaign was due for approval on {campaign.approval_due_date:%b %d} and is still pending.",
+                entity_type="campaign", entity_id=campaign.id,
+                link=f"/campaigns/{campaign.id}", send_email=True,
+            )
+            campaign.approval_reminded_at = now
+            db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("approval-deadline sweep crashed")
+        db.rollback()
     finally:
         db.close()
 
@@ -1043,6 +1174,11 @@ def generate_campaign(campaign_id: str) -> None:
                             style_family=slot.get("style_family"),
                         ))
 
+        # Per-brand approval gate (FR-01): brands that opted out get posts that
+        # are immediately publishable (not_required); everyone else needs review.
+        default_approval = (
+            ApprovalStatus.pending if client.approval_required else ApprovalStatus.not_required
+        )
         # Editorial copy → posts (one per element targeting each platform).
         for platform, posts_data in posts_by_platform.items():
             for position, (el, pdata) in enumerate(zip(els_by_platform[platform], posts_data)):
@@ -1057,6 +1193,7 @@ def generate_campaign(campaign_id: str) -> None:
                     hashtags=pdata["hashtags"],
                     best_time=pdata["best_time"],
                     rationale=pdata["rationale"],
+                    approval_status=default_approval,
                 ))
         db.commit()
 
@@ -1143,12 +1280,15 @@ def regenerate_platform(campaign_id: str, platform: str) -> None:
             article = _resolve_article(db, campaign)
             context = build_context(db, client, campaign, article["text"])
             posts_data = generate_platform_copy(db, client, campaign, cp, els, context, article)
+            default_approval = (
+                ApprovalStatus.pending if client.approval_required else ApprovalStatus.not_required
+            )
             for position, (el, pdata) in enumerate(zip(els, posts_data)):
                 db.add(Post(
                     campaign_id=campaign.id, element_id=el.id, platform=cp.platform, position=position,
                     headline=pdata["headline"], copy=pdata["copy"], cta=pdata["cta"],
                     hashtags=pdata["hashtags"], best_time=pdata["best_time"],
-                    rationale=pdata["rationale"],
+                    rationale=pdata["rationale"], approval_status=default_approval,
                 ))
         campaign.status = CampaignStatus.ready
         db.commit()

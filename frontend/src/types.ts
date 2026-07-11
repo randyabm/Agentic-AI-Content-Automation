@@ -18,7 +18,7 @@ export interface User {
 
 export type Capability =
   | "view_content" | "edit_campaign" | "edit_copy" | "edit_media"
-  | "submit_review" | "approve_copy" | "approve_media"
+  | "submit_review" | "request_changes" | "approve_copy" | "approve_media"
   | "schedule" | "publish" | "manage_channels"
   | "manage_members" | "configure_permissions" | "approve_campaign";
 
@@ -134,6 +134,28 @@ export interface AutopilotPreview {
   skipped: AutopilotSkipped[];
 }
 
+export interface PostingSlot {
+  id: string;
+  client_id: string;
+  weekday: number; // 0=Mon … 6=Sun
+  hour: number;
+  minute: number;
+  platform: string;
+  active: boolean;
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  entity_type: string;
+  entity_id: string;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
 export interface ReviewQueueItem {
   review_type: "post" | "campaign";
   post_id: string;
@@ -144,7 +166,9 @@ export interface ReviewQueueItem {
   platform: string;
   headline: string;
   preview: string;
-  approval_status: ApprovalStatus;
+  // Post items carry a post ApprovalStatus; campaign items carry a
+  // CampaignApprovalStatus — string covers both.
+  approval_status: string;
   updated_at: string;
   assigned_approver_id: string | null;
   approval_due_date: string | null;
@@ -175,6 +199,7 @@ export interface CalendarItem {
   channel_avatar: string;
   client_id: string;
   client_name: string;
+  content_status?: string;
   approval_status: string;
   /** waiting_approval | needs_channel | overdue | "" — why it won't publish on its own. */
   blocked_reason?: string;
@@ -218,6 +243,12 @@ export interface Client {
   brand_visual_style: string;
   brand_copy_examples: string[];
   brand_legal_disclaimer: string;
+  /** Per-brand approval gate (FR-01). When false, this brand's posts publish
+   *  without review. Optional during PR-A rollout. */
+  approval_required?: boolean;
+  /** Approval routing template (Phase 3): defaults applied on submit. */
+  default_approver_id?: string | null;
+  default_approval_deadline_days?: number | null;
   last_extraction_at: string | null;
   created_at: string;
   updated_at: string;
@@ -646,14 +677,21 @@ export interface Post {
   hashtags: string[];
   best_time: string;
   rationale: string;
+  /** PRD 3-field model: authoring stage, separate from the approval gate.
+   *  Optional during the additive PR-A rollout. */
+  content_status?: ContentStatus;
   approval_status: ApprovalStatus;
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_note: string;
+  /** Dedicated rejection reason (separate from review_note). */
+  rejection_comment?: string;
   publish_state: PublishState | null;
 }
 
-export type ApprovalStatus = "draft" | "pending_review" | "approved" | "rejected";
+export type ApprovalStatus = "not_required" | "pending" | "approved" | "rejected";
+
+export type ContentStatus = "draft" | "ready_for_review" | "changes_requested";
 
 export interface PublishState {
   id: string;
@@ -668,6 +706,8 @@ export interface PublishState {
   updated_at: string | null;
   /** waiting_approval | needs_channel | overdue | "" — why it won't publish on its own. */
   blocked_reason?: string;
+  /** Coarse PRD publish_status: unscheduled | scheduled | publishing | published | failed. */
+  publish_status?: string;
 }
 
 export interface PostAsset {

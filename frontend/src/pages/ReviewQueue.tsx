@@ -15,7 +15,16 @@ export default function ReviewQueue() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"all" | "post" | "campaign">("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const promptDialog = usePrompt();
+
+  function toggleSelected(postId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) next.delete(postId); else next.add(postId);
+      return next;
+    });
+  }
 
   async function load() {
     try {
@@ -29,6 +38,11 @@ export default function ReviewQueue() {
 
   useEffect(() => {
     load();
+    // Live updates (FR-11): keep the queue current as others submit/act.
+    const id = setInterval(() => {
+      if (!document.hidden) load();
+    }, 25000);
+    return () => clearInterval(id);
   }, []);
 
   const filtered = items.filter((i) => tab === "all" || i.review_type === tab);
@@ -38,12 +52,13 @@ export default function ReviewQueue() {
     if (action === "reject") {
       const reason = await promptDialog({
         title: "Reject campaign",
-        description: "Add an optional note explaining why.",
-        placeholder: "Reason for rejection (optional)",
+        description: "Explain what needs to change (the team will see it).",
+        placeholder: "Reason for rejection (required)",
         confirmLabel: "Reject",
         destructive: true,
+        allowEmpty: false,
       });
-      if (reason === null) return;
+      if (reason === null || !reason.trim()) return;
       note = reason;
     }
     setBusy(item.campaign_id);
@@ -68,12 +83,13 @@ export default function ReviewQueue() {
     if (action === "reject") {
       const reason = await promptDialog({
         title: "Reject post",
-        description: "Add an optional note explaining why (the author will see it).",
-        placeholder: "Reason for rejection (optional)",
+        description: "Explain what needs to change (the author will see it).",
+        placeholder: "Reason for rejection (required)",
         confirmLabel: "Reject",
         destructive: true,
+        allowEmpty: false,
       });
-      if (reason === null) return;
+      if (reason === null || !reason.trim()) return;
       note = reason;
     }
     setBusy(item.post_id);
@@ -88,6 +104,40 @@ export default function ReviewQueue() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
       toast.error(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function bulkDecide(action: "approve" | "reject") {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    let note = "";
+    if (action === "reject") {
+      const reason = await promptDialog({
+        title: `Reject ${ids.length} post${ids.length === 1 ? "" : "s"}`,
+        description: "This comment is sent to every selected post's author.",
+        placeholder: "Reason for rejection (required)",
+        confirmLabel: "Reject selected",
+        destructive: true,
+        allowEmpty: false,
+      });
+      if (reason === null || !reason.trim()) return;
+      note = reason;
+    }
+    setBusy("bulk");
+    setError("");
+    try {
+      const res = await api<{ acted: number; failed: number }>(
+        `/campaigns/posts/bulk-${action}`,
+        { method: "POST", body: { post_ids: ids, note } },
+      );
+      toast.success(`${res.acted} ${action === "approve" ? "approved" : "rejected"}${res.failed ? `, ${res.failed} skipped` : ""}`);
+      setItems((prev) => prev.filter((i) => !(i.review_type === "post" && selected.has(i.post_id))));
+      setSelected(new Set());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bulk action failed");
+      toast.error(e instanceof Error ? e.message : "Bulk action failed");
     } finally {
       setBusy("");
     }
@@ -122,6 +172,42 @@ export default function ReviewQueue() {
         ))}
       </div>
 
+      {(() => {
+        const postItems = filtered.filter((i) => i.review_type === "post");
+        if (postItems.length === 0) return null;
+        const allSelected = postItems.every((i) => selected.has(i.post_id));
+        return (
+          <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() =>
+                  setSelected(allSelected ? new Set() : new Set(postItems.map((i) => i.post_id)))
+                }
+              />
+              Select all posts
+            </label>
+            {selected.size > 0 && (
+              <>
+                <span className="text-muted-foreground">{selected.size} selected</span>
+                <div className="ml-auto flex gap-2">
+                  <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    disabled={busy === "bulk"} onClick={() => bulkDecide("approve")}>
+                    Approve selected
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-destructive"
+                    disabled={busy === "bulk"} onClick={() => bulkDecide("reject")}>
+                    Reject selected
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {loading ? (
         <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
           <p className="text-sm text-muted-foreground">Loading…</p>
@@ -138,6 +224,14 @@ export default function ReviewQueue() {
               className="rounded-xl border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex items-start justify-between gap-4">
+                {item.review_type === "post" && (
+                  <input
+                    type="checkbox"
+                    className="mt-1.5"
+                    checked={selected.has(item.post_id)}
+                    onChange={() => toggleSelected(item.post_id)}
+                  />
+                )}
                 <div className="flex-1">
                   <div className="mb-1 flex items-center gap-2">
                     {item.review_type === "campaign" ? (
@@ -149,6 +243,7 @@ export default function ReviewQueue() {
                       {item.campaign_name}
                     </Link>
                     <span className="text-xs text-muted-foreground">· {item.client_name}</span>
+                    <DueBadge due={item.approval_due_date} />
                   </div>
                   {item.review_type === "post" && (
                     <>
@@ -188,5 +283,28 @@ export default function ReviewQueue() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Approval due-date chip; turns red once the deadline has passed (Phase 2). */
+function DueBadge({ due }: { due: string | null }) {
+  if (!due) return null;
+  const d = new Date(due);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const overdue = d < today;
+  const label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (
+    <span
+      className={
+        overdue
+          ? "rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950/50 dark:text-red-300"
+          : "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+      }
+      title={overdue ? "Approval overdue" : "Approval due"}
+    >
+      {overdue ? `Overdue · ${label}` : `Due ${label}`}
+    </span>
   );
 }

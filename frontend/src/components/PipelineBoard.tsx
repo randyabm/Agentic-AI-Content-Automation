@@ -9,6 +9,7 @@ import {
 } from "@dnd-kit/core";
 import { toast } from "sonner";
 import { api } from "../api";
+import { usePrompt } from "@/components/ui/dialogs";
 import { PlatformIcon } from "./PlatformIcon";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -35,12 +36,16 @@ function columnFor(item: CalendarItem): string {
   if (item.status === "published") return "published";
   if (item.status === "scheduled" || item.status === "retrying" || item.status === "throttled")
     return "scheduled";
-  if (item.approval_status === "approved") return "approved";
-  if (item.approval_status === "pending_review") return "pending_review";
+  if (item.approval_status === "approved" || item.approval_status === "not_required") return "approved";
+  // "Needs Approval" only once actually submitted (content ready_for_review);
+  // an unsubmitted or sent-back post lives in Draft.
+  if (item.approval_status === "pending" && item.content_status === "ready_for_review")
+    return "pending_review";
   return "draft";
 }
 
 export function PipelineBoard({ items, onSelectItem, canEdit, canReview, onRefresh }: PipelineBoardProps) {
+  const prompt = usePrompt();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
@@ -67,9 +72,22 @@ export function PipelineBoard({ items, onSelectItem, canEdit, canReview, onRefre
         await api(`/campaigns/${item.campaign_id}/posts/${item.post_id}/approve`, { method: "POST" });
         toast.success("Post approved");
       } else if (targetCol === "draft" && currentCol === "pending_review" && canReview) {
+        // FR-06: rejection requires a comment for the author.
+        const note = await prompt({
+          title: "Reject post",
+          description: "Explain what needs to change — the author will see this note.",
+          placeholder: "Reason for rejection (required)",
+          confirmLabel: "Reject",
+          destructive: true,
+          allowEmpty: false,
+        });
+        if (note === null || !note.trim()) {
+          onRefresh();
+          return;
+        }
         await api(`/campaigns/${item.campaign_id}/posts/${item.post_id}/reject`, {
           method: "POST",
-          body: { note: "" },
+          body: { note },
         });
         toast.success("Post rejected");
       } else {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BookOpen, ExternalLink, FileText, Search, Share2, Users } from "lucide-react";
+import { BookOpen, ExternalLink, FileText, Search, Share2, ShieldCheck, ShieldOff, Users } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
@@ -136,6 +136,36 @@ export default function ClientDetail() {
     setError("");
   }
 
+  const canManageApproval = !!user?.is_platform_admin || user?.org_role === "org_admin";
+
+  async function toggleApproval() {
+    if (!client) return;
+    const next = !(client.approval_required ?? true);
+    try {
+      const updated = await api<Client>(`/clients/${clientId}`, {
+        method: "PATCH",
+        body: { approval_required: next },
+      });
+      setClient(updated);
+      setNotice(next ? "Approval is now required for this brand." : "Approval turned off — new posts publish without review.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update approval setting");
+    }
+  }
+
+  async function updateApprovalDeadline(days: number | null) {
+    if (!client) return;
+    try {
+      const updated = await api<Client>(`/clients/${clientId}`, {
+        method: "PATCH",
+        body: { default_approval_deadline_days: days },
+      });
+      setClient(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update deadline");
+    }
+  }
+
   async function saveProfile() {
     if (!profileForm) return;
     setError("");
@@ -217,7 +247,26 @@ export default function ClientDetail() {
             {client.website_url} <ExternalLink size={12} />
           </a>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
+          <ApprovalToggle
+            enabled={client.approval_required ?? true}
+            canManage={canManageApproval}
+            onToggle={toggleApproval}
+          />
+          {(client.approval_required ?? true) && canManageApproval && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="Default approval deadline applied when submitting for review">
+              Due in
+              <input
+                type="number"
+                min={0}
+                defaultValue={client.default_approval_deadline_days ?? ""}
+                onBlur={(e) => updateApprovalDeadline(e.target.value === "" ? null : Number(e.target.value))}
+                placeholder="—"
+                className="w-12 rounded-md border border-border bg-background px-1.5 py-1 text-center text-xs"
+              />
+              days
+            </label>
+          )}
           <Button variant="ghost" asChild>
             <Link to={`/campaigns?client_id=${client.id}`}>Campaigns →</Link>
           </Button>
@@ -909,6 +958,35 @@ function ProfileSection({ label, value, list, links }: { label: string; value?: 
         </div>
       ) : <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90 text-justify hyphens-auto">{value}</p>}
     </section>
+  );
+}
+
+/** Per-brand approval gate toggle (FR-01). Shown in the client header; only
+ *  org admins can flip it. When off, this brand's new posts publish without
+ *  review (approval_status = not_required). */
+function ApprovalToggle({ enabled, canManage, onToggle }: { enabled: boolean; canManage: boolean; onToggle: () => void }) {
+  const Icon = enabled ? ShieldCheck : ShieldOff;
+  return (
+    <button
+      type="button"
+      onClick={canManage ? onToggle : undefined}
+      disabled={!canManage}
+      title={
+        canManage
+          ? (enabled ? "Approval required — click to turn off for this brand" : "No approval required — click to require review")
+          : "Only an org admin can change this brand's approval setting"
+      }
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+        enabled
+          ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+          : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+        canManage ? "cursor-pointer hover:opacity-90" : "cursor-default opacity-90",
+      )}
+    >
+      <Icon size={13} />
+      {enabled ? "Approval required" : "Approval off"}
+    </button>
   );
 }
 
