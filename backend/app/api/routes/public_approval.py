@@ -14,9 +14,19 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.campaign import ApprovalStatus, Campaign, CampaignApprovalStatus, ContentStatus, Post
 from app.models.client import Client
-from app.services import approval, approval_links, audit, notifications
+from app.services import approval, approval_links, audit, notifications, publishing
+from app.services.media_links import public_media_url
 
 router = APIRouter(tags=["public-approval"])
+
+# Media URLs must outlive the page view; match the approval link's own lifetime
+# so images/videos keep loading for as long as the link is valid.
+_MEDIA_TTL = 14 * 24 * 3600
+
+
+class PublicMedia(BaseModel):
+    type: str  # "image" | "video"
+    url: str
 
 
 class PublicPostView(BaseModel):
@@ -25,6 +35,21 @@ class PublicPostView(BaseModel):
     copy: str
     cta: str
     hashtags: list
+    media: list[PublicMedia] = []
+
+
+def _post_media(db: Session, post: Post) -> list[PublicMedia]:
+    """Resolve a post's image(s)/video into no-auth signed URLs the external
+    reviewer's browser can fetch (same mechanism the social platforms use)."""
+    media: list[PublicMedia] = []
+    for img in publishing.resolve_carousel(db, post):  # handles single image + carousel
+        key = img.composited_object_key or img.base_object_key
+        if key:
+            media.append(PublicMedia(type="image", url=public_media_url(key, _MEDIA_TTL)))
+    video = publishing.resolve_video(db, post)
+    if video and video.base_object_key:
+        media.append(PublicMedia(type="video", url=public_media_url(video.base_object_key, _MEDIA_TTL)))
+    return media
 
 
 class PublicApprovalView(BaseModel):
@@ -68,6 +93,7 @@ def public_preview(token: str, db: Session = Depends(get_db)):
             PublicPostView(
                 platform=p.platform.value, headline=p.headline or "",
                 copy=p.copy or "", cta=p.cta or "", hashtags=p.hashtags or [],
+                media=_post_media(db, p),
             )
             for p in sorted(posts, key=lambda x: (x.platform.value, x.position))
         ],

@@ -3,12 +3,18 @@ import { useParams } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { Button } from "@/components/ui/button";
 
+interface PublicMedia {
+  type: "image" | "video";
+  url: string;
+}
+
 interface PublicPost {
   platform: string;
   headline: string;
   copy: string;
   cta: string;
   hashtags: string[];
+  media: PublicMedia[];
 }
 
 interface PublicView {
@@ -94,6 +100,17 @@ export default function PublicApproval() {
             {view.posts.map((p, i) => (
               <div key={i} className="rounded-xl border border-border bg-card p-4 shadow-sm">
                 <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{p.platform}</p>
+                {p.media && p.media.length > 0 && (
+                  <div className={`mb-3 grid gap-2 ${p.media.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                    {p.media.map((m, mi) =>
+                      m.type === "video" ? (
+                        <video key={mi} src={m.url} controls className="w-full rounded-lg border border-border" />
+                      ) : (
+                        <img key={mi} src={m.url} alt="" loading="lazy" className="w-full rounded-lg border border-border object-cover" />
+                      ),
+                    )}
+                  </div>
+                )}
                 {p.headline && <p className="text-sm font-semibold">{p.headline}</p>}
                 <p className="whitespace-pre-wrap text-sm text-muted-foreground">{p.copy}</p>
                 {p.cta && <p className="mt-1 text-sm font-medium">{p.cta}</p>}
