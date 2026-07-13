@@ -973,6 +973,41 @@ def reject_post(
     return post
 
 
+@router.post("/{campaign_id}/posts/{post_id}/request-changes", response_model=PostOut)
+def request_post_changes(
+    campaign_id: str,
+    post_id: str,
+    body: ReviewReject,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_capability(Capability.approve_copy, Capability.request_changes)),
+):
+    """Request changes on a post: it goes back to the editor (content_status
+    changes_requested) but the approval gate stays pending — so it drops out of
+    the review queue yet remains un-publishable until it's revised and resubmitted.
+    Unlike reject, the post is not killed; the editor fixes it and re-submits."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    post = _get_post_or_404(db, campaign_id, post_id)
+    if post.approval_status != ApprovalStatus.pending:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Post is not pending review (current state: {post.approval_status.value})",
+        )
+    if not body.note.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A comment is required when requesting changes.")
+    post.content_status = ContentStatus.changes_requested
+    post.reviewed_by = actor.id
+    post.reviewed_at = datetime.now(timezone.utc)
+    post.review_note = body.note
+    post.rejection_comment = body.note
+    approval.sync_campaign_approval(db, campaign)
+    _notify_creator(db, campaign, actor, "changes_requested",
+                    f"Changes requested: {post.headline or campaign.name}", body.note)
+    db.commit()
+    audit.record(db, actor, "post.request_changes", "post", post.id, {"campaign_id": campaign_id})
+    db.refresh(post)
+    return post
+
+
 @router.post("/{campaign_id}/posts/{post_id}/brand-check", response_model=BrandCheckResult)
 def brand_check_post(
     campaign_id: str, post_id: str, db: Session = Depends(get_db),

@@ -47,15 +47,20 @@ export default function ReviewQueue() {
 
   const filtered = items.filter((i) => tab === "all" || i.review_type === tab);
 
-  async function decideCampaign(item: ReviewQueueItem, action: "approve" | "reject") {
+  type ReviewAction = "approve" | "reject" | "request-changes";
+
+  async function decideCampaign(item: ReviewQueueItem, action: ReviewAction) {
     let note = "";
-    if (action === "reject") {
+    if (action !== "approve") {
+      const reject = action === "reject";
       const reason = await promptDialog({
-        title: "Reject campaign",
-        description: "Explain what needs to change (the team will see it).",
-        placeholder: "Reason for rejection (required)",
-        confirmLabel: "Reject",
-        destructive: true,
+        title: reject ? "Reject campaign" : "Request changes",
+        description: reject
+          ? "Explain what needs to change (the team will see it)."
+          : "Tell the editor what to revise — the campaign goes back to them to fix and resubmit.",
+        placeholder: reject ? "Reason for rejection (required)" : "What needs to change? (required)",
+        confirmLabel: reject ? "Reject" : "Request changes",
+        destructive: reject,
         allowEmpty: false,
       });
       if (reason === null || !reason.trim()) return;
@@ -68,7 +73,9 @@ export default function ReviewQueue() {
         method: "POST",
         body: { note },
       });
-      toast.success(action === "approve" ? "Campaign approved" : "Campaign rejected");
+      toast.success(
+        action === "approve" ? "Campaign approved" : action === "reject" ? "Campaign rejected" : "Changes requested",
+      );
       setItems((prev) => prev.filter((i) => i.campaign_id !== item.campaign_id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
@@ -78,15 +85,18 @@ export default function ReviewQueue() {
     }
   }
 
-  async function decidePost(item: ReviewQueueItem, action: "approve" | "reject") {
+  async function decidePost(item: ReviewQueueItem, action: ReviewAction) {
     let note = "";
-    if (action === "reject") {
+    if (action !== "approve") {
+      const reject = action === "reject";
       const reason = await promptDialog({
-        title: "Reject post",
-        description: "Explain what needs to change (the author will see it).",
-        placeholder: "Reason for rejection (required)",
-        confirmLabel: "Reject",
-        destructive: true,
+        title: reject ? "Reject post" : "Request changes",
+        description: reject
+          ? "Explain what needs to change (the author will see it)."
+          : "Tell the author what to revise — the post goes back to them to fix and resubmit.",
+        placeholder: reject ? "Reason for rejection (required)" : "What needs to change? (required)",
+        confirmLabel: reject ? "Reject" : "Request changes",
+        destructive: reject,
         allowEmpty: false,
       });
       if (reason === null || !reason.trim()) return;
@@ -97,9 +107,11 @@ export default function ReviewQueue() {
     try {
       await api(`/campaigns/${item.campaign_id}/posts/${item.post_id}/${action}`, {
         method: "POST",
-        body: action === "reject" ? { note } : {},
+        body: action === "approve" ? {} : { note },
       });
-      toast.success(action === "approve" ? "Post approved" : "Post rejected");
+      toast.success(
+        action === "approve" ? "Post approved" : action === "reject" ? "Post rejected" : "Changes requested",
+      );
       setItems((prev) => prev.filter((i) => i.post_id !== item.post_id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
@@ -266,6 +278,15 @@ export default function ReviewQueue() {
                     disabled={!!busy}
                   >
                     Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => item.review_type === "campaign" ? decideCampaign(item, "request-changes") : decidePost(item, "request-changes")}
+                    disabled={!!busy}
+                    title="Send back to the editor to revise and resubmit"
+                  >
+                    Request changes
                   </Button>
                   <Button
                     variant="ghost"
