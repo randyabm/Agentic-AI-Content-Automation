@@ -65,7 +65,6 @@ export default function CampaignDetail() {
   const [showPublishAll, setShowPublishAll] = useState(false);
   const [postTypeTab, setPostTypeTab] = useState<string>("all");
   const [showEditWarning, setShowEditWarning] = useState(false);
-  const [editUnlocked, setEditUnlocked] = useState(false);
   const [team, setTeam] = useState<User[]>([]);
   const [busyApproval, setBusyApproval] = useState("");
   const [reviewNote, setReviewNote] = useState("");
@@ -81,6 +80,20 @@ export default function CampaignDetail() {
     const c = await api<Campaign>(`/campaigns/${campaignId}`);
     setCampaign(c);
     if (!client) api<Client>(`/clients/${c.client_id}`).then(setClient).catch(() => {});
+  }
+
+  // Confirming the edit warning voids approval immediately (FR-08/09): the
+  // campaign leaves "approved", any scheduled posts are gated until re-approval,
+  // and it returns to an editable draft state.
+  async function reopenForEdit() {
+    setShowEditWarning(false);
+    try {
+      const c = await api<Campaign>(`/campaigns/${campaignId}/reopen-for-edit`, { method: "POST" });
+      setCampaign(c);
+      toast.info("Approval voided — edit freely, then submit for re-approval");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reopen for editing");
+    }
   }
 
   useEffect(() => {
@@ -224,11 +237,11 @@ export default function CampaignDetail() {
     return m ? m.full_name : id;
   }
 
-  // An approved campaign is read-only until the user confirms the edit warning
-  // (editUnlocked); saving then voids approval server-side (FR-08/09).
+  // An approved campaign is read-only. Confirming the edit warning calls
+  // reopenForEdit, which voids approval server-side (FR-08/09) and returns the
+  // campaign to `draft` — an editable state — so editing happens there.
   const isEditorMode =
-    approvalStatus === "draft" || approvalStatus === "changes_requested"
-    || (approvalStatus === "approved" && editUnlocked);
+    approvalStatus === "draft" || approvalStatus === "changes_requested";
   const isLocked = approvalStatus === "pending_review";
   const activePlatforms = campaign.platforms.filter((p) => p.is_active);
   const workflowStep: "draft" | "preview" | "approval" | "live" =
@@ -319,7 +332,7 @@ export default function CampaignDetail() {
       )}
       {approvalStatus === "approved" && (
         <EditWarningDialog visible={showEditWarning} onCancel={() => setShowEditWarning(false)}
-          onConfirm={() => { setShowEditWarning(false); setEditUnlocked(true); toast.info("Editing enabled — saving will send this back for re-approval"); }} />
+          onConfirm={reopenForEdit} />
       )}
       {approvalStatus === "changes_requested" && campaign.review_note && (
         <div className="mb-6 flex items-start gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">

@@ -695,6 +695,42 @@ def reject_campaign(
     return campaign
 
 
+@router.post("/{campaign_id}/reopen-for-edit", response_model=CampaignOut)
+def reopen_campaign_for_edit(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_editor),
+):
+    """FR-08/09: reopen an approved campaign for editing. Voids the approval of
+    every approved post immediately so the campaign leaves `approved` and its
+    scheduled posts are gated by the publish sweep until re-approval. Posts are
+    returned to an editable `draft` state (not the review queue) so the editor
+    can revise and then re-submit for approval. Idempotent — a no-op if nothing
+    is approved."""
+    campaign = _get_campaign_or_404(db, campaign_id, actor)
+    posts = approval.campaign_posts(db, campaign)
+    voided = [p for p in posts if p.approval_status == ApprovalStatus.approved]
+    for p in voided:
+        p.approval_status = ApprovalStatus.pending
+        p.content_status = ContentStatus.draft
+        p.reviewed_by = None
+        p.reviewed_at = None
+    if voided:
+        # Clear the campaign-level approval trail so no stale approver/banner
+        # lingers; the rollup recomputes to `draft`.
+        campaign.reviewed_by = None
+        campaign.reviewed_at = None
+        campaign.review_note = ""
+        approval.sync_campaign_approval(db, campaign, posts)
+        db.commit()
+        audit.record(
+            db, actor, "campaign.reopen_for_edit", "campaign", campaign.id,
+            {"posts_voided": len(voided)},
+        )
+        db.refresh(campaign)
+    return campaign
+
+
 @router.get("/{campaign_id}/deletion-summary")
 def campaign_deletion_summary(
     campaign_id: str, db: Session = Depends(get_db), actor: User = Depends(require_editor)
