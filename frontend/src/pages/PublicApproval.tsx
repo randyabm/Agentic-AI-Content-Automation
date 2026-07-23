@@ -153,8 +153,16 @@ export default function PublicApproval() {
               )}
             </div>
           ) : (
-            <div className="mt-6 rounded-xl border border-border bg-muted/40 p-4 text-center text-sm text-muted-foreground">
-              This campaign is no longer awaiting your decision.
+            <div
+              className={`mt-6 rounded-xl border p-4 text-center text-sm ${
+                view.approval_status === "approved"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              {view.approval_status === "approved"
+                ? "This campaign has been successfully approved by you."
+                : "This campaign is no longer awaiting your decision."}
             </div>
           )}
         </>
