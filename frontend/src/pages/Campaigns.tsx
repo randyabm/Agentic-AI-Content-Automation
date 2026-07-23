@@ -922,6 +922,7 @@ function CreateCampaign({
           theme={theme} elements={elements} specs={specs}
           articleTitle={articles.find((a) => a.id === articleId)?.title ?? null}
           articleUrl={articleUrl}
+          refImages={refImages}
           onConfirm={doGenerate} onBack={() => setConfirmOpen(false)}
         />
       )}
@@ -1044,7 +1045,7 @@ function ElementCard({ el, specs, onChange, onRemove, onDuplicate }: { el: Eleme
   );
 }
 
-function CampaignConfirmModal({ clientName, campaignName, objective, language, creativity, theme, elements, specs, articleTitle, articleUrl, onConfirm, onBack }: { clientName: string; campaignName: string; objective: string; language: string; creativity: number; theme: string; elements: ElementDraft[]; specs: PlatformSpec[]; articleTitle: string | null; articleUrl: string; onConfirm: () => void; onBack: () => void; }) {
+function CampaignConfirmModal({ clientName, campaignName, objective, language, creativity, theme, elements, specs, articleTitle, articleUrl, refImages, onConfirm, onBack }: { clientName: string; campaignName: string; objective: string; language: string; creativity: number; theme: string; elements: ElementDraft[]; specs: PlatformSpec[]; articleTitle: string | null; articleUrl: string; refImages: File[]; onConfirm: () => void; onBack: () => void; }) {
   const allPlatforms = Array.from(new Set(elements.flatMap((el) => el.platforms)));
 
   return (
@@ -1092,6 +1093,19 @@ function CampaignConfirmModal({ clientName, campaignName, objective, language, c
           <>
             <div className="mt-4 border-t border-border pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference article</div>
             <p className="mt-1 text-sm text-muted-foreground">{articleTitle ?? articleUrl}</p>
+          </>
+        )}
+
+        {refImages.length > 0 && (
+          <>
+            <div className="mt-4 border-t border-border pt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference images ({refImages.length})</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {refImages.map((file, i) => (
+                <div key={i} className="size-16 overflow-hidden rounded-lg border border-border" title={file.name}>
+                  <img src={URL.createObjectURL(file)} alt={file.name} loading="lazy" className="h-full w-full object-cover" />
+                </div>
+              ))}
+            </div>
           </>
         )}
 
