@@ -764,6 +764,20 @@ def regenerate_one_platform(
 # --- post copy editing (PRD §5.6 step 21a) ---
 
 
+@router.get("/{campaign_id}/posts/{post_id}", response_model=PostOut)
+def get_post(
+    campaign_id: str,
+    post_id: str,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    _get_campaign_or_404(db, campaign_id, actor)  # enforces org access
+    post = db.get(Post, post_id)
+    if post is None or post.campaign_id != campaign_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Post not found")
+    return post
+
+
 @router.patch("/{campaign_id}/posts/{post_id}", response_model=PostOut)
 def update_post(
     campaign_id: str,
