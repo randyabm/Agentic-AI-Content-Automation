@@ -1,0 +1,45 @@
+# nginx config for the Coolify deployment (docker-compose.coolify.yml).
+# Same as nginx.conf but WITHOUT the /webhook location — the GitHub deploy
+# webhook is only used by the self-hosted server (docker-compose.prod.yml).
+server {
+    listen 80;
+    server_name _;
+    client_max_body_size 100m;
+
+    # Use Docker's internal DNS resolver so upstream IPs are re-resolved after container restarts
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # Backend API — rewrite strips /api prefix, variable forces runtime DNS re-resolution
+    location /api/ {
+        set $api_upstream http://api:8000;
+        rewrite ^/api/(.*) /$1 break;
+        proxy_pass $api_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+    }
+
+    # Frontend — Vite dev server (override Host to bypass Vite's host-check security)
+    location / {
+        set $frontend_upstream http://frontend:5173;
+        proxy_pass $frontend_upstream;
+        proxy_set_header Host localhost;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 60s;
+
+        # This is a Vite DEV server (no hashed asset filenames), so any browser
+        # or CDN-edge caching of .js/.css serves stale code after a deploy.
+        # Force every frontend response to be revalidated so a deploy is always
+        # picked up without a hard refresh.
+        proxy_hide_header Cache-Control;
+        proxy_hide_header ETag;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        expires off;
+    }
+}
