@@ -22,8 +22,19 @@ async def lifespan(app: FastAPI):
     # replace create_all once the schema stabilizes.
     import app.models  # noqa: F401 — register all models on Base
 
-    run_migrations(engine)
+    # Bootstrap order matters. create_all builds the CURRENT model schema — on a
+    # brand-new database that is the complete schema, so the delta SQL migrations
+    # (which only evolve an *existing, historically-created* DB) are redundant and
+    # can conflict (e.g. 001 ALTERs `users` before it exists). We detect a fresh DB
+    # (no base table yet), run create_all, and tell the migration runner the schema
+    # is already current so it records the existing migrations as applied instead of
+    # executing them. On an established DB create_all is a no-op and only newly added
+    # migrations are applied.
+    from sqlalchemy import inspect
+
+    fresh_database = not inspect(engine).has_table("users")
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine, schema_already_current=fresh_database)
     db = SessionLocal()
     try:
         seed(db)

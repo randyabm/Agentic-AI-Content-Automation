@@ -27,7 +27,18 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 """
 
 
-def run_migrations(engine: Engine) -> None:
+def run_migrations(engine: Engine, *, schema_already_current: bool = False) -> None:
+    """Apply pending *.sql migrations, recording each in schema_migrations.
+
+    `schema_already_current=True` means the caller just ran
+    ``Base.metadata.create_all`` against a brand-new database, so the current
+    model schema is already in place. The delta SQL migrations only exist to
+    *evolve an existing, historically-created* database; on a fresh DB they are
+    redundant and can conflict (e.g. migration 001 does ``ALTER TABLE users``
+    before the table exists, or 010 does a bare ``CREATE TABLE``). In that case
+    we record every migration as applied WITHOUT executing it, so they are never
+    re-run (and future migrations still apply normally once the DB is established).
+    """
     if not MIGRATIONS_DIR.exists():
         return
 
@@ -48,13 +59,19 @@ def run_migrations(engine: Engine) -> None:
         name = path.name
         if name in applied:
             continue
-        logger.info("Applying migration: %s", name)
-        sql = path.read_text(encoding="utf-8")
         with engine.connect() as conn:
-            conn.execute(text(sql))
+            if schema_already_current:
+                # Fresh schema from create_all covers everything: record it as
+                # applied so it's skipped on future boots without conflicting.
+                logger.info("Recording migration as already-applied (fresh schema): %s", name)
+            else:
+                logger.info("Applying migration: %s", name)
+                sql = path.read_text(encoding="utf-8")
+                conn.execute(text(sql))
             conn.execute(
                 text("INSERT INTO schema_migrations (filename) VALUES (:name)"),
                 {"name": name},
             )
             conn.commit()
-        logger.info("Migration applied: %s", name)
+            if not schema_already_current:
+                logger.info("Migration applied: %s", name)
